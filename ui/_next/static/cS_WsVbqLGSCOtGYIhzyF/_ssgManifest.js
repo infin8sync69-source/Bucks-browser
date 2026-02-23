@@ -1,0 +1,1 @@
+self.__SSG_MANIFEST=new Set(["\u002Fmessages\u002F[peer_id]","\u002Fprofile\u002F[id]","\u002Fservices\u002F[category]"]);self.__SSG_MANIFEST_CB&&self.__SSG_MANIFEST_CB()

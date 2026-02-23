@@ -1,7 +1,26 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, MenuItem } = require('electron');
+app.disableHardwareAcceleration();
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+
+// Helia / undici polyfill for File, CustomEvent, and WebCrypto
+const { File } = require('buffer');
+if (typeof global.File === 'undefined') {
+  global.File = File;
+}
+if (typeof global.CustomEvent === 'undefined') {
+  global.CustomEvent = class CustomEvent extends Event {
+    constructor(event, params) {
+      super(event, params);
+      this.detail = params?.detail;
+    }
+  };
+}
+if (typeof global.crypto === 'undefined' || !global.crypto.getRandomValues) {
+  global.crypto = require('crypto').webcrypto;
+}
+
 let ipfs = null; // Lazy-loaded after app is ready
 
 /* ─── Ad-block filter list (common tracker / ad domains) ─── */
@@ -97,9 +116,17 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
   setupRequestFilters();
+  mainWindow.webContents.openDevTools();
+
+  // Forward renderer console logs to main terminal
+  mainWindow.webContents.on('console-message', (event, level, message) => {
+    console.log('[Renderer UI]', message);
+  });
 }
 
 /* ─── Request Filtering (Ad-block & HTTPS Upgrade) ─── */
+const COMPILED_AD_PATTERNS = AD_BLOCK_PATTERNS.map(pattern => new RegExp('^' + pattern.split('*').join('.*') + '$', 'i'));
+
 function setupRequestFilters() {
   session.defaultSession.webRequest.onBeforeRequest(
     { urls: ['*://*/*'] },
@@ -111,12 +138,8 @@ function setupRequestFilters() {
         return callback({ redirectURL: url.replace('http://', 'https://') });
       }
 
-      // 2. Ad-blocking
-      const isAd = AD_BLOCK_PATTERNS.some(pattern => {
-        // Simple glob-to-regex for prototype
-        const regex = new RegExp('^' + pattern.split('*').join('.*') + '$');
-        return regex.test(url);
-      });
+      // 2. Ad-blocking optimization (Precompiled regex)
+      const isAd = COMPILED_AD_PATTERNS.some(regex => regex.test(url));
 
       if (adBlockEnabled && isAd) {
         blockedCount++;
@@ -316,7 +339,7 @@ function setupIPC() {
   /* ─── Social RPC (proxied to port 8000) ─── */
   ipcMain.handle('social-rpc', async (event, params) => {
     // Only internal shell can use social-rpc in this version
-    if (!isInternalOrigin(event)) return { error: 'Unauthorized origin' };
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized origin' };
 
     const { method = 'GET', endpoint, body = null, headers = {} } = params;
     try {
@@ -428,6 +451,86 @@ app.whenReady().then(async () => {
   setupIPC();
   setupIPFS();
   createWindow();
+
+  // ─── Phase 1.8: Context Menus ───
+  app.on('web-contents-created', (event, contents) => {
+    contents.on('context-menu', (event, params) => {
+      const { selectionText, isEditable, mediaType, linkURL, srcURL } = params;
+      const menu = new Menu();
+
+      if (isEditable) {
+        menu.append(new MenuItem({ role: 'undo' }));
+        menu.append(new MenuItem({ role: 'redo' }));
+        menu.append(new MenuItem({ type: 'separator' }));
+        menu.append(new MenuItem({ role: 'cut' }));
+        menu.append(new MenuItem({ role: 'copy' }));
+        menu.append(new MenuItem({ role: 'paste' }));
+        menu.append(new MenuItem({ role: 'selectAll' }));
+      } else if (selectionText && selectionText.trim() !== '') {
+        menu.append(new MenuItem({ role: 'copy' }));
+        menu.append(new MenuItem({ type: 'separator' }));
+      }
+
+      if (linkURL) {
+        menu.append(new MenuItem({ label: 'Copy Link Address', click: () => { require('electron').clipboard.writeText(linkURL); } }));
+      }
+
+      if (mediaType === 'image') {
+        menu.append(new MenuItem({ label: 'Save Image As...', click: () => { contents.downloadURL(srcURL); } }));
+      }
+
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({ role: 'reload' }));
+      menu.append(new MenuItem({ label: 'Inspect Element', click: () => { contents.inspectElement(params.x, params.y); } }));
+
+      // Show the menu at the cursor position
+      const win = BrowserWindow.fromWebContents(contents) || BrowserWindow.getFocusedWindow();
+      if (win) {
+        menu.popup({ window: win });
+      } else {
+        menu.popup();
+      }
+    });
+  });
+
+  // ─── Phase 1.8: Downloads Manager ───
+  session.defaultSession.on('will-download', (event, item, webContents) => {
+    const fileName = item.getFilename();
+    const url = item.getURL();
+
+    // Notify frontend download started
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('download-event', {
+        type: 'start',
+        fileName,
+        url,
+        totalBytes: item.getTotalBytes()
+      });
+    }
+
+    item.on('updated', (event, state) => {
+      if (state === 'progressing' && !item.isPaused()) {
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.send('download-event', {
+            type: 'progress',
+            fileName,
+            receivedBytes: item.getReceivedBytes(),
+            totalBytes: item.getTotalBytes()
+          });
+        }
+      }
+    });
+
+    item.once('done', (event, state) => {
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.send('download-event', {
+          type: 'done',
+          fileName,
+          state // 'completed', 'cancelled', 'interrupted'
+        });
+      }
+    });
+  });
 
   // 1. Check if external services are online
   checkServiceLiveness();

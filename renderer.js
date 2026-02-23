@@ -31,6 +31,13 @@
   const blockedBadge = $('#blocked-count');
   const walletSidebar = $('#wallet-sidebar');
   const settingsPanel = $('#settings-panel');
+  const historyPanel = $('#history-panel');
+  const bookmarksPanel = $('#bookmarks-panel');
+  const btnBookmark = $('#btn-bookmark');
+  const omniboxDropdown = $('#omnibox-dropdown');
+  const findBar = $('#find-bar');
+  const findInput = $('#find-input');
+  const findResults = $('#find-results');
 
   /* ─── Utility ─── */
   let tabIdCounter = 0;
@@ -100,7 +107,7 @@
       });
 
       // Wire up shortcut clicks
-      container.querySelectorAll('.shortcut-card').forEach((card) => {
+      container.querySelectorAll('.shortcut-link').forEach((card) => {
         card.addEventListener('click', (e) => {
           e.preventDefault();
           navigateTab(id, card.getAttribute('href'));
@@ -119,7 +126,6 @@
   function createWebview(tab) {
     const wv = document.createElement('webview');
     wv.setAttribute('src', tab.url);
-    wv.setAttribute('preload', '');
     wv.dataset.tabId = tab.id;
     wv.setAttribute('allowpopups', '');
 
@@ -142,7 +148,9 @@
       if (tab.id === activeTabId) {
         addressBar.value = e.url;
         updateSecurityIcon(e.url.startsWith('https://') ? 'secure' : 'insecure');
+        updateBookmarkIcon(e.url);
       }
+      addToHistory(tab.title, e.url);
     });
 
     wv.addEventListener('did-fail-load', () => {
@@ -151,11 +159,21 @@
 
     wv.addEventListener('did-navigate-in-page', (e) => {
       tab.url = e.url;
-      if (tab.id === activeTabId) addressBar.value = e.url;
+      if (tab.id === activeTabId) {
+        addressBar.value = e.url;
+        updateBookmarkIcon(e.url);
+      }
+      addToHistory(tab.title, e.url);
     });
 
     wv.addEventListener('new-window', (e) => {
       createTab(e.url);
+    });
+
+    wv.addEventListener('found-in-page', (e) => {
+      if (tab.id === activeTabId && findBar && !findBar.classList.contains('hidden')) {
+        findResults.textContent = `${e.result.activeMatchOrdinal}/${e.result.matches}`;
+      }
     });
 
     browserContent.insertBefore(wv, walletSidebar);
@@ -219,10 +237,12 @@
       tab.webview.classList.add('active');
       addressBar.value = tab.url;
       updateSecurityIcon(tab.url.startsWith('https://') ? 'secure' : 'insecure');
+      updateBookmarkIcon(tab.url);
     } else if (tab.newtabEl) {
       tab.newtabEl.classList.add('active');
       addressBar.value = '';
       updateSecurityIcon('pending'); // New tab page doesn't have a security status yet
+      updateBookmarkIcon('');
     }
 
     renderTabBar();
@@ -307,6 +327,141 @@
     }, 3000);
   }
 
+  /* ═══════════ BROWSING HISTORY ═══════════ */
+  let browsingHistory = [];
+  function addToHistory(title, url) {
+    if (!url || url.startsWith('bucks://')) return;
+    const item = { title: title || url, url, timestamp: Date.now() };
+    browsingHistory.unshift(item);
+    if (browsingHistory.length > 500) browsingHistory.length = 500;
+    if (historyPanel && historyPanel.classList.contains('sidebar-visible')) {
+      renderHistory();
+    }
+  }
+
+  function renderHistory() {
+    const container = $('#history-list-container');
+    if (!container) return;
+    if (browsingHistory.length === 0) {
+      container.innerHTML = '<p class="muted" style="text-align:center; margin-top: 20px;">No history yet.</p>';
+      return;
+    }
+
+    container.innerHTML = browsingHistory.map(item => {
+      const time = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `
+        <div class="history-item" data-url="${escapeHTML(item.url)}">
+          <div class="history-item-time">${time}</div>
+          <div class="history-item-details">
+            <div class="history-item-title">${escapeHTML(item.title)}</div>
+            <div class="history-item-url">${escapeHTML(item.url)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Handle clicking history items to open them
+  $('#history-list-container')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.history-item');
+    if (item && item.dataset.url) {
+      createTab(item.dataset.url);
+    }
+  });
+
+  /* ═══════════ BOOKMARKS MANAGER ═══════════ */
+  let bookmarks = [];
+  try {
+    const stored = localStorage.getItem('bucks_bookmarks');
+    if (stored) bookmarks = JSON.parse(stored);
+  } catch (e) { console.error('Error loading bookmarks', e); }
+
+  function saveBookmarks() {
+    localStorage.setItem('bucks_bookmarks', JSON.stringify(bookmarks));
+    if (bookmarksPanel && bookmarksPanel.classList.contains('sidebar-visible')) {
+      renderBookmarks();
+    }
+  }
+
+  function toggleBookmark() {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab || tab.url.startsWith('bucks://') || !tab.url) return;
+
+    const existingIdx = bookmarks.findIndex(b => b.url === tab.url);
+    if (existingIdx !== -1) {
+      bookmarks.splice(existingIdx, 1);
+      btnBookmark?.classList.remove('bookmark-active');
+      showToast('Removed from bookmarks');
+    } else {
+      bookmarks.push({ title: tab.title || tab.url, url: tab.url, timestamp: Date.now() });
+      btnBookmark?.classList.add('bookmark-active');
+      showToast('Added to bookmarks');
+    }
+    saveBookmarks();
+  }
+
+  function updateBookmarkIcon(url) {
+    if (!btnBookmark) return;
+    if (url && bookmarks.some(b => b.url === url)) {
+      btnBookmark.classList.add('bookmark-active');
+    } else {
+      btnBookmark.classList.remove('bookmark-active');
+    }
+  }
+
+  function renderBookmarks() {
+    const container = $('#bookmarks-list-container');
+    if (!container) return;
+    if (bookmarks.length === 0) {
+      container.innerHTML = '<p class="muted" style="text-align:center; margin-top: 20px;">No bookmarks yet.</p>';
+      return;
+    }
+
+    container.innerHTML = [...bookmarks].reverse().map(item => {
+      return `
+        <div class="history-item" data-url="${escapeHTML(item.url)}">
+          <div class="history-item-details">
+            <div class="history-item-title">${escapeHTML(item.title)}</div>
+            <div class="history-item-url">${escapeHTML(item.url)}</div>
+          </div>
+          <button class="icon-btn remove-bookmark" title="Remove" data-url="${escapeHTML(item.url)}">
+             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  $('#bookmarks-list-container')?.addEventListener('click', (e) => {
+    const removeBtn = e.target.closest('.remove-bookmark');
+    if (removeBtn) {
+      const urlToRemove = removeBtn.dataset.url;
+      bookmarks = bookmarks.filter(b => b.url !== urlToRemove);
+      saveBookmarks();
+      updateBookmarkIcon(addressBar.value);
+      return;
+    }
+    const item = e.target.closest('.history-item');
+    if (item && item.dataset.url) {
+      createTab(item.dataset.url);
+    }
+  });
+
+  btnBookmark?.addEventListener('click', toggleBookmark);
+
+  /* ═══════════ DOWNLOAD MANAGER ═══════════ */
+  window.bucksAPI.onDownloadEvent((data) => {
+    if (data.type === 'start') {
+      showToast(`Started downloading: ${data.fileName}`);
+    } else if (data.type === 'done') {
+      if (data.state === 'completed') {
+        showToast(`✅ Download complete: ${data.fileName}`, 'success');
+      } else {
+        showToast(`❌ Download ${data.state}: ${data.fileName}`, 'error');
+      }
+    }
+  });
+
   /* ═══════════ NAVIGATION CONTROLS ═══════════ */
 
   $('#btn-back').addEventListener('click', () => {
@@ -324,45 +479,240 @@
     if (tab?.webview) tab.webview.reload();
   });
 
-  // Address bar
-  addressBar.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && addressBar.value.trim()) {
-      navigateTab(activeTabId, addressBar.value.trim());
+  // Address bar (Omnibox)
+  let suggestionIndex = -1;
+  let currentSuggestions = [];
+
+  addressBar.addEventListener('input', handleOmniboxInput);
+  addressBar.addEventListener('focus', () => {
+    addressBar.select();
+    handleOmniboxInput();
+  });
+  addressBar.addEventListener('blur', () => {
+    setTimeout(() => omniboxDropdown.classList.add('hidden'), 150);
+  });
+  addressBar.addEventListener('keydown', handleOmniboxKeydown);
+
+  function handleOmniboxInput() {
+    const query = addressBar.value.trim().toLowerCase();
+    suggestionIndex = -1;
+
+    let results = [];
+    if (!query) {
+      results = [...bookmarks.slice(0, 5), ...browsingHistory.slice(0, 5)];
+    } else {
+      const bRes = bookmarks.filter(b => b.title.toLowerCase().includes(query) || b.url.toLowerCase().includes(query)).map(b => ({ ...b, type: 'bookmark' }));
+      const urls = new Set(bRes.map(b => b.url));
+      const hRes = browsingHistory.filter(h => {
+        if (urls.has(h.url) || (!h.title.toLowerCase().includes(query) && !h.url.toLowerCase().includes(query))) return false;
+        urls.add(h.url);
+        return true;
+      }).map(h => ({ ...h, type: 'history' }));
+      results = [...bRes, ...hRes].slice(0, 8);
+    }
+
+    if (!query) {
+      const unique = [];
+      const set = new Set();
+      results.forEach(r => {
+        if (!set.has(r.url)) {
+          set.add(r.url);
+          unique.push(r);
+        }
+      });
+      results = unique.slice(0, 8);
+    }
+
+    currentSuggestions = results;
+    renderOmniboxSuggestions();
+  }
+
+  function renderOmniboxSuggestions() {
+    if (currentSuggestions.length === 0) {
+      omniboxDropdown.classList.add('hidden');
+      return;
+    }
+
+    omniboxDropdown.innerHTML = currentSuggestions.map((item, idx) => {
+      const isBookmark = bookmarks.some(b => b.url === item.url);
+      const icon = isBookmark ?
+        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" class="bookmark-active" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>` :
+        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+
+      return `
+        <div class="omnibox-suggestion ${idx === suggestionIndex ? 'selected' : ''}" data-url="${escapeHTML(item.url)}">
+          <div class="omnibox-suggestion-icon" ${isBookmark ? 'style="color: var(--accent);"' : ''}>${icon}</div>
+          <div class="omnibox-suggestion-content">
+            <div class="omnibox-suggestion-title">${escapeHTML(item.title)}</div>
+            <div class="omnibox-suggestion-url">${escapeHTML(item.url)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    omniboxDropdown.classList.remove('hidden');
+  }
+
+  function handleOmniboxKeydown(e) {
+    if (currentSuggestions.length === 0 || omniboxDropdown.classList.contains('hidden')) {
+      if (e.key === 'Enter' && addressBar.value.trim()) {
+        navigateTab(activeTabId, addressBar.value.trim());
+        omniboxDropdown.classList.add('hidden');
+        addressBar.blur();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      suggestionIndex = (suggestionIndex + 1) % currentSuggestions.length;
+      renderOmniboxSuggestions();
+      addressBar.value = currentSuggestions[suggestionIndex].url;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      suggestionIndex = (suggestionIndex - 1 + currentSuggestions.length) % currentSuggestions.length;
+      renderOmniboxSuggestions();
+      addressBar.value = currentSuggestions[suggestionIndex].url;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const targetUrl = suggestionIndex >= 0 ? currentSuggestions[suggestionIndex].url : addressBar.value.trim();
+      if (targetUrl) {
+        navigateTab(activeTabId, targetUrl);
+        omniboxDropdown.classList.add('hidden');
+        addressBar.blur();
+      }
+    }
+  }
+
+  omniboxDropdown.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.omnibox-suggestion');
+    if (item && item.dataset.url) {
+      e.preventDefault();
+      navigateTab(activeTabId, item.dataset.url);
+      omniboxDropdown.classList.add('hidden');
     }
   });
 
-  addressBar.addEventListener('focus', () => addressBar.select());
+  /* ═══════════ FIND IN PAGE ═══════════ */
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      const tab = tabs.find(t => t.id === activeTabId);
+      if (tab && tab.webview) {
+        findBar.classList.remove('hidden');
+        findInput.focus();
+        findInput.select();
+      }
+    }
+    if (e.key === 'Escape' && !findBar.classList.contains('hidden')) {
+      closeFindBar();
+    }
+  });
+
+  function closeFindBar() {
+    findBar.classList.add('hidden');
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab && tab.webview) {
+      tab.webview.stopFindInPage('clearSelection');
+    }
+  }
+
+  $('#btn-find-close')?.addEventListener('click', closeFindBar);
+
+  findInput?.addEventListener('input', (e) => {
+    const query = e.target.value;
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (!tab || !tab.webview) return;
+
+    if (query) {
+      tab.webview.findInPage(query);
+    } else {
+      tab.webview.stopFindInPage('clearSelection');
+      findResults.textContent = '0/0';
+    }
+  });
+
+  findInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const tab = tabs.find(t => t.id === activeTabId);
+      if (tab && tab.webview && findInput.value) {
+        tab.webview.findInPage(findInput.value, { forward: !e.shiftKey, findNext: true });
+      }
+    }
+  });
+
+  $('#btn-find-next')?.addEventListener('click', () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab && tab.webview && findInput.value) {
+      tab.webview.findInPage(findInput.value, { forward: true, findNext: true });
+    }
+  });
+
+  $('#btn-find-prev')?.addEventListener('click', () => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    if (tab && tab.webview && findInput.value) {
+      tab.webview.findInPage(findInput.value, { forward: false, findNext: true });
+    }
+  });
 
   // New tab button
   $('#btn-new-tab').addEventListener('click', () => createTab());
+
+  /* ═══════════ VERTICAL SIDEBAR CONTROLS ═══════════ */
+  function updateSidebarNav(activeId) {
+    $$('.vertical-sidebar .nav-item').forEach(btn => btn.classList.remove('active'));
+    if (activeId) $(`#${activeId}`)?.classList.add('active');
+  }
+
+  $('#nav-dashboard')?.addEventListener('click', () => { updateSidebarNav('nav-dashboard'); createTab('bucks://newtab'); });
+  $('#nav-explore')?.addEventListener('click', () => { updateSidebarNav('nav-explore'); createTab('https://ipfs.tech'); });
+  $('#nav-wallet-side')?.addEventListener('click', () => { updateSidebarNav('nav-wallet-side'); toggleSidebar('wallet'); });
+  $('#nav-web')?.addEventListener('click', () => { updateSidebarNav('nav-web'); createTab('https://duckduckgo.com'); });
+  $('#nav-settings-side')?.addEventListener('click', () => { updateSidebarNav('nav-settings-side'); toggleSidebar('settings'); });
 
   /* ═══════════ WINDOW CONTROLS ═══════════ */
   $('#btn-minimize').addEventListener('click', () => window.bucksAPI.minimize());
   $('#btn-maximize').addEventListener('click', () => window.bucksAPI.maximize());
   $('#btn-close').addEventListener('click', () => window.bucksAPI.close());
 
-  /* ═══════════ WALLET SIDEBAR (Bucks Wallet Integration) ═══════════ */
+  /* ═══════════ SIDEBAR TOGGLE & PANELS ═══════════ */
 
-  function toggleSidebar(panel) {
-    const isWallet = panel === 'wallet';
-    const target = isWallet ? walletSidebar : settingsPanel;
-    const other = isWallet ? settingsPanel : walletSidebar;
+  function toggleSidebar(panelName) {
+    const panels = {
+      'wallet': walletSidebar,
+      'settings': settingsPanel,
+      'history': historyPanel,
+      'bookmarks': bookmarksPanel
+    };
 
-    other.classList.remove('sidebar-visible');
-    other.classList.add('sidebar-hidden');
+    const target = panels[panelName];
 
-    if (target.classList.contains('sidebar-visible')) {
-      target.classList.remove('sidebar-visible');
-      target.classList.add('sidebar-hidden');
-    } else {
-      target.classList.remove('sidebar-hidden');
-      target.classList.add('sidebar-visible');
-      if (isWallet) refreshWallet();
+    Object.values(panels).forEach(p => {
+      if (p && p !== target) {
+        p.classList.remove('sidebar-visible');
+        p.classList.add('sidebar-hidden');
+      }
+    });
+
+    if (target) {
+      if (target.classList.contains('sidebar-visible')) {
+        target.classList.remove('sidebar-visible');
+        target.classList.add('sidebar-hidden');
+      } else {
+        target.classList.remove('sidebar-hidden');
+        target.classList.add('sidebar-visible');
+        if (panelName === 'wallet') refreshWallet();
+        if (panelName === 'history') renderHistory();
+        if (panelName === 'bookmarks') renderBookmarks();
+      }
     }
   }
 
   $('#btn-wallet').addEventListener('click', () => toggleSidebar('wallet'));
   $('#btn-close-wallet').addEventListener('click', () => toggleSidebar('wallet'));
+  $('#nav-history')?.addEventListener('click', () => { updateSidebarNav('nav-history'); toggleSidebar('history'); });
+  $('#btn-close-history')?.addEventListener('click', () => toggleSidebar('history'));
+  $('#nav-bookmarks')?.addEventListener('click', () => { updateSidebarNav('nav-bookmarks'); toggleSidebar('bookmarks'); });
+  $('#btn-close-bookmarks')?.addEventListener('click', () => toggleSidebar('bookmarks'));
 
   /* ─── Wallet UI Rendering ─── */
 
@@ -725,6 +1075,90 @@
     }
   });
 
+  /* ═══════════ BENCHMARKING ═══════════ */
+  window.runBenchmark = async function () {
+    const urls = [
+      'https://www.wikipedia.org',
+      'https://news.ycombinator.com',
+      'https://github.com',
+      'https://www.reddit.com/r/javascript',
+      'https://developer.mozilla.org',
+      'https://example.com'
+    ];
+    console.log('🚀 Starting Browser Benchmark...');
+    const results = [];
+
+    for (const url of urls) {
+      console.log(`Loading: ${url}`);
+      const start = performance.now();
+      const tabId = createTab(url);
+
+      await new Promise(resolve => {
+        const tab = tabs.find(t => t.id === tabId);
+        const checkWV = setInterval(() => {
+          if (tab.webview) {
+            clearInterval(checkWV);
+            tab.webview.addEventListener('did-stop-loading', () => {
+              resolve();
+            }, { once: true });
+
+            // Timeout just in case
+            setTimeout(() => resolve('timeout'), 15000);
+          }
+        }, 100);
+      });
+
+      const time = performance.now() - start;
+      console.log(`✅ ${url} loaded in ${Math.round(time)}ms`);
+      results.push({ url, time: Math.round(time) });
+
+      // Close tab to free memory before next test, except the last one
+      closeTab(tabId);
+    }
+
+    console.table(results);
+    const avg = results.reduce((a, b) => a + b.time, 0) / results.length;
+    console.log(`📊 Average Load Time: ${Math.round(avg)}ms`);
+    showToast(`Benchmark Complete! Avg: ${Math.round(avg)}ms`);
+  };
+
+  // Auto-run benchmark for testing
+  // setTimeout(() => window.runBenchmark(), 3000);
+
+  window.runPhase19Test = async function () {
+    console.log('🧪 Starting Phase 1.9 Automated Mechanics Test...');
+
+    // Test 1: Bookmarks
+    const prevCount = bookmarks.length;
+    btnBookmark.click();
+    await new Promise(r => setTimeout(r, 500));
+    const pass1 = bookmarks.length === prevCount + 1;
+    console.log(`[Test 1] Bookmarking Active Tab: ${pass1 ? '✅ PASS' : '❌ FAIL'}`);
+
+    // Test 2: Omnibox Autocomplete
+    addressBar.value = 'http';
+    addressBar.dispatchEvent(new Event('input'));
+    await new Promise(r => setTimeout(r, 500));
+    const isVisible = !omniboxDropdown.classList.contains('hidden');
+    const hasChildren = omniboxDropdown.children.length > 0;
+    const pass2 = isVisible && hasChildren;
+    console.log(`[Test 2] Omnibox Suggestions Rendered: ${pass2 ? '✅ PASS' : '❌ FAIL'}`);
+
+    // Test 3: Find in Page
+    const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true });
+    window.dispatchEvent(event);
+    await new Promise(r => setTimeout(r, 500));
+    const pass3 = !findBar.classList.contains('hidden');
+    console.log(`[Test 3] Ctrl+F Opens Find Bar: ${pass3 ? '✅ PASS' : '❌ FAIL'}`);
+
+    if (pass1 && pass2 && pass3) {
+      console.log('🎉 ALL PHASE 1.9 TESTS PASSED!');
+      showToast('Phase 1.9 Verification Passed!', 'success');
+    }
+  };
+
+  setTimeout(() => window.runPhase19Test(), 6000);
+
   /* ═══════════ IPFS SOCIAL PANEL ═══════════ */
   const ipfsSidebar = document.getElementById('ipfs-sidebar');
   const btnIpfs = document.getElementById('btn-ipfs');
@@ -771,7 +1205,7 @@
     const dot = $('#ipfs-status-dot');
     dot.className = info.status === 'online' ? 'status-indicator status-online' : 'status-indicator status-offline';
     $('#ipfs-peer-count').textContent = `${info.peers} Peers`;
-    $('#ipfs-node-id').textContent = info.peerId ? `${info.peerId.slice(0, 8)}...${info.peerId.slice(-4)}` : 'Offline';
+    $('#ipfs-peer-id').textContent = info.peerId ? `${info.peerId.slice(0, 8)}...${info.peerId.slice(-4)}` : 'Offline';
 
     // Auto-refresh swarm data if cluster is present
     if (info.cluster) {

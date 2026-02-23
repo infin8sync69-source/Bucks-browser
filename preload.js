@@ -10,10 +10,13 @@ const bucksAPI = {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
 
-  /* ─── Ad-blocker ─── */
+  /* ─── Ad-blocker & Events ─── */
   getBlockedCount: () => ipcRenderer.invoke('get-blocked-count'),
   toggleAdBlock: (enabled) => ipcRenderer.send('toggle-adblock', enabled),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
+  onWalletAccessRequest: (callback) => ipcRenderer.on('wallet-access-request', (_e, data) => callback(data)),
+  respondToWalletAccess: (requestId, approved) => ipcRenderer.send('wallet-access-response', { requestId, approved }),
+  onDownloadEvent: (callback) => ipcRenderer.on('download-event', (_e, data) => callback(data)),
   onWalletAccessRequest: (callback) => ipcRenderer.on('wallet-access-request', (_e, data) => callback(data)),
   respondToWalletAccess: (requestId, approved) => ipcRenderer.send('wallet-access-response', { requestId, approved }),
 

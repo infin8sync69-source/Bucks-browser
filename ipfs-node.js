@@ -57,14 +57,34 @@ async function startNode() {
         const blockstore = new FsBlockstore(path.join(IPFS_DATA_DIR, 'blocks'));
         const datastore = new FsDatastore(path.join(IPFS_DATA_DIR, 'datastore'));
 
+        const { identify } = await import('@libp2p/identify');
+        const { tcp } = await import('@libp2p/tcp');
+        const { webSockets } = await import('@libp2p/websockets');
+        const { createLibp2p } = await import('libp2p');
+        const { noise } = await import('@chainsafe/libp2p-noise');
+        const { yamux } = await import('@chainsafe/libp2p-yamux');
+        const { mplex } = await import('@libp2p/mplex');
+
+        const libp2pNode = await createLibp2p({
+            addresses: {
+                listen: ['/ip4/0.0.0.0/tcp/0', '/ip4/0.0.0.0/tcp/0/ws']
+            },
+            transports: [
+                tcp(),
+                webSockets()
+            ],
+            connectionEncryption: [noise()],
+            streamMuxers: [yamux(), mplex()],
+            services: {
+                identify: identify(),
+                pubsub: gossipsub({ allowPublishToZeroPeers: true })
+            }
+        });
+
         heliaNode = await createHelia({
             blockstore,
             datastore,
-            libp2p: {
-                services: {
-                    pubsub: gossipsub({ allowPublishToZeroPeers: true })
-                }
-            }
+            libp2p: libp2pNode
         });
 
         fsModule = unixfs(heliaNode);
@@ -163,7 +183,7 @@ async function advertiseIdentity() {
 function handleClusterMessage(msg) {
     try {
         const data = JSON.parse(new TextDecoder().decode(msg.data));
-        
+
         // Ignore self-messages
         if (data.peerId === heliaNode.libp2p.peerId.toString()) return;
 
@@ -206,7 +226,7 @@ function handleFeedMessage(msg) {
                 feed.unshift(data.post);
                 console.log(`[Swarm] Received gossiped post: ${data.post.cid.slice(0, 8)}`);
             }
-            
+
             // Record activity for reputation (ACO)
             recordPeerActivity(data.post.peerId, true);
         }

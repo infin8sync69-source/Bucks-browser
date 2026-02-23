@@ -13,446 +13,656 @@
 
 <body>
 
-  <!-- ═══════════ TITLE BAR (Frameless drag region) ═══════════ -->
-  <header id="titlebar">
-    <div class="titlebar-drag">
-      <svg class="logo-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
-        stroke-width="2">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.5 8h3.5a2 2 0 0 1 0 4H9.5V8z" />
-        <path d="M9.5 12h4a2 2 0 0 1 0 4H9.5v-4z" />
-        <line x1="9.5" y1="6" x2="9.5" y2="18" />
-      </svg>
-      <span class="titlebar-title">Bucks</span>
-    </div>
-    <div class="window-controls">
-      <button id="btn-minimize" class="win-btn" title="Minimize">
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <rect y="5" width="12" height="1.5" rx="0.75" fill="currentColor" />
-        </svg>
-      </button>
-      <button id="btn-maximize" class="win-btn" title="Maximize">
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none" />
-        </svg>
-      </button>
-      <button id="btn-close" class="win-btn win-btn-close" title="Close">
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
-      </button>
-    </div>
-  </header>
+  <!-- ═══════════ MAIN LAYOUT ═══════════ -->
+  <div class="app-layout">
 
-  <!-- ═══════════ TAB BAR ═══════════ -->
-  <nav id="tab-bar">
-    <div id="tabs-container">
-      <!-- Tabs will be inserted here dynamically -->
-    </div>
-    <button id="btn-new-tab" class="icon-btn" title="New Tab">
-      <svg width="14" height="14" viewBox="0 0 14 14">
-        <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-      </svg>
-    </button>
-  </nav>
-
-  <!-- ═══════════ TOOLBAR ═══════════ -->
-  <div id="toolbar">
-    <div class="nav-buttons">
-      <button id="btn-back" class="icon-btn" title="Back">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 12H5M12 19l-7-7 7-7" />
-        </svg>
-      </button>
-      <button id="btn-forward" class="icon-btn" title="Forward">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 12h14M12 5l7 7-7 7" />
-        </svg>
-      </button>
-      <button id="btn-refresh" class="icon-btn" title="Refresh">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10" />
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-        </svg>
-      </button>
-    </div>
-
-    <div class="address-bar-wrapper">
-      <div class="address-bar-icon" id="security-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    <!-- ═══════════ VERTICAL SIDEBAR ═══════════ -->
+    <nav class="vertical-sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M4 22L12 2L20 22M12 2v20M8 14h8" />
         </svg>
       </div>
-      <input type="text" id="address-bar" placeholder="Search or enter URL" spellcheck="false" autocomplete="off" />
-      <button id="btn-adblock" class="icon-btn adblock-active" title="Ad-blocker">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          <path d="M9 12l2 2 4-4" />
-        </svg>
-        <span id="blocked-count" class="badge">0</span>
-      </button>
-    </div>
 
-    <div class="toolbar-actions">
-      <button id="btn-ipfs" class="icon-btn ipfs-btn" title="IPFS Network">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="5" r="3" />
-          <circle cx="5" cy="19" r="3" />
-          <circle cx="19" cy="19" r="3" />
-          <line x1="12" y1="8" x2="5" y2="16" />
-          <line x1="12" y1="8" x2="19" y2="16" />
-          <line x1="5" y1="19" x2="19" y2="19" />
-        </svg>
-        <span class="ipfs-dot"></span>
-      </button>
-      <button id="btn-wallet" class="icon-btn wallet-btn" title="Bucks Wallet">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-          <line x1="1" y1="10" x2="23" y2="10" />
-        </svg>
-        <span class="wallet-dot"></span>
-      </button>
-      <button id="btn-settings" class="icon-btn" title="Settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3" />
+      <div class="sidebar-nav">
+        <button class="nav-item active" title="Dashboard" id="nav-dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+        </button>
+        <button class="nav-item" title="Explore IPFS" id="nav-explore">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+          </svg>
+        </button>
+        <div class="sidebar-divider"></div>
+        <button class="nav-item" title="Bookmarks" id="nav-bookmarks">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon
+              points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </button>
+        <button class="nav-item" title="History" id="nav-history">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="12 8 12 12 14 14"></polyline>
+            <circle cx="12" cy="12" r="10"></circle>
+          </svg>
+        </button>
+        <button class="nav-item" title="Wallet" id="nav-wallet-side">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+            <line x1="1" y1="10" x2="23" y2="10"></line>
+          </svg>
+        </button>
+        <button class="nav-item" title="Global Web" id="nav-web">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <button class="nav-item" title="Settings" id="nav-settings-side">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
           <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
         </svg>
       </button>
-    </div>
-  </div>
+    </nav>
 
-  <!-- ═══════════ MAIN CONTENT AREA ═══════════ -->
-  <main id="browser-content">
-    <!-- Webviews are created dynamically by renderer.js -->
+    <!-- ═══════════ BROWSER STACK (Tabs, Address Bar, Content) ═══════════ -->
+    <div class="browser-stack">
 
-    <!-- ─── Wallet Sidebar ─── -->
-    <aside id="wallet-sidebar" class="sidebar-hidden">
-      <div class="sidebar-header">
-        <h2>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <!-- ═══════════ TITLE BAR (Frameless drag region) ═══════════ -->
+      <header id="titlebar">
+        <div class="titlebar-drag">
+          <svg class="logo-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+            stroke-width="2">
             <circle cx="12" cy="12" r="10" />
             <path d="M9.5 8h3.5a2 2 0 0 1 0 4H9.5V8z" />
             <path d="M9.5 12h4a2 2 0 0 1 0 4H9.5v-4z" />
             <line x1="9.5" y1="6" x2="9.5" y2="18" />
           </svg>
-          Bucks Wallet
-        </h2>
-        <button id="btn-close-wallet" class="icon-btn" title="Close Wallet">
+          <span class="titlebar-title">Bucks</span>
+        </div>
+        <div class="window-controls">
+          <button id="btn-minimize" class="win-btn" title="Minimize">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <rect y="5" width="12" height="1.5" rx="0.75" fill="currentColor" />
+            </svg>
+          </button>
+          <button id="btn-maximize" class="win-btn" title="Maximize">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none" />
+            </svg>
+          </button>
+          <button id="btn-close" class="win-btn win-btn-close" title="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- ═══════════ TAB BAR ═══════════ -->
+      <nav id="tab-bar">
+        <div id="tabs-container">
+          <!-- Tabs will be inserted here dynamically -->
+        </div>
+        <button id="btn-new-tab" class="icon-btn" title="New Tab">
           <svg width="14" height="14" viewBox="0 0 14 14">
-            <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
           </svg>
         </button>
+      </nav>
+
+      <!-- ═══════════ TOOLBAR ═══════════ -->
+      <div id="toolbar">
+        <div class="nav-buttons">
+          <button id="btn-back" class="icon-btn" title="Back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button id="btn-forward" class="icon-btn" title="Forward">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button id="btn-refresh" class="icon-btn" title="Refresh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="address-bar-wrapper">
+          <div class="address-bar-icon" id="security-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+          </div>
+          <input type="text" id="address-bar" placeholder="Search or enter URL" spellcheck="false" autocomplete="off" />
+          <button id="btn-bookmark" class="icon-btn" title="Bookmark this page">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon
+                points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          </button>
+          <button id="btn-adblock" class="icon-btn adblock-active" title="Ad-blocker">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+            <span id="blocked-count" class="badge">0</span>
+          </button>
+
+          <!-- Omnibox Dropdown -->
+          <div id="omnibox-dropdown" class="omnibox-dropdown hidden"></div>
+        </div>
+
+        <div class="toolbar-actions">
+          <button id="btn-ipfs" class="icon-btn ipfs-btn" title="IPFS Network">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="5" r="3" />
+              <circle cx="5" cy="19" r="3" />
+              <circle cx="19" cy="19" r="3" />
+              <line x1="12" y1="8" x2="5" y2="16" />
+              <line x1="12" y1="8" x2="19" y2="16" />
+              <line x1="5" y1="19" x2="19" y2="19" />
+            </svg>
+            <span class="ipfs-dot"></span>
+          </button>
+          <button id="btn-wallet" class="icon-btn wallet-btn" title="Bucks Wallet">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+              <line x1="1" y1="10" x2="23" y2="10" />
+            </svg>
+            <span class="wallet-dot"></span>
+          </button>
+          <button id="btn-settings" class="icon-btn" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div id="wallet-content">
-        <!-- Status -->
-        <div class="wallet-status" id="wallet-status">
-          <div class="status-indicator offline"></div>
-          <span>Connecting to node…</span>
-        </div>
-
-        <!-- Balance Card -->
-        <div class="wallet-card glass-panel" id="wallet-balance-card">
-          <p class="label">Balance</p>
-          <h3 id="wallet-balance">—</h3>
-          <p class="wallet-address" id="wallet-address">No wallet loaded</p>
-        </div>
-
-        <!-- Actions -->
-        <div class="wallet-actions">
-          <button class="btn-primary" id="btn-wallet-create">Create Wallet</button>
-          <button class="btn-secondary" id="btn-wallet-restore">Restore</button>
-        </div>
-
-        <!-- Transaction List -->
-        <div class="wallet-section">
-          <h4>Recent Transactions</h4>
-          <div id="wallet-tx-list" class="tx-list">
-            <p class="tx-empty">No transactions yet</p>
-          </div>
+      <!-- ═══════════ FIND IN PAGE BAR ═══════════ -->
+      <div id="find-bar" class="find-bar hidden">
+        <input type="text" id="find-input" placeholder="Find in page..." spellcheck="false" autocomplete="off" />
+        <span id="find-results" class="muted">0/0</span>
+        <div class="find-actions">
+          <button id="btn-find-prev" class="icon-btn" title="Previous">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 15l-6-6-6 6" />
+            </svg>
+          </button>
+          <button id="btn-find-next" class="icon-btn" title="Next">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          <div style="width: 1px; height: 16px; background: var(--border-medium); margin: 0 4px;"></div>
+          <button id="btn-find-close" class="icon-btn" title="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
       </div>
-    </aside>
 
-    <!-- ─── IPFS Social Sidebar ─── -->
-    <aside id="ipfs-sidebar" class="sidebar-hidden">
-      <div class="sidebar-header">
-        <h2>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="5" r="3" />
-            <circle cx="5" cy="19" r="3" />
-            <circle cx="19" cy="19" r="3" />
-            <line x1="12" y1="8" x2="5" y2="16" />
-            <line x1="12" y1="8" x2="19" y2="16" />
-          </svg>
-          IPFS Network
-        </h2>
-        <button id="btn-close-ipfs" class="icon-btn" title="Close IPFS">
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </button>
-      </div>
+      <!-- ═══════════ MAIN CONTENT AREA ═══════════ -->
+      <main id="browser-content">
+        <!-- Webviews are created dynamically by renderer.js -->
 
-      <div id="ipfs-content">
-        <!-- Node Status -->
-        <div class="ipfs-status-card glass-panel" id="ipfs-status-card">
-          <div class="ipfs-status-row">
-            <div class="status-indicator offline" id="ipfs-status-dot"></div>
-            <span id="ipfs-status-text">Starting IPFS node…</span>
+        <!-- ─── Wallet Sidebar ─── -->
+        <aside id="wallet-sidebar" class="sidebar-hidden">
+          <div class="sidebar-header">
+            <h2>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.5 8h3.5a2 2 0 0 1 0 4H9.5V8z" />
+                <path d="M9.5 12h4a2 2 0 0 1 0 4H9.5v-4z" />
+                <line x1="9.5" y1="6" x2="9.5" y2="18" />
+              </svg>
+              Bucks Wallet
+            </h2>
+            <button id="btn-close-wallet" class="icon-btn" title="Close Wallet">
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
           </div>
-          <p class="ipfs-peer-id" id="ipfs-peer-id">—</p>
-          <div class="ipfs-stats">
-            <span id="ipfs-peer-count">0 peers</span>
-            <span id="ipfs-feed-count">0 posts</span>
-          </div>
-        </div>
 
-        <!-- Storage Dashboard -->
-        <div class="ipfs-section">
-          <h4>Hosting & Storage</h4>
-          <div class="storage-dashboard glass-panel">
-            <div class="storage-row">
-              <span>Pinned Files</span>
-              <span id="storage-pinned-count">0</span>
+          <div id="wallet-content">
+            <!-- Status -->
+            <div class="wallet-status" id="wallet-status">
+              <div class="status-indicator offline"></div>
+              <span>Connecting to node…</span>
             </div>
-            <div class="storage-row">
-              <span>Total Hosted</span>
-              <span id="storage-total-size">0 B</span>
+
+            <!-- Balance Card -->
+            <div class="wallet-card glass-panel" id="wallet-balance-card">
+              <p class="label">Balance</p>
+              <h3 id="wallet-balance">—</h3>
+              <p class="wallet-address" id="wallet-address">No wallet loaded</p>
             </div>
-            <div class="storage-progress-bar">
-              <div id="storage-progress-fill" style="width: 0%"></div>
+
+            <!-- Actions -->
+            <div class="wallet-actions">
+              <button class="btn-primary" id="btn-wallet-create">Create Wallet</button>
+              <button class="btn-secondary" id="btn-wallet-restore">Restore</button>
+            </div>
+
+            <!-- Transaction List -->
+            <div class="wallet-section">
+              <h4>Recent Transactions</h4>
+              <div id="wallet-tx-list" class="tx-list">
+                <p class="tx-empty">No transactions yet</p>
+              </div>
             </div>
           </div>
-          <div id="ipfs-pinned-list" class="ipfs-following-list" style="margin-top: 10px;">
-            <!-- Pinned files render here -->
-          </div>
-        </div>
+        </aside>
 
-        <!-- Swarm Intelligence -->
-        <div class="ipfs-section">
-          <div class="section-title">
-            <span>Swarm Intelligence</span>
-            <span id="swarm-status-badge" class="badge">Standalone</span>
+        <!-- ─── IPFS Social Sidebar ─── -->
+        <aside id="ipfs-sidebar" class="sidebar-hidden">
+          <div class="sidebar-header">
+            <h2>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="5" r="3" />
+                <circle cx="5" cy="19" r="3" />
+                <circle cx="19" cy="19" r="3" />
+                <line x1="12" y1="8" x2="5" y2="16" />
+                <line x1="12" y1="8" x2="19" y2="16" />
+              </svg>
+              IPFS Network
+            </h2>
+            <button id="btn-close-ipfs" class="icon-btn" title="Close IPFS">
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
           </div>
-          <div class="swarm-stats-row">
-            <span>Local Reputation</span>
-            <span id="local-reputation" class="accent-text">100 Ph</span>
-          </div>
-          <div id="swarm-peer-list" class="swarm-peer-list">
-            <div class="empty-state">Searching for swarm nodes...</div>
-          </div>
-        </div>
 
-        <!-- Follow / Subscribe -->
-        <div class="ipfs-section">
-          <h4>Follow a Peer</h4>
-          <div class="ipfs-follow-input">
-            <input type="text" id="ipfs-follow-id" placeholder="Paste PeerID to follow…" spellcheck="false" />
-            <button class="btn-primary btn-sm" id="btn-ipfs-follow">Follow</button>
-          </div>
-          <div id="ipfs-following-list" class="ipfs-following-list">
-            <!-- Following list items render here -->
-          </div>
-        </div>
-
-        <!-- Publish Content -->
-        <div class="ipfs-section">
-          <h4>Share Content</h4>
-          <div class="ipfs-publish-area">
-            <input type="text" id="ipfs-publish-desc" placeholder="Description…" />
-            <input type="file" id="ipfs-publish-file" class="ipfs-file-input" />
-            <label for="ipfs-publish-file" class="btn-secondary btn-sm ipfs-file-label">Choose File</label>
-            <button class="btn-primary btn-sm" id="btn-ipfs-publish">Publish</button>
-          </div>
-        </div>
-
-        <!-- Content Feed -->
-        <div class="ipfs-section">
-          <h4>Feed</h4>
-          <div id="ipfs-feed" class="ipfs-feed">
-            <p class="tx-empty">No content yet. Follow peers to see their posts.</p>
-          </div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- ─── Settings Panel ─── -->
-    <aside id="settings-panel" class="sidebar-hidden">
-      <div class="sidebar-header">
-        <h2>Settings</h2>
-        <button id="btn-close-settings" class="icon-btn" title="Close Settings">
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
-        </button>
-      </div>
-      <div class="settings-content">
-        <div class="setting-group">
-          <label for="setting-search-engine">Search Engine</label>
-          <select id="setting-search-engine">
-            <option value="https://duckduckgo.com/?q=">DuckDuckGo (Privacy)</option>
-            <option value="https://www.google.com/search?q=">Google</option>
-            <option value="https://search.brave.com/search?q=">Brave Search</option>
-            <option value="https://www.bing.com/search?q=">Bing</option>
-          </select>
-        </div>
-        <div class="setting-group">
-          <label for="setting-homepage">Homepage URL</label>
-          <input type="text" id="setting-homepage" placeholder="bucks://newtab" />
-        </div>
-        <div class="setting-group toggle-group">
-          <label for="setting-adblock">Ad-Blocker</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-adblock" checked />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
-        <div class="setting-group toggle-group">
-          <label for="setting-https-only">HTTPS-Only Mode</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-https-only" />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
-
-        <!-- Swarm Settings -->
-        <div class="settings-group">
-          <h3>Swarm Intelligence</h3>
-          <div class="setting-item">
-            <label for="setting-cluster-secret">Cluster Secret</label>
-            <input type="password" id="setting-cluster-secret" class="glass-input" placeholder="Secret Key..." />
-          </div>
-          <div class="setting-item" style="margin-top: 8px;">
-            <label for="setting-cluster-cidn">Cluster ID (CIDN)</label>
-            <input type="text" id="setting-cluster-cidn" class="glass-input" placeholder="mainnet" />
-          </div>
-          <p class="setting-hint" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">Restart required
-            after changing cluster keys.</p>
-        </div>
-
-        <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
-
-        <div class="setting-group">
-          <label>Network & Privacy Health</label>
-          <div class="glass-panel" style="padding: 12px; margin-top: 6px; font-size: 12px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span>Latency</span>
-              <span id="stat-latency" style="color: var(--accent);">— ms</span>
+          <div id="ipfs-content">
+            <!-- Node Status -->
+            <div class="ipfs-status-card glass-panel" id="ipfs-status-card">
+              <div class="ipfs-status-row">
+                <div class="status-indicator offline" id="ipfs-status-dot"></div>
+                <span id="ipfs-status-text">Starting IPFS node…</span>
+              </div>
+              <p class="ipfs-peer-id" id="ipfs-peer-id">—</p>
+              <div class="ipfs-stats">
+                <span id="ipfs-peer-count">0 peers</span>
+                <span id="ipfs-feed-count">0 posts</span>
+              </div>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span>Security Level</span>
-              <span style="color: var(--success);">Enhanced</span>
+
+            <!-- Storage Dashboard -->
+            <div class="ipfs-section">
+              <h4>Hosting & Storage</h4>
+              <div class="storage-dashboard glass-panel">
+                <div class="storage-row">
+                  <span>Pinned Files</span>
+                  <span id="storage-pinned-count">0</span>
+                </div>
+                <div class="storage-row">
+                  <span>Total Hosted</span>
+                  <span id="storage-total-size">0 B</span>
+                </div>
+                <div class="storage-progress-bar">
+                  <div id="storage-progress-fill" style="width: 0%"></div>
+                </div>
+              </div>
+              <div id="ipfs-pinned-list" class="ipfs-following-list" style="margin-top: 10px;">
+                <!-- Pinned files render here -->
+              </div>
             </div>
-            <button class="btn-secondary" id="btn-test-speed" style="width: 100%; padding: 6px; font-size: 11px;">Test
-              Connection</button>
+
+            <!-- Swarm Intelligence -->
+            <div class="ipfs-section">
+              <div class="section-title">
+                <span>Swarm Intelligence</span>
+                <span id="swarm-status-badge" class="badge">Standalone</span>
+              </div>
+              <div class="swarm-stats-row">
+                <span>Local Reputation</span>
+                <span id="local-reputation" class="accent-text">100 Ph</span>
+              </div>
+              <div id="swarm-peer-list" class="swarm-peer-list">
+                <div class="empty-state">Searching for swarm nodes...</div>
+              </div>
+            </div>
+
+            <!-- Follow / Subscribe -->
+            <div class="ipfs-section">
+              <h4>Follow a Peer</h4>
+              <div class="ipfs-follow-input">
+                <input type="text" id="ipfs-follow-id" placeholder="Paste PeerID to follow…" spellcheck="false" />
+                <button class="btn-primary btn-sm" id="btn-ipfs-follow">Follow</button>
+              </div>
+              <div id="ipfs-following-list" class="ipfs-following-list">
+                <!-- Following list items render here -->
+              </div>
+            </div>
+
+            <!-- Publish Content -->
+            <div class="ipfs-section">
+              <h4>Share Content</h4>
+              <div class="ipfs-publish-area">
+                <input type="text" id="ipfs-publish-desc" placeholder="Description…" />
+                <input type="file" id="ipfs-publish-file" class="ipfs-file-input" />
+                <label for="ipfs-publish-file" class="btn-secondary btn-sm ipfs-file-label">Choose File</label>
+                <button class="btn-primary btn-sm" id="btn-ipfs-publish">Publish</button>
+              </div>
+            </div>
+
+            <!-- Content Feed -->
+            <div class="ipfs-section">
+              <h4>Feed</h4>
+              <div id="ipfs-feed" class="ipfs-feed">
+                <p class="tx-empty">No content yet. Follow peers to see their posts.</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ─── Settings Panel ─── -->
+        <aside id="settings-panel" class="sidebar-hidden">
+          <div class="sidebar-header">
+            <h2>Settings</h2>
+            <button id="btn-close-settings" class="icon-btn" title="Close Settings">
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-content">
+            <div class="setting-group">
+              <label for="setting-search-engine">Search Engine</label>
+              <select id="setting-search-engine">
+                <option value="https://duckduckgo.com/?q=">DuckDuckGo (Privacy)</option>
+                <option value="https://www.google.com/search?q=">Google</option>
+                <option value="https://search.brave.com/search?q=">Brave Search</option>
+                <option value="https://www.bing.com/search?q=">Bing</option>
+              </select>
+            </div>
+            <div class="setting-group">
+              <label for="setting-homepage">Homepage URL</label>
+              <input type="text" id="setting-homepage" placeholder="bucks://newtab" />
+            </div>
+            <div class="setting-group toggle-group">
+              <label for="setting-adblock">Ad-Blocker</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-adblock" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
+            <div class="setting-group toggle-group">
+              <label for="setting-https-only">HTTPS-Only Mode</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-https-only" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
+
+            <!-- Swarm Settings -->
+            <div class="settings-group">
+              <h3>Swarm Intelligence</h3>
+              <div class="setting-item">
+                <label for="setting-cluster-secret">Cluster Secret</label>
+                <input type="password" id="setting-cluster-secret" class="glass-input" placeholder="Secret Key..." />
+              </div>
+              <div class="setting-item" style="margin-top: 8px;">
+                <label for="setting-cluster-cidn">Cluster ID (CIDN)</label>
+                <input type="text" id="setting-cluster-cidn" class="glass-input" placeholder="mainnet" />
+              </div>
+              <p class="setting-hint" style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">Restart
+                required
+                after changing cluster keys.</p>
+            </div>
+
+            <div class="setting-divider" style="height: 1px; background: var(--border-subtle); margin: 8px 0;"></div>
+
+            <div class="setting-group">
+              <label>Network & Privacy Health</label>
+              <div class="glass-panel" style="padding: 12px; margin-top: 6px; font-size: 12px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span>Latency</span>
+                  <span id="stat-latency" style="color: var(--accent);">— ms</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span>Security Level</span>
+                  <span style="color: var(--success);">Enhanced</span>
+                </div>
+                <button class="btn-secondary" id="btn-test-speed"
+                  style="width: 100%; padding: 6px; font-size: 11px;">Test
+                  Connection</button>
+              </div>
+            </div>
+
+            <button class="btn-primary" id="btn-save-settings" style="margin-top: 10px;">Save Settings</button>
+          </div>
+        </aside>
+
+        <!-- ─── Bookmarks Panel ─── -->
+        <aside id="bookmarks-panel" class="sidebar-hidden">
+          <div class="sidebar-header">
+            <h2>Bookmarks</h2>
+            <button id="btn-close-bookmarks" class="icon-btn" title="Close Bookmarks">
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-content" id="bookmarks-list-container" style="padding-top: 12px;">
+            <p class="muted" style="text-align:center; margin-top: 20px;">No bookmarks yet.</p>
+          </div>
+        </aside>
+
+        <!-- ─── History Panel ─── -->
+        <aside id="history-panel" class="sidebar-hidden">
+          <div class="sidebar-header">
+            <h2>Browsing History</h2>
+            <button id="btn-close-history" class="icon-btn" title="Close History">
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div class="settings-content" id="history-list-container" style="padding-top: 12px;">
+            <p class="muted" style="text-align:center; margin-top: 20px;">No history yet.</p>
+          </div>
+        </aside>
+
+        <!-- ─── Privacy Report Popup ─── -->
+        <div id="privacy-report" class="glass-panel sidebar-hidden"
+          style="position: absolute; top: 120px; left: 50%; transform: translateX(-50%); width: 300px; z-index: 1000; padding: 24px; text-align: center;">
+          <h3 style="color: var(--accent); margin-bottom: 12px;">Privacy Report</h3>
+          <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;" id="report-count">0</div>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">Trackers & ads blocked in this
+            session.</p>
+          <button class="btn-primary"
+            onclick="document.getElementById('privacy-report').classList.add('sidebar-hidden')"
+            style="width: 100%;">Close</button>
+        </div>
+        <!-- ─── Origin Approval Modal ─── -->
+        <div id="origin-approval" class="sidebar-hidden">
+          <div class="security-modal-overlay"></div>
+          <div class="security-modal glass-panel fade-in">
+            <div class="security-header">
+              <div class="security-shield">🛡️</div>
+              <h3>Security Request</h3>
+            </div>
+            <div class="security-body">
+              <p class="security-info">
+                <span id="requesting-origin" class="origin-tag">DApp</span>
+                is requesting access to your
+                <span class="target-tag">Bucks Wallet</span>
+              </p>
+              <div class="security-warning">
+                <p>Allowing this permits the site to see your address and suggest transactions for you to sign.</p>
+              </div>
+            </div>
+            <div class="security-actions">
+              <button class="btn-deny" id="btn-origin-deny">Deny Access</button>
+              <button class="btn-allow" id="btn-origin-allow">Allow Connection</button>
+            </div>
           </div>
         </div>
+      </main>
 
-        <button class="btn-primary" id="btn-save-settings" style="margin-top: 10px;">Save Settings</button>
-      </div>
-    </aside>
+      <!-- ═══════════ NEW TAB PAGE (inline template) ═══════════ -->
+      <template id="newtab-template">
+        <div class="newtab-dashboard main-content">
+          <!-- Ambient Background (contained) -->
+          <div class="ambient-bg-tab"></div>
 
-    <!-- ─── Privacy Report Popup ─── -->
-    <div id="privacy-report" class="glass-panel sidebar-hidden"
-      style="position: absolute; top: 120px; left: 50%; transform: translateX(-50%); width: 300px; z-index: 1000; padding: 24px; text-align: center;">
-      <h3 style="color: var(--accent); margin-bottom: 12px;">Privacy Report</h3>
-      <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;" id="report-count">0</div>
-      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">Trackers & ads blocked in this
-        session.</p>
-      <button class="btn-primary" onclick="document.getElementById('privacy-report').classList.add('sidebar-hidden')"
-        style="width: 100%;">Close</button>
-    </div>
-    <!-- ─── Origin Approval Modal ─── -->
-    <div id="origin-approval" class="sidebar-hidden">
-      <div class="security-modal-overlay"></div>
-      <div class="security-modal glass-panel fade-in">
-        <div class="security-header">
-          <div class="security-shield">🛡️</div>
-          <h3>Security Request</h3>
-        </div>
-        <div class="security-body">
-          <p class="security-info">
-            <span id="requesting-origin" class="origin-tag">DApp</span>
-            is requesting access to your
-            <span class="target-tag">Bucks Wallet</span>
-          </p>
-          <div class="security-warning">
-            <p>Allowing this permits the site to see your address and suggest transactions for you to sign.</p>
+          <div class="dashboard-header">
+            <div class="newtab-search-wrapper" style="max-width: 600px; margin-bottom: 24px;">
+              <input type="text" class="newtab-search" placeholder="Search the web, DApps, or paste URL…" autofocus />
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <!-- Left Column -->
+            <div class="scroll-area">
+              <!-- Swarm Node Card -->
+              <div class="card portfolio-card">
+                <div class="portfolio-label">Local Node Uptime</div>
+                <div class="portfolio-value">99.9%</div>
+                <div class="portfolio-change" style="color: var(--success);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                    <polyline points="17 6 23 6 23 12"></polyline>
+                  </svg>
+                  48 Active Peers
+                </div>
+              </div>
+
+              <!-- DApps / IPFS Modules Grid -->
+              <div class="dapps-section">
+                <div class="card-header">
+                  <h3 class="card-title">Decentralized Services</h3>
+                  <span class="card-action">View All</span>
+                </div>
+                <div class="dapps-grid">
+                  <a href="https://ipfs.tech" class="dapp-card shortcut-link">
+                    <div class="dapp-icon">◈</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">IPFS</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Protocol</span>
+                  </a>
+                  <a href="https://libp2p.io" class="dapp-card shortcut-link">
+                    <div class="dapp-icon">🕸️</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">Libp2p</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Network</span>
+                  </a>
+                  <a href="bucks://settings" class="dapp-card shortcut-link">
+                    <div class="dapp-icon">🛡️</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">Keystore</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Wallet</span>
+                  </a>
+                  <a href="https://filecoin.io" class="dapp-card shortcut-link">
+                    <div class="dapp-icon">🗄️</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">Filecoin</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Storage</span>
+                  </a>
+                  <a href="https://ens.domains" class="dapp-card shortcut-link">
+                    <div class="dapp-icon">🌐</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">ENS</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Identity</span>
+                  </a>
+                  <a href="#" class="dapp-card shortcut-link" style="border-style: dashed;">
+                    <div class="dapp-icon">+</div>
+                    <span class="dapp-name" style="color: var(--text-primary);">Add App</span>
+                    <span class="dapp-category" style="color: var(--text-muted)">Custom</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="right-column">
+              <!-- Node Status Card -->
+              <div class="nft-card card">
+                <div class="nft-image"
+                  style="background: rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; height: 180px;">
+                  <!-- IPFS Abstract Graphic -->
+                  <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                  </svg>
+                </div>
+                <div class="nft-info">
+                  <div class="nft-name" style="color: var(--text-primary);">Helia IPFS Node Active</div>
+                  <div class="nft-floor" style="color: var(--text-muted)">ID: 15uF9...aK32</div>
+                </div>
+              </div>
+
+              <!-- Activity Card -->
+              <div class="activity-card card">
+                <div class="card-header">
+                  <h3 class="card-title">Swarm Activity</h3>
+                  <span class="card-action">See All</span>
+                </div>
+                <div class="activity-list">
+                  <div class="activity-item">
+                    <div class="activity-left">
+                      <div class="activity-icon">📌</div>
+                      <div class="activity-details">
+                        <span class="activity-title" style="color: var(--text-primary);">Pinned Local Object</span>
+                        <span class="activity-time" style="color: var(--text-muted);">2 mins ago</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="activity-item">
+                    <div class="activity-left">
+                      <div class="activity-icon">📡</div>
+                      <div class="activity-details">
+                        <span class="activity-title" style="color: var(--text-primary);">Gossipsub Topic Joined</span>
+                        <span class="activity-time" style="color: var(--text-muted);">1 hour ago</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="activity-item">
+                    <div class="activity-left">
+                      <div class="activity-icon">🔗</div>
+                      <div class="activity-details">
+                        <span class="activity-title" style="color: var(--text-primary);">Discovered 14 Peers</span>
+                        <span class="activity-time" style="color: var(--text-muted);">Yesterday</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="security-actions">
-          <button class="btn-deny" id="btn-origin-deny">Deny Access</button>
-          <button class="btn-allow" id="btn-origin-allow">Allow Connection</button>
-        </div>
-      </div>
-    </div>
-  </main>
+      </template>
 
-  <!-- ═══════════ NEW TAB PAGE (inline template) ═══════════ -->
-  <template id="newtab-template">
-    <div class="newtab-page">
-      <div class="newtab-hero">
-        <svg class="newtab-logo" viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="url(#grad)"
-          stroke-width="1.5">
-          <defs>
-            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color:#f7931a" />
-              <stop offset="100%" style="stop-color:#ffcc00" />
-            </linearGradient>
-          </defs>
-          <circle cx="12" cy="12" r="10" />
-          <path d="M9.5 8h3.5a2 2 0 0 1 0 4H9.5V8z" />
-          <path d="M9.5 12h4a2 2 0 0 1 0 4H9.5v-4z" />
-          <line x1="9.5" y1="6" x2="9.5" y2="18" />
-        </svg>
-        <h1>Bucks</h1>
-        <p class="newtab-subtitle">Web3 Browser · Private · Fast</p>
-      </div>
-      <div class="newtab-search-wrapper">
-        <input type="text" class="newtab-search" placeholder="Search the web or enter a URL…" autofocus />
-      </div>
-      <div class="newtab-shortcuts">
-        <a href="https://ethereum.org" class="shortcut-card">
-          <div class="shortcut-icon">Ξ</div>
-          <span>Ethereum</span>
-        </a>
-        <a href="https://bitcoin.org" class="shortcut-card">
-          <div class="shortcut-icon">₿</div>
-          <span>Bitcoin</span>
-        </a>
-        <a href="https://ipfs.tech" class="shortcut-card">
-          <div class="shortcut-icon">◈</div>
-          <span>IPFS</span>
-        </a>
-        <a href="https://duckduckgo.com" class="shortcut-card">
-          <div class="shortcut-icon">🦆</div>
-          <span>DuckDuckGo</span>
-        </a>
-        <a href="https://etherscan.io" class="shortcut-card">
-          <div class="shortcut-icon">🔍</div>
-          <span>Etherscan</span>
-        </a>
-        <a href="https://app.uniswap.org" class="shortcut-card">
-          <div class="shortcut-icon">🦄</div>
-          <span>Uniswap</span>
-        </a>
-        <a href="https://opensea.io" class="shortcut-card">
-          <div class="shortcut-icon">⛵</div>
-          <span>OpenSea</span>
-        </a>
-      </div>
-    </div>
-  </template>
+    </div> <!-- End .browser-stack -->
+  </div> <!-- End .app-layout -->
 
   <script src="renderer.js"></script>
 </body>
