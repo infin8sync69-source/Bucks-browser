@@ -1,6 +1,12 @@
-const { app, BrowserWindow, ipcMain, session, Menu, MenuItem } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol } = require('electron');
 app.disableHardwareAcceleration();
 const path = require('path');
+
+// Register IPFS protocols before app is ready
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'ipfs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: 'ipns', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
+]);
 const fs = require('fs');
 const http = require('http');
 
@@ -443,10 +449,81 @@ function setupIPFS() {
   });
 }
 
+/* ─── Protocol Handlers ─── */
+function setupProtocols() {
+  const mimeTypes = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.txt': 'text/plain',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mp3': 'audio/mpeg'
+  };
+
+  protocol.handle('ipfs', async (request) => {
+    try {
+      let urlStr = request.url.replace(/^ipfs:\/\//i, '');
+      urlStr = urlStr.split('?')[0].split('#')[0];
+
+      const ext = path.extname(urlStr).toLowerCase();
+      const mimeType = mimeTypes[ext] || 'text/html';
+
+      if (!ipfs || !ipfs.getContent) {
+        return new Response('IPFS Node is starting...', { status: 503 });
+      }
+
+      const data = await ipfs.getContent(urlStr);
+      return new Response(Buffer.from(data), {
+        headers: {
+          'Content-Type': mimeType,
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    } catch (err) {
+      console.error('[Protocol] IPFS load failed:', request.url, err);
+      return new Response('Content not found on IPFS network', { status: 404 });
+    }
+  });
+
+  protocol.handle('ipns', async (request) => {
+    try {
+      let urlStr = request.url.replace(/^ipns:\/\//i, '');
+      urlStr = urlStr.split('?')[0].split('#')[0];
+
+      const ext = path.extname(urlStr).toLowerCase();
+      const mimeType = mimeTypes[ext] || 'text/html';
+
+      if (!ipfs || !ipfs.getContent) {
+        return new Response('IPFS Node is starting...', { status: 503 });
+      }
+
+      const data = await ipfs.getContent(urlStr);
+      return new Response(Buffer.from(data), {
+        headers: {
+          'Content-Type': mimeType,
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    } catch (err) {
+      console.error('[Protocol] IPNS load failed:', request.url, err);
+      return new Response('Content not found on IPNS network', { status: 404 });
+    }
+  });
+}
+
 /* ─── App lifecycle ─── */
 app.whenReady().then(async () => {
   // Lazy-load IPFS module after app is ready
   ipfs = require('./ipfs-node');
+
+  setupProtocols();
 
   setupIPC();
   setupIPFS();
