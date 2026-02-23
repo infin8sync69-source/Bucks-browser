@@ -1,0 +1,60 @@
+{
+  "name": "bucks-browser",
+  "version": "1.0.0",
+  "description": "Bucks Web3 Browser",
+  "main": "main.js",
+  "author": "Bucks Developer",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dist": "electron-builder",
+    "preview": "electron-builder --dir"
+  },
+  "dependencies": {
+    "@helia/unixfs": "^7.0.4",
+    "blockstore-fs": "^3.0.2",
+    "datastore-fs": "^11.0.2",
+    "helia": "^6.0.20"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.bucks.browser",
+    "productName": "Bucks",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": null
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Bucks"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ipfs-node.js",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "node_modules/**/*"
+    ]
+  }
+}

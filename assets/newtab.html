@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Tab — Bucks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0a;
+            color: #e4e4e7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ─── Ambient Background ─── */
+        .ambient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .ambient-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .ambient-orb:nth-child(1) {
+            width: 400px;
+            height: 400px;
+            background: #f59e0b;
+            top: -10%;
+            right: 10%;
+            animation-delay: 0s;
+        }
+
+        .ambient-orb:nth-child(2) {
+            width: 300px;
+            height: 300px;
+            background: #d97706;
+            bottom: 0%;
+            left: 5%;
+            animation-delay: -7s;
+        }
+
+        .ambient-orb:nth-child(3) {
+            width: 250px;
+            height: 250px;
+            background: #92400e;
+            top: 40%;
+            right: 30%;
+            animation-delay: -14s;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translate(0, 0) scale(1);
+            }
+
+            25% {
+                transform: translate(30px, -40px) scale(1.05);
+            }
+
+            50% {
+                transform: translate(-20px, 20px) scale(0.95);
+            }
+
+            75% {
+                transform: translate(15px, 30px) scale(1.02);
+            }
+        }
+
+        /* ─── Content ─── */
+        .content {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+        }
+
+        /* ─── Logo ─── */
+        .logo {
+            margin-bottom: 40px;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease-out 0.2s forwards;
+        }
+
+        .logo-icon {
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 16px;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 32px rgba(245, 158, 11, 0.25);
+        }
+
+        .logo-icon svg {
+            width: 40px;
+            height: 40px;
+            color: #000;
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-tagline {
+            font-size: 13px;
+            color: #71717a;
+            margin-top: 6px;
+            font-weight: 400;
+        }
+
+        /* ─── Search Bar ─── */
+        .search-container {
+            margin-bottom: 48px;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease-out 0.4s forwards;
+        }
+
+        .search-bar {
+            width: 100%;
+            height: 52px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 0 20px;
+            color: #e4e4e7;
+            font-family: inherit;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .search-bar::placeholder {
+            color: #52525b;
+        }
+
+        .search-bar:focus {
+            border-color: #f59e0b;
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.15);
+        }
+
+        /* ─── Quick Links ─── */
+        .quick-links {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease-out 0.6s forwards;
+        }
+
+        .quick-link {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 20px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .quick-link:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .quick-link-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .quick-link-label {
+            font-size: 12px;
+            color: #a1a1aa;
+            font-weight: 500;
+        }
+
+        .ql-duckduckgo .quick-link-icon {
+            background: rgba(222, 88, 51, 0.15);
+        }
+
+        .ql-github .quick-link-icon {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .ql-reddit .quick-link-icon {
+            background: rgba(255, 69, 0, 0.15);
+        }
+
+        .ql-youtube .quick-link-icon {
+            background: rgba(255, 0, 0, 0.15);
+        }
+
+        /* ─── Time ─── */
+        .time-display {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease-out 0.8s forwards;
+            z-index: 1;
+        }
+
+        .time {
+            font-size: 48px;
+            font-weight: 300;
+            letter-spacing: -1px;
+            color: rgba(255, 255, 255, 0.12);
+        }
+
+        .date {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.08);
+            margin-top: 4px;
+            font-weight: 400;
+        }
+
+        /* ─── Animations ─── */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Ambient Background -->
+    <div class="ambient">
+        <div class="ambient-orb"></div>
+        <div class="ambient-orb"></div>
+        <div class="ambient-orb"></div>
+    </div>
+
+    <div class="content">
+        <!-- Logo -->
+        <div class="logo">
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07" />
+                </svg>
+            </div>
+            <div class="logo-text">Bucks</div>
+            <div class="logo-tagline">Web3 Browser — Decentralized & Private</div>
+        </div>
+
+        <!-- Search -->
+        <div class="search-container">
+            <input type="text" class="search-bar" placeholder="Search the web or enter URL..." id="newtab-search"
+                autofocus>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="quick-links">
+            <a class="quick-link ql-duckduckgo" href="https://duckduckgo.com" title="DuckDuckGo">
+                <div class="quick-link-icon">🦆</div>
+                <span class="quick-link-label">DuckDuckGo</span>
+            </a>
+            <a class="quick-link ql-github" href="https://github.com" title="GitHub">
+                <div class="quick-link-icon">🐙</div>
+                <span class="quick-link-label">GitHub</span>
+            </a>
+            <a class="quick-link ql-reddit" href="https://reddit.com" title="Reddit">
+                <div class="quick-link-icon">🤖</div>
+                <span class="quick-link-label">Reddit</span>
+            </a>
+            <a class="quick-link ql-youtube" href="https://youtube.com" title="YouTube">
+                <div class="quick-link-icon">▶️</div>
+                <span class="quick-link-label">YouTube</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Time Display -->
+    <div class="time-display">
+        <div class="time" id="clock">--:--</div>
+        <div class="date" id="date-display">---</div>
+    </div>
+
+    <script>
+        // Clock
+        function updateClock() {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            document.getElementById('clock').textContent = `${hours}:${minutes}`;
+
+            const options = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+            document.getElementById('date-display').textContent = now.toLocaleDateString('en-US', options);
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // Search — works within the browser's address bar flow
+        document.getElementById('newtab-search').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const query = e.target.value.trim();
+                if (query) {
+                    // Check if it's a URL
+                    if (query.match(/^(https?:\/\/)/i) || (query.includes('.') && !query.includes(' '))) {
+                        window.location.href = query.match(/^https?:\/\//i) ? query : 'https://' + query;
+                    } else {
+                        window.location.href = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
