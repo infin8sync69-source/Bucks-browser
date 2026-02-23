@@ -1,7 +1,7 @@
 # Bucks Web3 Browser - Unified Installer
 # Ensures all dependencies for the Swarm are met.
 
-Write-Host "--- Bucks Swarm: Initializing Environment ---" -ForegroundColor Gold
+Write-Host "--- Bucks Swarm: Initializing Environment ---" -ForegroundColor Yellow
 
 # 1. Path Management
 $env:PATH = "C:\Program Files\nodejs;" + $env:PATH
@@ -10,7 +10,8 @@ $env:PATH = "C:\Program Files\nodejs;" + $env:PATH
 try {
     & node -v | Out-Null
     Write-Host "[✓] Node.js found." -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Error "Node.js not found. Please install it from nodejs.org"
     exit 1
 }
@@ -19,7 +20,8 @@ try {
 try {
     & python --version | Out-Null
     Write-Host "[✓] Python found." -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Error "Python not found. Please install it with 'pip' support."
     exit 1
 }
@@ -34,7 +36,7 @@ if (!(Test-Path "node_modules")) {
 # 5. Install Social Backend Dependencies
 Write-Host "Checking Social Backend dependencies..." -ForegroundColor Cyan
 Set-Location "C:\Users\shafe\.gemini\antigravity\scratch\Bucks-global\backend"
-& pip install -r requirements.txt
+& python -m pip install -r requirements.txt
 
 # 6. Initialize Data Directories
 Write-Host "Initializing Local Storage..." -ForegroundColor Cyan
@@ -47,5 +49,5 @@ if (!(Test-Path $chainPath)) {
     Write-Warning "Blockchain startup script not found at $chainPath"
 }
 
-Write-Host "--- Environment Ready ---" -ForegroundColor Gold
+Write-Host "--- Environment Ready ---" -ForegroundColor Yellow
 Write-Host "Run 'run_cluster.ps1' to start the swarm." -ForegroundColor Cyan
