@@ -120,9 +120,15 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadFile('index.html');
+  mainWindow.loadURL('http://localhost:3000');
   setupRequestFilters();
   mainWindow.webContents.openDevTools();
+
+  // Prevent external window opening and route to internal tab system
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    mainWindow.webContents.send('new-window', { url });
+    return { action: 'deny' };
+  });
 
   // Forward renderer console logs to main terminal
   mainWindow.webContents.on('console-message', (event, level, message) => {
