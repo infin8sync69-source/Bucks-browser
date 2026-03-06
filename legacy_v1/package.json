@@ -1,0 +1,69 @@
+{
+  "name": "bucks-browser",
+  "version": "1.0.0",
+  "description": "Bucks Web3 Browser",
+  "main": "main.js",
+  "author": "Bucks Developer",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:shell": "cd next-shell && npm run build",
+    "dist": "npm run build:shell && electron-builder",
+    "preview": "npm run build:shell && electron-builder --dir"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.2",
+    "@chainsafe/libp2p-noise": "^17.0.0",
+    "@chainsafe/libp2p-yamux": "^8.0.1",
+    "@helia/unixfs": "^7.0.4",
+    "@libp2p/identify": "^4.0.10",
+    "@libp2p/mplex": "^12.0.11",
+    "@libp2p/tcp": "^11.0.10",
+    "@libp2p/websockets": "^10.1.3",
+    "@multiformats/multiaddr": "^13.0.1",
+    "blockstore-fs": "^3.0.2",
+    "datastore-fs": "^11.0.2",
+    "electron-serve": "^3.0.1",
+    "helia": "^6.0.20",
+    "libp2p": "^3.1.3"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.bucks.browser",
+    "productName": "Bucks",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": null
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Bucks"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ipfs-node.js",
+      "next-shell/out/**/*",
+      "node_modules/**/*"
+    ]
+  }
+}

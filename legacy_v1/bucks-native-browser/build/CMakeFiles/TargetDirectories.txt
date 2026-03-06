@@ -1,0 +1,5 @@
+/Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/CMakeFiles/BucksNativeBrowser.dir
+/Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/CMakeFiles/edit_cache.dir
+/Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/CMakeFiles/rebuild_cache.dir
+/Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/CMakeFiles/BucksNativeBrowser_autogen_timestamp_deps.dir
+/Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/CMakeFiles/BucksNativeBrowser_autogen.dir
