@@ -17,6 +17,7 @@ const path = require("path");
 const fs = require("fs");
 const { app } = require("electron");
 const signalStore = require("./signal-store");
+const agentIntegration = require("./agent-integration");
 
 // ─── Constants ───
 const CLUSTER_SECRET =
@@ -73,12 +74,18 @@ async function initChat(helia, gossipSub, unixfs) {
   gossip.subscribe(CHAT_TOPIC);
   gossip.subscribe(BUNDLE_TOPIC);
 
+  // Initialize agent integration
+  await agentIntegration.checkAgentStatus();
+
   // Broadcast our pre-key bundle periodically
   publishPreKeyBundle();
   setInterval(publishPreKeyBundle, 30000); // Every 30s
 
   console.log(`[Chat] Engine initialized. Topic: ${CHAT_TOPIC}`);
   console.log(`[Chat] Key exchange topic: ${BUNDLE_TOPIC}`);
+  console.log(
+    `[Chat] Agent Integration ready. Current provider: ${agentIntegration.getAgentStatus().provider}`,
+  );
 }
 
 // ─── Pre-Key Bundle Exchange ───
@@ -548,6 +555,12 @@ module.exports = {
   getOwnBundle,
   processPeerBundle,
   hasPeerBundle,
+  // Agent integration exports
+  sendPromptToAgent: agentIntegration.sendPromptToAgent,
+  switchModelProvider: agentIntegration.switchModelProvider,
+  getModelProviderInfo: agentIntegration.getModelProviderInfo,
+  getAgentStatus: agentIntegration.getAgentStatus,
+  checkAgentStatus: agentIntegration.checkAgentStatus,
   CHAT_TOPIC,
   BUNDLE_TOPIC,
 };

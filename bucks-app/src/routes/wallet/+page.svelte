@@ -130,12 +130,26 @@
         const savedNode = localStorage.getItem(NODE_URL_KEY);
         if (savedNode) nodeUrl = savedNode;
 
+        // Check for payment prefill from EphemeralWidget
+        try {
+            const prefill = sessionStorage.getItem("bucks_pay_prefill");
+            if (prefill) {
+                const p = JSON.parse(prefill);
+                sendTo = p.to ?? "";
+                sendAmount = p.amount ?? "";
+                sessionStorage.removeItem("bucks_pay_prefill");
+            }
+        } catch {}
+
         const savedWallet = localStorage.getItem(STORAGE_KEY);
         if (savedWallet) {
             try {
                 const w = JSON.parse(savedWallet);
                 wallet = w;
+                // If we have payment prefill, open send tab directly
+                const hasPrefill = sendTo || sendAmount;
                 step = "dashboard";
+                if (hasPrefill) dashTab = "send";
                 fetchBalances();
                 fetchChainInfo();
             } catch (e) {
@@ -226,6 +240,30 @@
             step = "import";
             importError = "Invalid recovery phrase.";
         }
+    }
+
+    // Send Flow
+    async function handleSend() {
+        if (!wallet || !sendTo || !sendAmount) return;
+        sendPhase = "sending";
+        try {
+            const utxos: UTXO[] = await apiFetch("GET", `/api/utxo/${wallet.address}`) ?? [];
+            const tx = buildAndSignTransaction(
+                wallet.privateKey, wallet.address, sendTo,
+                parseFloat(sendAmount), utxos
+            );
+            const result = await apiFetch("POST", "/api/transactions/submit", tx);
+            sendResult = { success: true, hash: result?.hash ?? "pending" };
+            sendPhase = "receipt";
+            await fetchBalances();
+        } catch (e: any) {
+            sendResult = { success: false, error: e?.message ?? "Transaction failed" };
+            sendPhase = "receipt";
+        }
+    }
+
+    function resetSend() {
+        sendTo = ""; sendAmount = ""; sendPhase = "form"; sendResult = null;
     }
 
     // Reset Flow
@@ -431,9 +469,103 @@
                 </div>
             </div>
         </div>
+    {:else if step === "mnemonic-verify"}
+        <div class="min-h-full flex flex-col items-center py-20 p-8">
+            <div class="w-full max-w-lg" in:fade={{ duration: 300 }}>
+                <h2 class="text-3xl font-semibold mb-3 text-white">Verify Your Phrase</h2>
+                <p class="text-zinc-400 mb-8">
+                    Confirm 3 words from your recovery phrase to prove you saved it.
+                </p>
+                <div class="space-y-4 mb-6">
+                    {#each verifyIndices as wordIdx, i}
+                        <div>
+                            <label class="text-xs text-zinc-500 mb-1 block">Word #{wordIdx + 1}</label>
+                            <input
+                                type="text"
+                                bind:value={verifyAnswers[i]}
+                                oninput={() => verifyError = ""}
+                                placeholder={`Enter word #${wordIdx + 1}`}
+                                class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-zinc-600"
+                            />
+                        </div>
+                    {/each}
+                </div>
+                {#if verifyError}
+                    <div class="flex items-center gap-2 text-red-400 bg-red-500/10 p-4 rounded-xl mb-4 border border-red-500/20">
+                        <AlertTriangle class="w-5 h-5" />
+                        {verifyError}
+                    </div>
+                {/if}
+                <div class="flex gap-4">
+                    <button onclick={() => (step = "mnemonic-display")}
+                        class="px-6 py-4 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white text-sm transition-colors">
+                        Back
+                    </button>
+                    <button onclick={handleVerifyComplete}
+                        disabled={verifyAnswers.some(a => !a)}
+                        class="flex-1 bg-white text-black font-semibold py-4 rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50">
+                        Confirm &amp; Continue
+                    </button>
+                </div>
+            </div>
+        </div>
     {:else if step === "dashboard" && wallet}
         <div class="min-h-full p-8 pb-32">
             <div class="max-w-5xl mx-auto">
+                <!-- Tab strip -->
+                <div class="flex gap-1 mb-6 bg-zinc-900/60 p-1 rounded-xl w-fit border border-zinc-800">
+                    {#each [["overview","Overview"],["send","Send"]] as [tab, label]}
+                        <button
+                            onclick={() => dashTab = tab as DashboardTab}
+                            class="px-5 py-2 rounded-lg text-sm font-medium transition-colors {dashTab === tab ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}"
+                        >{label}</button>
+                    {/each}
+                </div>
+
+                {#if dashTab === "send"}
+                    <div class="max-w-lg" in:fade={{ duration: 200 }}>
+                        <h2 class="text-2xl font-semibold text-white mb-6">Send BUCKS</h2>
+                        {#if sendPhase === "form" || sendPhase === "review"}
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="text-xs text-zinc-500 mb-1 block">Recipient Address</label>
+                                    <input bind:value={sendTo} placeholder="0x..."
+                                        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-zinc-600" />
+                                </div>
+                                <div>
+                                    <label class="text-xs text-zinc-500 mb-1 block">Amount (BUCKS)</label>
+                                    <input bind:value={sendAmount} type="number" min="0" step="0.0001" placeholder="0.00"
+                                        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-zinc-600" />
+                                </div>
+                                <p class="text-xs text-zinc-600">Available: {(wallet.balance / 1e8).toFixed(4)} BUCKS</p>
+                                <button onclick={handleSend} disabled={!sendTo || !sendAmount || sendPhase === "sending"}
+                                    class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                                    <Send class="w-4 h-4" /> Send Transaction
+                                </button>
+                            </div>
+                        {:else if sendPhase === "sending"}
+                            <div class="flex flex-col items-center py-12 gap-4">
+                                <Loader2 class="w-8 h-8 text-blue-500 animate-spin" />
+                                <p class="text-zinc-400 text-sm">Broadcasting transaction...</p>
+                            </div>
+                        {:else if sendPhase === "receipt"}
+                            <div class="flex flex-col items-center py-10 gap-4 text-center" in:scale={{ duration: 400 }}>
+                                {#if sendResult?.success}
+                                    <CheckCircle class="w-14 h-14 text-green-400" />
+                                    <p class="text-xl font-semibold text-white">Sent!</p>
+                                    <p class="text-xs text-zinc-500 font-mono break-all max-w-xs">{sendResult.hash}</p>
+                                {:else}
+                                    <AlertTriangle class="w-14 h-14 text-red-400" />
+                                    <p class="text-xl font-semibold text-white">Failed</p>
+                                    <p class="text-sm text-red-400">{sendResult?.error}</p>
+                                {/if}
+                                <button onclick={resetSend} class="mt-2 px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm transition-colors">
+                                    New Transfer
+                                </button>
+                            </div>
+                        {/if}
+                    </div>
+                {:else}
                 <header class="flex items-center justify-between mb-8">
                     <div class="flex items-center gap-3">
                         <div
@@ -530,8 +662,9 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    {/if}
+                </div><!-- grid -->
+        {/if}<!-- end dashTab split -->
+            </div><!-- max-w-5xl -->
+        </div><!-- min-h-full -->
+    {/if}<!-- step dashboard -->
 </div>

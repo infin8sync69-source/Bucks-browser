@@ -1,5 +1,7 @@
 import { writable, get } from 'svelte/store';
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { isSwarmThinking, browserStore, activeTab } from './stores';
+import { matchIntent, INTENT_LABELS } from './intentMatcher';
 
 export interface A2UI {
     type: string;
@@ -24,21 +26,68 @@ export interface Message {
     ts: number;
 }
 
-declare global {
-    interface Window {
-        __TAURI__: {
-            invoke: <T>(cmd: string, args?: any) => Promise<T>;
-        };
-    }
+const AGENT_URL = "http://localhost:3000/api/v1/swarm/task";
+
+function isTauriRuntime(): boolean {
+    return typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__);
 }
 
-const invoke: (<T>(cmd: string, args?: any) => Promise<T>) | undefined = (window as any).__TAURI__?.invoke;
+async function invokeCommand<T>(cmd: string, args?: any): Promise<T> {
+    return tauriInvoke<T>(cmd, args);
+}
 
 function isURL(text: string): boolean {
     return (
         /^(https?:\/\/|file:\/\/|ipfs:\/\/|ipns:\/\/)/i.test(text) ||
         (/^[\w-]+(\.[\w-]+)+/.test(text) && !text.includes(" "))
     );
+}
+
+function buildOfflineFallback(prompt: string) {
+    const lower = prompt.toLowerCase();
+    if (lower.includes("go to") || lower.includes("open") || lower.includes("navigate") || lower.includes("browse")) {
+        const match = prompt.match(/(https?:\/\/[^\s]+|[\w-]+(\.[\w-]+)+[^\s]*)/i);
+        const url = match?.[1] ?? "https://duckduckgo.com";
+        return {
+            status: "offline_fallback",
+            evaluation: `Navigating to ${url}...`,
+            a2ui: { type: "navigate", url, content: `Navigating to ${url}...` }
+        };
+    }
+
+    if (lower.includes("search")) {
+        const query = prompt.replace(/search|for/gi, "").trim() || prompt;
+        return {
+            status: "offline_fallback",
+            evaluation: `Searching for '${query}'...`,
+            a2ui: { type: "search", content: query }
+        };
+    }
+
+    if (lower.includes("wallet")) {
+        return {
+            status: "offline_fallback",
+            evaluation: "Opening your Bucks wallet...",
+            a2ui: { type: "action", action: "open_wallet", content: "Opening your Bucks wallet..." }
+        };
+    }
+
+    if (lower.includes("ipfs")) {
+        return {
+            status: "offline_fallback",
+            evaluation: "Opening the decentralized IPFS workspace...",
+            a2ui: { type: "action", action: "open_ipfs", content: "Opening the decentralized IPFS workspace..." }
+        };
+    }
+
+    return {
+        status: "offline_fallback",
+        evaluation: `Agent server is offline. Local Bucks heard: '${prompt}'.`,
+        a2ui: {
+            type: "text",
+            content: `Agent server is offline. Local Bucks heard: '${prompt}'.`
+        }
+    };
 }
 
 function createSwarmStore() {
@@ -53,10 +102,19 @@ function createSwarmStore() {
     });
 
     async function checkOnline() {
-        if (!invoke) return;
         try {
-            const status = await invoke<boolean>("check_architect_status");
-            update(s => ({ ...s, isOnline: status }));
+            if (isTauriRuntime()) {
+                const status = await invokeCommand<boolean>("check_architect_status");
+                update(s => ({ ...s, isOnline: status }));
+                return;
+            }
+
+            const response = await fetch(AGENT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: "__ping__", current_url: null, current_title: null })
+            });
+            update(s => ({ ...s, isOnline: response.ok }));
         } catch {
             update(s => ({ ...s, isOnline: false }));
         }
@@ -85,10 +143,10 @@ function createSwarmStore() {
                     browserStore.createOrFocusTab("bucks://wallet");
                     break;
                 case "start_tor_node":
-                    if (invoke) await invoke("start_tor_node");
+                    if (isTauriRuntime()) await invokeCommand("start_tor_node");
                     break;
                 case "open_ipfs":
-                    browserStore.createTab("ipfs://");
+                    browserStore.createOrFocusTab("bucks://ipfs");
                     break;
             }
         } else if (type === "multi_tab_context") {
@@ -118,13 +176,29 @@ function createSwarmStore() {
 
             const userMsg: Message = { role: "user", content: text, ts: Date.now() };
             update(s => ({ ...s, messages: [...s.messages, userMsg], activeWidget: null }));
+
+            // ── Client-side intent match: show widget IMMEDIATELY ──
+            const intent = matchIntent(text);
+            if (intent.type) {
+                const meta = INTENT_LABELS[intent.type];
+                const intentWidget: Message = {
+                    role: "agent",
+                    content: meta?.description ?? "",
+                    a2ui: { type: intent.type, data: { query: text, ...intent.data } },
+                    cid: null,
+                    taskId: null,
+                    ts: Date.now(),
+                };
+                update(s => ({ ...s, activeWidget: intentWidget }));
+            }
+
             isSwarmThinking.set(true);
 
             try {
                 const tab = get(activeTab);
                 let result;
-                if (invoke) {
-                    const raw = await invoke<string>("query_swarm", {
+                if (isTauriRuntime()) {
+                    const raw = await invokeCommand<string>("query_swarm", {
                         prompt: text,
                         current_url: tab?.url || null,
                         current_title: tab?.title || null,
@@ -132,16 +206,20 @@ function createSwarmStore() {
                     result = JSON.parse(raw);
                 } else {
                     // Fallback for browser-only dev mode
-                    const response = await fetch("http://localhost:3000/api/v1/swarm/task", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            prompt: text,
-                            current_url: tab?.url || null,
-                            current_title: tab?.title || null,
-                        })
-                    });
-                    result = await response.json();
+                    try {
+                        const response = await fetch(AGENT_URL, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                prompt: text,
+                                current_url: tab?.url || null,
+                                current_title: tab?.title || null,
+                            })
+                        });
+                        result = response.ok ? await response.json() : buildOfflineFallback(text);
+                    } catch {
+                        result = buildOfflineFallback(text);
+                    }
                 }
                 // Clean up the evaluation text: if it contains the JSON block we extracted, strip it
                 let cleanContent = result.evaluation;
@@ -193,9 +271,9 @@ function createSwarmStore() {
         },
 
         async sendFeedback(taskId: string, score: number, correction?: string) {
-            if (!invoke) return;
+            if (!isTauriRuntime()) return;
             try {
-                await invoke("handle_feedback", {
+                await invokeCommand("handle_feedback", {
                     task_id: taskId,
                     score,
                     correction

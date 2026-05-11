@@ -1,12 +1,10 @@
 <script lang="ts">
-    import { onMount, createEventDispatcher } from "svelte";
+    import { onMount } from "svelte";
     import { fade, fly, scale } from "svelte/transition";
     import { isSwarmThinking, activeTab } from "./stores";
     import { cubicOut } from "svelte/easing";
 
-    const dispatch = createEventDispatcher();
-
-    let { isOnline = null } = $props();
+    let { isOnline = null, onsubmit }: { isOnline?: boolean | null; onsubmit?: (q: string) => void } = $props();
 
     let query = $state("");
     let inputEl: HTMLInputElement;
@@ -15,10 +13,12 @@
     let mouseY = $state(100);
 
     const SUGGESTIONS = [
-        "Search for SpaceX news",
-        "Summarize this page",
-        "Open my wallet",
-        "Research decentralized swarms",
+        "🚕 Book me a taxi",
+        "🍕 Order food nearby",
+        "💸 Send money",
+        "🌤️ Check the weather",
+        "📰 Latest crypto news",
+        "🌐 Upload to IPFS",
     ];
 
     let isNewTab = $derived($activeTab?.url === "bucks://newtab");
@@ -37,14 +37,14 @@
     async function handleSubmit(e: SubmitEvent) {
         e.preventDefault();
         if (!query.trim() || $isSwarmThinking) return;
-        dispatch("submit", { query });
+        onsubmit?.(query.trim());
         query = "";
     }
 
     function selectSuggestion(s: string) {
         query = s;
         if (!query.trim() || $isSwarmThinking) return;
-        dispatch("submit", { query });
+        onsubmit?.(query.trim());
         query = "";
     }
 </script>
