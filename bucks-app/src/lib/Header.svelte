@@ -1,33 +1,27 @@
 <script lang="ts">
     import { browserStore, activeTab } from "$lib/stores";
     import {
-        Menu,
+        LayoutGrid,
         X,
         Settings,
-        Home,
-        Globe,
-        MessageSquare,
-        Bell,
         ArrowLeft,
         ArrowRight,
         RotateCw,
         Search,
         Bookmark,
         Clock,
-        Moon,
         Wallet,
-        LayoutGrid,
-        User,
-        Server,
+        Moon,
     } from "lucide-svelte";
-    import { fade, scale, fly } from "svelte/transition";
+    import AppStore from "./AppStore.svelte";
+    import { scale } from "svelte/transition";
     import { cubicOut } from "svelte/easing";
     import { Window } from "@tauri-apps/api/window";
 
     const appWindow = new Window("main");
 
-    let isMenuOpen = $state(false);
     let isSettingsOpen = $state(false);
+    let storeOpen = $state(false);
     let urlInput = $state("");
     let urlInputEl = $state<HTMLInputElement | null>(null);
 
@@ -75,46 +69,6 @@
         "stackoverflow.com",
         "wikipedia.org",
         "reddit.com"
-    ];
-
-    const menuItems = [
-        {
-            label: "Profile",
-            icon: User,
-            href: "/login",
-            color: "text-zinc-400",
-        },
-        { label: "Home", icon: Home, href: "/", color: "text-blue-400" },
-        {
-            label: "Global Feed",
-            icon: Globe,
-            href: "/feed",
-            color: "text-purple-400",
-        },
-        {
-            label: "Services",
-            icon: LayoutGrid,
-            href: "/superapp",
-            color: "text-emerald-400",
-        },
-        {
-            label: "Implementation",
-            icon: Server,
-            href: "/implementation",
-            color: "text-amber-400",
-        },
-        {
-            label: "Messages",
-            icon: MessageSquare,
-            href: "/messages",
-            color: "text-blue-400",
-        },
-        {
-            label: "Notifications",
-            icon: Bell,
-            href: "/notifications",
-            color: "text-yellow-400",
-        },
     ];
 
     $effect(() => {
@@ -222,22 +176,24 @@
             class="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-white/5 to-blue-500/0 translate-x-[-100%] group-hover/header:translate-x-[100%] transition-transform duration-[2000ms] pointer-events-none"
         ></div>
 
-        <!-- Left: Branding & Nav -->
+        <!-- Left: App Store icon + Nav -->
         <div class="flex items-center space-x-1 relative z-10 pl-2">
+            <!-- App Store launcher (replaces hamburger) -->
             <button
-                onclick={() => (isMenuOpen = !isMenuOpen)}
-                class="w-10 h-10 flex items-center justify-center rounded-2xl hover:bg-white/5 transition-all active:scale-95 group/btn relative overflow-hidden"
+                onclick={() => storeOpen = !storeOpen}
+                title="App Store"
+                class="w-10 h-10 flex items-center justify-center rounded-2xl transition-all active:scale-95 group/btn relative overflow-hidden
+                       {storeOpen ? 'bg-violet-500/20 text-violet-300' : 'hover:bg-white/5 text-white/60 hover:text-white'}"
             >
-                <div
-                    class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-purple-500/10 opacity-0 group-hover/btn:opacity-100 transition-opacity"
-                ></div>
-                {#if isMenuOpen}
-                    <X size={20} class="text-white" />
+                <div class="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-blue-500/10 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl"></div>
+                {#if storeOpen}
+                    <X size={18} class="text-violet-300" />
                 {:else}
-                    <Menu
-                        size={20}
-                        class="text-white/60 group-hover/btn:text-white transition-colors"
-                    />
+                    <LayoutGrid size={18} />
+                {/if}
+                <!-- Subtle glow when open -->
+                {#if storeOpen}
+                    <div class="absolute inset-0 rounded-2xl ring-1 ring-violet-500/30"></div>
                 {/if}
             </button>
 
@@ -540,127 +496,9 @@
             </button>
         </div>
 
-        <!-- Side Drawer Menu -->
-        {#if isMenuOpen}
-            <div
-                role="button"
-                tabindex="0"
-                class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[120] pointer-events-auto"
-                onclick={() => (isMenuOpen = false)}
-                onkeydown={(e) => (e.key === "Escape") && (isMenuOpen = false)}
-                transition:fade={{ duration: 300 }}
-            >
-                <!-- Drawer panel -->
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <aside
-                    onclick={(e) => e.stopPropagation()}
-                    onkeydown={(e) => e.stopPropagation()}
-                    transition:fly={{ x: -20, duration: 350, easing: cubicOut }}
-                    class="absolute top-0 left-0 bottom-0 w-80 bg-[#08080b]/98 backdrop-blur-3xl border-r border-white/[0.06] flex flex-col overflow-hidden"
-                >
-                    <!-- User identity header -->
-                    <div class="px-5 pt-6 pb-4 border-b border-white/[0.06] flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-[1.5px] shrink-0">
-                            <div class="w-full h-full rounded-[13px] bg-[#08080b] flex items-center justify-center">
-                                <User size={18} class="text-white/80" />
-                            </div>
-                        </div>
-                        <div class="min-w-0">
-                            <p class="text-[12px] font-semibold text-white/80 truncate">Master Identity</p>
-                            <div class="flex items-center gap-1.5 mt-0.5">
-                                <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                                <p class="text-[9px] text-white/30 uppercase tracking-[0.25em]">Synchronized</p>
-                            </div>
-                        </div>
-                        <button onclick={() => (isMenuOpen = false)} class="ml-auto text-white/20 hover:text-white/50 transition-colors p-1">
-                            <X size={16} />
-                        </button>
-                    </div>
-
-                    <!-- Scrollable content -->
-                    <div class="flex-1 overflow-y-auto no-scrollbar py-3 px-3 space-y-5">
-
-                        <!-- Navigate -->
-                        <div>
-                            <p class="text-[8px] uppercase tracking-[0.3em] text-white/25 font-bold px-2 mb-2">Navigate</p>
-                            <div class="space-y-0.5">
-                                {#each menuItems as item}
-                                    {@const Icon = item.icon}
-                                    <button
-                                        onclick={() => { isMenuOpen = false; browserStore.navigateActiveTab(item.href === "/" ? "bucks://newtab" : `bucks:/${item.href}`); }}
-                                        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] transition-all group text-left active:scale-[0.98]"
-                                    >
-                                        <div class="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0">
-                                            <Icon size={14} class={item.color} />
-                                        </div>
-                                        <span class="text-[12px] text-white/50 group-hover:text-white/80 transition-colors font-medium">{item.label}</span>
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-
-                        <!-- Services -->
-                        <div>
-                            <p class="text-[8px] uppercase tracking-[0.3em] text-white/25 font-bold px-2 mb-2">Services</p>
-                            <div class="grid grid-cols-2 gap-1.5">
-                                {#each [
-                                    { emoji: "🔍", label: "Local Discovery",  desc: "Find nearby peers",      href: "bucks://superapp" },
-                                    { emoji: "🚕", label: "Taxi Dispatch",    desc: "Book a ride",           href: "bucks://superapp" },
-                                    { emoji: "🏪", label: "Provider Modes",   desc: "Set up your store",     href: "bucks://superapp" },
-                                    { emoji: "🌐", label: "IPFS Storage",     desc: "Decentralised files",   href: "bucks://ipfs"     },
-                                    { emoji: "💰", label: "Wallet",           desc: "Manage funds",          href: "bucks://wallet"   },
-                                    { emoji: "🗂️", label: "Node Network",     desc: "Implementation status", href: "bucks://implementation" },
-                                ] as svc}
-                                    <button
-                                        onclick={() => { isMenuOpen = false; browserStore.navigateActiveTab(svc.href); }}
-                                        class="flex flex-col gap-1.5 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.07] hover:border-white/[0.1] transition-all text-left active:scale-[0.97] group"
-                                    >
-                                        <span class="text-xl">{svc.emoji}</span>
-                                        <div>
-                                            <p class="text-[11px] font-semibold text-white/65 group-hover:text-white/85 transition-colors leading-tight">{svc.label}</p>
-                                            <p class="text-[9px] text-white/25 mt-0.5 leading-tight">{svc.desc}</p>
-                                        </div>
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-
-                        <!-- Network status -->
-                        <div>
-                            <p class="text-[8px] uppercase tracking-[0.3em] text-white/25 font-bold px-2 mb-2">Network Stack</p>
-                            <div class="rounded-2xl border border-white/[0.05] bg-white/[0.02] divide-y divide-white/[0.04] overflow-hidden">
-                                {#each [
-                                    { label: "DID Identity",  status: "active",  dot: "bg-emerald-400" },
-                                    { label: "Signed Events", status: "active",  dot: "bg-emerald-400" },
-                                    { label: "IPFS Node",     status: "active",  dot: "bg-emerald-400" },
-                                    { label: "Locality Index",status: "planned", dot: "bg-white/20"    },
-                                    { label: "P2P Relay",     status: "phase 2", dot: "bg-amber-400"   },
-                                    { label: "Mock Staking",  status: "phase 3", dot: "bg-blue-400"    },
-                                ] as row}
-                                    <div class="flex items-center justify-between px-3 py-2">
-                                        <div class="flex items-center gap-2">
-                                            <span class="w-1.5 h-1.5 rounded-full {row.dot}"></span>
-                                            <span class="text-[11px] text-white/50">{row.label}</span>
-                                        </div>
-                                        <span class="text-[9px] text-white/25 uppercase tracking-wide">{row.status}</span>
-                                    </div>
-                                {/each}
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div class="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between">
-                        <span class="text-[9px] text-white/20 uppercase tracking-[0.2em]">Bucks Browser v0.1</span>
-                        <button
-                            onclick={() => { isMenuOpen = false; browserStore.navigateActiveTab("bucks://settings"); }}
-                            class="text-white/25 hover:text-white/60 transition-colors"
-                        >
-                            <Settings size={14} />
-                        </button>
-                    </div>
-                </aside>
-            </div>
-        {/if}
     </div>
 </header>
+
+{#if storeOpen}
+    <AppStore onclose={() => storeOpen = false} />
+{/if}

@@ -3,8 +3,21 @@
     import { fade, fly, scale } from "svelte/transition";
     import { isSwarmThinking, activeTab } from "./stores";
     import { cubicOut } from "svelte/easing";
+    import { MessageSquare } from "lucide-svelte";
 
-    let { isOnline = null, onsubmit }: { isOnline?: boolean | null; onsubmit?: (q: string) => void } = $props();
+    let {
+        isOnline = null,
+        slmReady = false,
+        chatOpen = false,
+        onsubmit,
+        onopenchat,
+    }: {
+        isOnline?: boolean | null;
+        slmReady?: boolean;
+        chatOpen?: boolean;
+        onsubmit?: (q: string) => void;
+        onopenchat?: () => void;
+    } = $props();
 
     let query = $state("");
     let inputEl: HTMLInputElement;
@@ -53,22 +66,19 @@
     bind:this={containerEl}
     onmousemove={handleMouseMove}
     role="presentation"
-    class="agentic-bar-fixed fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl z-[100] px-4 transition-all duration-1000
+    class="agentic-bar-fixed relative w-full transition-all duration-500
            {isNewTab
-        ? 'pb-10 scale-100'
-        : 'pb-0 scale-90 translate-y-2 hover:translate-y-0 opacity-40 hover:opacity-100 hover:scale-95'}"
+        ? 'pb-10'
+        : 'pb-0 opacity-50 hover:opacity-100 hover:translate-y-[-2px]'}"
     in:fly={{ y: 50, duration: 800, easing: cubicOut }}
 >
-    <!-- Aurora Glow Backdrop (Only visible on home or when thinking/hovered) -->
-    <div
-        class="absolute -inset-4 rounded-[40px] blur-3xl pointer-events-none transition-all duration-1000
-               {isNewTab || $isSwarmThinking
-            ? 'opacity-20'
-            : 'opacity-0 group-hover:opacity-10'}"
-        style="
-            background: radial-gradient(circle at {mouseX}% {mouseY}%, #8b5cf6, #3b82f6, transparent);
-        "
-    ></div>
+    <!-- Aurora glow — only on newtab or while thinking -->
+    {#if isNewTab || $isSwarmThinking}
+        <div
+            class="absolute -inset-4 rounded-[40px] blur-3xl pointer-events-none opacity-20 transition-opacity duration-1000"
+            style="background: radial-gradient(circle at {mouseX}% {mouseY}%, #8b5cf6, #3b82f6, transparent);"
+        ></div>
+    {/if}
 
     <form
         onsubmit={handleSubmit}
@@ -78,13 +88,12 @@
             : 'bg-black/20 backdrop-blur-lg'}"
         class:thinking={$isSwarmThinking}
     >
-        <!-- Status Indicator -->
-        <div class="px-3 flex items-center justify-center">
-            <div class="relative">
+        <!-- Status Indicators -->
+        <div class="px-3 flex items-center gap-1.5">
+            <!-- Swarm / agent server dot -->
+            <div class="relative" title={isOnline ? "Agent server online" : "Agent server offline"}>
                 {#if $isSwarmThinking}
-                    <div
-                        class="w-2 h-2 rounded-full bg-violet-400 animate-ping absolute inset-0"
-                    ></div>
+                    <div class="w-2 h-2 rounded-full bg-violet-400 animate-ping absolute inset-0"></div>
                 {/if}
                 <div
                     class="w-2 h-2 rounded-full shadow-lg transition-colors duration-500
@@ -95,6 +104,11 @@
                           : 'bg-white/10'}"
                 ></div>
             </div>
+            <!-- SLM (Qwen2.5:3b) dot -->
+            <div
+                class="w-1.5 h-1.5 rounded-full transition-colors duration-500 {slmReady ? 'bg-sky-400/70' : 'bg-white/10'}"
+                title={slmReady ? "Qwen2.5:3b on-device ready" : "Qwen2.5:3b not loaded"}
+            ></div>
         </div>
 
         <input
@@ -102,19 +116,32 @@
             bind:value={query}
             type="text"
             placeholder={$isSwarmThinking
-                ? "Architect is orchestrating..."
+                ? "Thinking..."
                 : isNewTab
-                  ? "Welcome master! Command the swarm..."
-                  : "Command the swarm..."}
+                  ? slmReady ? "Command the swarm (Qwen on-device)..." : "Command the swarm..."
+                  : slmReady ? "Ask Bucks (Qwen2.5 on-device)..." : "Command the swarm..."}
             disabled={$isSwarmThinking}
             class="flex-1 bg-transparent border-none outline-none text-white text-sm font-light tracking-wide py-2.5 px-2 placeholder-white/20 disabled:opacity-50"
         />
+
+        <!-- Chat history button -->
+        <button
+            type="button"
+            onclick={onopenchat}
+            title="Open chat"
+            class="relative flex items-center justify-center w-8 h-8 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-all duration-300 mr-1"
+        >
+            <MessageSquare size={14} />
+            {#if chatOpen}
+                <span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+            {/if}
+        </button>
 
         <!-- Action Button (Smaller in compact mode) -->
         <button
             type="submit"
             disabled={!query.trim() || $isSwarmThinking}
-            class="ml-2 bg-white/5 hover:bg-white/10 text-white/80 rounded-full px-5 py-2 text-[10px] font-medium tracking-widest uppercase transition-all duration-300 disabled:opacity-0 disabled:translate-x-4 active:scale-95 border border-white/5"
+            class="ml-1 bg-white/5 hover:bg-white/10 text-white/80 rounded-full px-5 py-2 text-[10px] font-medium tracking-widest uppercase transition-all duration-300 disabled:opacity-0 disabled:translate-x-4 active:scale-95 border border-white/5"
         >
             {$isSwarmThinking ? "Wait" : "Send"}
         </button>

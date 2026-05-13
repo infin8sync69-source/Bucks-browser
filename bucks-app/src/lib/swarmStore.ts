@@ -90,15 +90,20 @@ function buildOfflineFallback(prompt: string) {
     };
 }
 
+const SLM_STATUS_URL = "http://localhost:3000/api/v1/slm/status";
+const SLM_QUERY_URL  = "http://localhost:3000/api/v1/slm/query";
+
 function createSwarmStore() {
     const { subscribe, set, update } = writable<{
         messages: Message[];
         activeWidget: Message | null;
         isOnline: boolean | null;
+        slmReady: boolean;
     }>({
         messages: [],
         activeWidget: null,
-        isOnline: null
+        isOnline: null,
+        slmReady: false,
     });
 
     async function checkOnline() {
@@ -106,17 +111,30 @@ function createSwarmStore() {
             if (isTauriRuntime()) {
                 const status = await invokeCommand<boolean>("check_architect_status");
                 update(s => ({ ...s, isOnline: status }));
-                return;
+            } else {
+                const response = await fetch(AGENT_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt: "__ping__", current_url: null, current_title: null })
+                });
+                update(s => ({ ...s, isOnline: response.ok }));
             }
-
-            const response = await fetch(AGENT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: "__ping__", current_url: null, current_title: null })
-            });
-            update(s => ({ ...s, isOnline: response.ok }));
         } catch {
             update(s => ({ ...s, isOnline: false }));
+        }
+        // Always also poll SLM status (non-blocking)
+        checkSlmReady().catch(() => {});
+    }
+
+    async function checkSlmReady() {
+        try {
+            const r = await fetch(SLM_STATUS_URL, { signal: AbortSignal.timeout(3000) });
+            if (r.ok) {
+                const data = await r.json();
+                update(s => ({ ...s, slmReady: !!data.ready }));
+            }
+        } catch {
+            // SLM not reachable — leave slmReady as-is
         }
     }
 
@@ -162,6 +180,7 @@ function createSwarmStore() {
     return {
         subscribe,
         checkOnline,
+        checkSlmReady,
         clearHistory: () => update(s => ({ ...s, messages: [], activeWidget: null })),
         closeWidget: () => update(s => ({ ...s, activeWidget: null })),
         sendQuery: async (queryStr: string) => {
@@ -278,11 +297,40 @@ function createSwarmStore() {
                     score,
                     correction
                 });
-                console.log(`[SwarmStore] Feedback sent for task ${taskId}`);
             } catch (e) {
                 console.error("[SwarmStore] Failed to send feedback:", e);
             }
-        }
+        },
+
+        /** Fire a query directly at the on-device SLM (Qwen2.5:3b) — bypasses routing. */
+        async querySLM(prompt: string) {
+            if (get(isSwarmThinking)) return;
+            const userMsg: Message = { role: "user", content: prompt, ts: Date.now() };
+            update(s => ({ ...s, messages: [...s.messages, userMsg] }));
+            isSwarmThinking.set(true);
+            try {
+                const r = await fetch(SLM_QUERY_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt }),
+                });
+                const result = r.ok ? await r.json() : { status: "error", evaluation: "SLM unreachable", a2ui: null };
+                const agentMsg: Message = {
+                    role: result.status === "error" ? "error" : "agent",
+                    content: result.evaluation ?? "",
+                    a2ui: result.a2ui ?? null,
+                    taskId: result.task_id ?? null,
+                    ts: Date.now(),
+                };
+                update(s => ({ ...s, messages: [...s.messages, agentMsg], activeWidget: agentMsg }));
+                if (agentMsg.a2ui) await dispatchA2UI(agentMsg.a2ui);
+            } catch (err: any) {
+                const errorMsg: Message = { role: "error", content: `SLM error: ${err.message}`, ts: Date.now() };
+                update(s => ({ ...s, messages: [...s.messages, errorMsg] }));
+            } finally {
+                isSwarmThinking.set(false);
+            }
+        },
     };
 }
 
