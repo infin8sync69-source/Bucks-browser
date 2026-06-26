@@ -87,8 +87,7 @@ cd agent
 The Agent Server hosts the RAG memory indexing, WorldSoul identity registry, and P2P gossipsub swarm bridge.
 ```bash
 cd agent
-source .venv/bin/activate
-MODEL_PROVIDER=ollama python -m uvicorn server_lite:app --host 0.0.0.0 --port 3000
+./start_agent_server.sh
 ```
 
 ### Terminal 3: Electron Browser
