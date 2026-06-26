@@ -13,3 +13,6 @@ duckduckgo-search==6.3.7
 python-dotenv==1.0.1
 pydantic==2.9.2
 openai>=1.0.0
+# ── Agentic extensions ──────────────────────────────────────────
+cryptography>=42.0
+aiohttp>=3.9

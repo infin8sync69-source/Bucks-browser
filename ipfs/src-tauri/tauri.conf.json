@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bucks Files",
+  "version": "1.0.0",
+  "identifier": "local.bucks.files",
+  "build": {
+    "frontendDist": "../desktop-ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Bucks Files",
+        "dragDropEnabled": false,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "backgroundColor": "#1e2128"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "Utility",
+    "icon": ["icons/icon.icns"]
+  }
+}

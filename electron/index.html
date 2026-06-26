@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bucks Browser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Native App Window Drag Region for Frameless Frame */
+    .titlebar-drag-region {
+      position: fixed;
+      top: 0; left: 0; right: 0; height: 22px;
+      -webkit-app-region: drag;
+      z-index: 9999;
+    }
+    #top-left-logo {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      z-index: 100;
+      pointer-events: none;
+    }
+    body.platform-darwin #top-left-logo {
+      top: 32px !important;
+    }
+    body.platform-darwin #main-content-wrapper {
+      padding-top: 30px !important;
+    }
+    body.web-mode #top-left-logo {
+      display: none !important;
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background:#1a1a1c; overflow:hidden;">
+  <div class="titlebar-drag-region"></div>
+  
+  <!-- Ambient Environmental Theme Background Glows -->
+  <div id="bg-glow" style="position:fixed; inset:0; z-index:0; pointer-events:none; transition: background 0.5s ease; background: radial-gradient(58% 50% at 18% 8%, rgba(123,63,228,0.15), transparent 62%), radial-gradient(45% 45% at 86% 70%, rgba(123,63,228,0.1), transparent 65%), linear-gradient(165deg, #1f1f23 0%, #151518 55%, #0d0d10 100%);"></div>
+  <canvas id="three-bg-canvas" style="position:fixed; inset:0; z-index:0; pointer-events:none;"></canvas>
+  <div style="position:fixed; inset:0; z-index:0; background:radial-gradient(120% 110% at 50% 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.34) 100%); pointer-events:none;"></div>
+
+  <!-- ROOT APP CONTAINER -->
+  <div class="app-container" style="position:relative; z-index:1; min-height:100vh; width:100%; overflow:hidden; font-family:'Instrument Sans',system-ui,sans-serif; color:#fff;">
+
+    <!-- LEFT DOCK -->
+    <div class="left-dock" style="position:fixed; left:20px; top:50%; transform:translateY(-50%); z-index:40; display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 9px; border-radius:26px; background:linear-gradient(150deg,rgba(74,74,78,0.52),rgba(30,30,34,0.42)); backdrop-filter:blur(42px) brightness(1.08); -webkit-backdrop-filter:blur(42px) brightness(1.08); border:1px solid rgba(255,255,255,0.2); box-shadow:0 30px 70px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.34);">
+      <button id="nav-dashboard" title="Home" class="dock-btn active">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7M6 10v9h12v-9"></path></svg>
+      </button>
+      <button id="nav-wallet-side" title="Wallet" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+      </button>
+      <button id="nav-apps" title="Apps" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"></path></svg>
+      </button>
+      <button id="nav-spaces" title="Spaces" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14a2 2 0 0 1 2 2v3H3V5a2 2 0 0 1 2-2zM3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+      </button>
+      <!-- FILES ICON -->
+      <button id="nav-files" title="Files" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      </button>
+      <!-- DWEB STUDIO ICON -->
+      <button id="nav-studio" title="DWeb Studio" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+      </button>
+      <button id="nav-add-widget" title="Widget Library" class="dock-btn">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 17.5h7M17.5 14v7"></path></svg>
+      </button>
+    </div>
+
+    <!-- LEFT DOCK DRAWER ARROW (visible in web-mode for all tabs) -->
+    <div id="left-dock-trigger" style="position:fixed; left:0; top:50%; transform:translateY(-50%); z-index:99; width:18px; height:64px; background:linear-gradient(150deg,rgba(74,74,78,0.7),rgba(30,30,34,0.6)); backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.22); border-left:none; border-radius:0 14px 14px 0; cursor:pointer; display:none; align-items:center; justify-content:center; box-shadow:4px 0 16px rgba(0,0,0,0.35); transition: width 0.2s, background 0.2s;">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" style="transition: transform 0.2s;"><path d="M9 18l6-6-6-6"></path></svg>
+    </div>
+
+    <!-- MAIN DISPLAY AREA -->
+    <div class="main-content-wrapper" id="main-content-wrapper" style="position:relative; z-index:5; min-height:100vh; padding:22px 24px 168px 116px; display:flex; flex-direction:column; height: 100vh; box-sizing: border-box;">
+
+      <!-- STANDALONE BUCKS LOGO -->
+      <div id="top-left-logo" style="display:flex; align-items:center; justify-content:center;">
+        <img src="bucks-logo.png" style="width:64px; height:64px; object-fit:contain; filter:brightness(0) invert(1);" alt="Bucks Logo">
+      </div>
+
+      <!-- URL BAR + TAB MANAGEMENT + TOP-RIGHT TOOLS -->
+      <div class="top-bar-container" style="display:flex; justify-content:center; margin-bottom:14px; flex-shrink: 0; width: 100%;">
+        <div class="top-bar-inner" style="width:100%; max-width:1180px; display:flex; align-items:center; gap:12px; padding:6px 12px; border-radius:20px; background:linear-gradient(150deg,rgba(74,74,78,0.5),rgba(30,30,34,0.42)); backdrop-filter:blur(42px) brightness(1.08); -webkit-backdrop-filter:blur(42px) brightness(1.08); border:1px solid rgba(255,255,255,0.2); box-shadow:0 18px 46px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.32);">
+
+          <!-- NAVIGATION CONTROLS -->
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink: 0;">
+            <button id="btn-back" title="Back" class="urlbar-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+            <button id="btn-forward" title="Forward" class="urlbar-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></button>
+            <button id="btn-refresh" title="Refresh" class="urlbar-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg></button>
+          </div>
+
+          <!-- ADDRESS / SEARCH INPUT -->
+          <div style="flex: 0 1 320px; display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:12px; background:rgba(0,0,0,0.22); border:1px solid rgba(255,255,255,0.08); position:relative; flex-shrink: 0;">
+            <span id="security-icon" style="display:flex;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3"></path></svg></span>
+            <input type="text" id="address-bar" placeholder="Search or enter website" style="flex:1; min-width:0; background:transparent; border:none; outline:none; color:#fff; font-family:inherit; font-size:13.5px; text-align:center;">
+            <button id="btn-bookmark" style="background:transparent; border:none; cursor:pointer; padding:0; display:flex; color: rgba(255,255,255,0.5);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg></button>
+            <button id="btn-adblock" style="background:transparent; border:none; cursor:pointer; padding:0; display:flex; align-items:center; gap:4px; margin-left: 4px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+              <span id="blocked-count" style="font-size: 10px; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 4px;">0</span>
+            </button>
+            <div id="omnibox-dropdown" class="hidden"></div>
+
+            <!-- NEW NAV AI CHAT DROPDOWN -->
+            <div id="nav-chat-panel" class="hidden" style="position:absolute; top:100%; left:50%; transform:translateX(-50%); width:600px; height:500px; margin-top:14px; z-index:200; background:linear-gradient(155deg,rgba(70,70,74,0.85),rgba(30,30,34,0.75)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.2); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3); border-radius:24px; padding:18px; display:flex; flex-direction:column; gap:12px;">
+              
+              <!-- Chat Header -->
+              <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
+                <span style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.8); letter-spacing:0.02em;">Bucks Agent</span>
+                <div style="display:flex; gap:8px;">
+                  <button id="btn-nav-chat-refresh" style="background:rgba(255,255,255,0.08); border:none; cursor:pointer; padding:4px 8px; border-radius:6px; color:#fff; font-size:11px; display:flex; align-items:center; gap:4px; transition:background 0.2s;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg> Clear
+                  </button>
+                  <button id="btn-nav-chat-dismiss" style="width:24px; height:24px; border-radius:6px; border:none; cursor:pointer; background:rgba(255,255,255,0.1); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; padding:0; transition:background 0.2s;">✕</button>
+                </div>
+              </div>
+
+              <!-- Chat Messages Container -->
+              <div id="nav-chat-messages-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:14px; padding-right:6px;" class="scrollbar-thin">
+                <!-- Messages will be appended here dynamically -->
+              </div>
+
+              <!-- Default Chat Chips -->
+              <div id="nav-chat-chips-container" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:4px;">
+                <button class="nav-chat-chip" data-query="Find flights to Lisbon" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Flights to Lisbon ✈️</button>
+                <button class="nav-chat-chip" data-query="Compare MacBook Air M4 vs Pro M4" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Compare MacBooks 💻</button>
+                <button class="nav-chat-chip" data-query="Summarize active page" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Summarize Page 📄</button>
+              </div>
+
+            </div>
+          </div>
+
+          <button id="btn-new-tab" title="New tab" class="urlbar-btn" style="flex-shrink: 0;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+          
+          <div style="width:1px; height:24px; background:rgba(255,255,255,0.15); margin:0 4px; flex-shrink: 0;"></div>
+
+          <!-- SPACE SELECTOR -->
+          <div id="space-selector" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); cursor: pointer; flex-shrink: 0; font-size: 12.5px; font-weight: 600; position: relative; user-select: none;">
+            <span id="space-selector-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #52b6ff; box-shadow: 0 0 8px #52b6ff;"></span>
+            <span id="space-selector-name">General</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="opacity: 0.7; margin-left: 2px;"><path d="M6 9l6 6 6-6"></path></svg>
+            
+            <!-- SPACE SELECTOR DROPDOWN -->
+            <div id="space-selector-dropdown" class="hidden" style="position: absolute; top: 38px; left: 0; z-index: 200; width: 160px; padding: 6px; border-radius: 14px; background: rgba(30,30,34,0.97); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 12px 36px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 2px;">
+              <!-- Rendered dynamically by renderer.js -->
+            </div>
+          </div>
+
+          <div style="width:1px; height:24px; background:rgba(255,255,255,0.15); margin:0 4px; flex-shrink: 0;"></div>
+
+          <!-- TAB BAR (SCROLLABLE) -->
+          <div style="flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow-x:auto; padding:2px 0; scrollbar-width:none;" id="tabs-container" class="scrollbar-none">
+            <!-- Tabs are rendered dynamically here by renderer.js -->
+          </div>
+
+          <!-- Divider -->
+          <div style="width:1px; height:24px; background:rgba(255,255,255,0.15); margin:0 4px; flex-shrink: 0;"></div>
+
+          <!-- TOP-RIGHT PROFILE & MORE MENU -->
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink: 0; position:relative;">
+            
+            <!-- PROFILE SECTION -->
+            <div id="profile-section" style="display:flex; align-items:center; gap:8px; padding:4px 8px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); cursor:pointer;">
+              <div style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg, #a978ff, #7b3fe4); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff;">U</div>
+              <span style="font-size:12.5px; font-weight:600; color:rgba(255,255,255,0.85);">alex@bucks.ai</span>
+            </div>
+
+            <!-- 3 DOTS MENU BUTTON -->
+            <button id="btn-more-menu" title="More options" class="urlbar-btn" style="width:34px; height:34px; border-radius:10px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="1.5" /><circle cx="6" cy="12" r="1.5" /><circle cx="18" cy="12" r="1.5" /></svg>
+            </button>
+
+            <!-- 3 DOTS DROPDOWN MENU -->
+            <div id="more-dropdown-menu" class="hidden" style="position:absolute; top:42px; right:0; z-index:100; width:188px; padding:6px; border-radius:16px; background:rgba(30,30,34,0.92); backdrop-filter:blur(30px); border:1px solid rgba(255,255,255,0.14); box-shadow:0 12px 36px rgba(0,0,0,0.4);">
+              <button class="dropdown-item" id="dropdown-private" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><path d="M2 12s3-7 10-7 10 7 10 7"></path><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="3" x2="21" y2="21"></line></svg>
+                New Private Window
+              </button>
+              <button class="dropdown-item" id="dropdown-downloads" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Downloads
+              </button>
+              <button class="dropdown-item" id="dropdown-print" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Print…
+              </button>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 12px;">
+                <span style="font-size:12px; color:rgba(255,255,255,0.55);">Zoom</span>
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <button id="btn-zoom-out" title="Zoom out" style="width:24px; height:24px; border-radius:7px; border:none; cursor:pointer; background:rgba(255,255,255,0.08); color:#fff; font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center;">−</button>
+                  <span id="zoom-level" style="font-size:12px; min-width:38px; text-align:center; color:rgba(255,255,255,0.85);">100%</span>
+                  <button id="btn-zoom-in" title="Zoom in" style="width:24px; height:24px; border-radius:7px; border:none; cursor:pointer; background:rgba(255,255,255,0.08); color:#fff; font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center;">+</button>
+                </div>
+              </div>
+              <div style="height:1px; background:rgba(255,255,255,0.1); margin:6px 8px;"></div>
+              <button class="dropdown-item" id="dropdown-ipfs" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><circle cx="12" cy="5" r="3" /><circle cx="5" cy="19" r="3" /><circle cx="19" cy="19" r="3" /><line x1="12" y1="8" x2="5" y2="16" /><line x1="12" y1="8" x2="19" y2="16" /></svg>
+                IPFS Social
+              </button>
+              <button class="dropdown-item" id="dropdown-history" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><path d="M3 12a9 9 0 1 1 9 9 9 9 0 0 1-7-3.4M3 3v3.4h3.4M12 7v5l3.5 2"></path></svg>
+                History
+              </button>
+              <button class="dropdown-item" id="dropdown-bookmarks" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
+                Bookmarks
+              </button>
+              <button class="dropdown-item" id="dropdown-settings" style="width:100%; display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:none; background:transparent; color:#fff; cursor:pointer; font-family:inherit; font-size:13.5px; text-align:left;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.8; color:#fff;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                Settings
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- PINNED APPS (below URL bar) - HIDDEN -->
+      <div class="pinned-apps-container" style="display:none; justify-content:center; margin-bottom:16px; flex-shrink: 0;">
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 9px; border-radius:20px; background:linear-gradient(150deg,rgba(74,74,78,0.5),rgba(30,30,34,0.42)); backdrop-filter:blur(42px) brightness(1.08); -webkit-backdrop-filter:blur(42px) brightness(1.08); border:1px solid rgba(255,255,255,0.2); box-shadow:0 18px 46px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.32);">
+          <button class="pinned-app-btn" data-app="music" title="Music" style="width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, #ff7a96, #ff2d6e); box-shadow: 0 7px 16px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.45); transition: transform 0.15s;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12M9 18a3 3 0 11-6 0 3 3 0 016 0zM19 16a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+          </button>
+          <button class="pinned-app-btn" data-app="photos" title="Photos" style="width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, #a978ff, #7b3fe4); box-shadow: 0 7px 16px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.45); transition: transform 0.15s;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+          </button>
+          <button class="pinned-app-btn" data-app="mail" title="Mail" style="width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, #52b6ff, #2d7dff); box-shadow: 0 7px 16px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.45); transition: transform 0.15s;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+          </button>
+          <button class="pinned-app-btn" data-app="maps" title="Maps" style="width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, #54d98a, #22b85a); box-shadow: 0 7px 16px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.45); transition: transform 0.15s;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+          </button>
+          <button class="pinned-app-btn" data-app="calendar" title="Calendar" style="width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, #ff8275, #ff3b30); box-shadow: 0 7px 16px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.45); transition: transform 0.15s;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          </button>
+          <div style="width:1px; height:30px; background:rgba(255,255,255,0.2); margin:0 5px;"></div>
+          <button id="btn-all-apps" style="display:inline-flex; align-items:center; gap:9px; padding:9px 13px 9px 11px; border-radius:13px; border:none; cursor:pointer; background:transparent; color:#fff; font-family:inherit; font-size:14px; font-weight:600;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.4"></rect><rect x="14" y="4" width="6" height="6" rx="1.4"></rect><rect x="4" y="14" width="6" height="6" rx="1.4"></rect><rect x="14" y="14" width="6" height="6" rx="1.4"></rect></svg>
+            All Apps
+          </button>
+        </div>
+      </div>
+
+      <!-- MAIN WEB VIEW CONTENT CONTAINER -->
+      <main id="browser-content" style="flex:1; position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; width: 100%; background: transparent;">
+        
+        <!-- DASHBOARD CENTER WINDOW -->
+        <div id="dashboard-window" style="width:100%; max-width:880px; z-index: 10; display: flex; flex-direction: column;">
+          <div style="display: flex; flex-direction: column;">
+            
+            <!-- HOME VIEW: WIDGET BOARD -->
+            <div id="view-home" class="dashboard-view hidden">
+              <div style="display:none !important; align-items:center; margin-bottom:18px; position:relative; z-index:10;">
+                <span style="font-size:13px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:rgba(255,255,255,0.5);">Workspace Board</span>
+                <span style="margin-left:12px; font-size:12.5px; color:rgba(255,255,255,0.4);">Drag tiles to rearrange · Click board to open Widget Library</span>
+              </div>
+
+              <!-- Widgets Canvas Board -->
+              <div id="widgets-board" style="display:none !important; position:relative; flex:1; min-height:560px; width:100%; cursor:default;">
+                <!-- Widgets will be rendered dynamically by renderer.js -->
+              </div>
+            </div>
+
+            <!-- NEW TAB VIEW — Bucks Dashboard -->
+            <div id="view-newtab" class="dashboard-view hidden">
+
+              <!-- ZONE 1: Hero Clock -->
+              <div class="nt-hero">
+                <div id="nt-time" class="nt-time">00:00</div>
+                <div id="nt-greeting" class="nt-greeting">Good morning</div>
+                <div id="nt-date" class="nt-date"></div>
+              </div>
+
+              <!-- ZONE 2: App Dock — single pill row, no wrap -->
+              <div class="nt-dock-wrap">
+                <div class="nt-dock">
+                  <!-- Mini apps -->
+                  <button class="nt-app-btn" data-url="bucks://calc" title="Calculator">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#7b3fe4,#a978ff);box-shadow:0 4px 14px rgba(123,63,228,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="10" y2="18"/><line x1="14" y1="18" x2="16" y2="18"/></svg>
+                    </div>
+                    <span>Calc</span>
+                  </button>
+                  <button class="nt-app-btn" data-url="bucks://notes" title="Notes">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#f7931a,#ffb347);box-shadow:0 4px 14px rgba(247,147,26,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <span>Notes</span>
+                  </button>
+                  <button class="nt-app-btn" data-url="bucks://clock" title="Clock">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#52b6ff,#2d7dff);box-shadow:0 4px 14px rgba(82,182,255,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+                    </div>
+                    <span>Clock</span>
+                  </button>
+                  <button class="nt-app-btn" data-url="bucks://converter" title="Converter">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#2ed573,#1aa354);box-shadow:0 4px 14px rgba(46,213,115,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+                    </div>
+                    <span>Convert</span>
+                  </button>
+                  <button class="nt-app-btn" data-url="bucks://qr" title="QR Generator">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#ff6b81,#ff2d55);box-shadow:0 4px 14px rgba(255,107,129,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+                    </div>
+                    <span>QR</span>
+                  </button>
+                  <button class="nt-app-btn" data-url="bucks://studio" title="DWeb Studio">
+                    <div class="nt-app-icon" style="background:linear-gradient(145deg,#fd9644,#e55039);box-shadow:0 4px 14px rgba(253,150,68,0.5);">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </div>
+                    <span>Studio</span>
+                  </button>
+
+                  <div class="nt-dock-sep"></div>
+
+                  <!-- Browser features -->
+                  <button class="nt-app-btn" id="newtab-btn-wallet" title="Wallet">
+                    <div class="nt-app-icon nt-app-icon--ghost">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#f7931a" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                    </div>
+                    <span>Wallet</span>
+                  </button>
+                  <button class="nt-app-btn" id="newtab-btn-ipfs" title="IPFS Social">
+                    <div class="nt-app-icon nt-app-icon--ghost">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#52b6ff" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+                    </div>
+                    <span>IPFS</span>
+                  </button>
+                  <button class="nt-app-btn" id="newtab-btn-history" title="History">
+                    <div class="nt-app-icon nt-app-icon--ghost">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"><path d="M3 12a9 9 0 1 1 9 9 9 9 0 0 1-7-3.4M3 3v3.4h3.4M12 7v5l3.5 2"/></svg>
+                    </div>
+                    <span>History</span>
+                  </button>
+                  <button class="nt-app-btn" id="newtab-btn-bookmarks" title="Bookmarks">
+                    <div class="nt-app-icon nt-app-icon--ghost">
+                      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    </div>
+                    <span>Bookmarks</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- ZONE 3: Live Status Cards -->
+              <div class="nt-status-row">
+
+                <!-- Wallet Card -->
+                <div class="nt-status-card" id="nt-card-wallet" style="cursor:pointer;" title="Open Wallet">
+                  <div class="nt-status-card-header">
+                    <div class="nt-status-dot" id="nt-wallet-dot" style="background:#ff4757;"></div>
+                    <span class="nt-status-card-title">Wallet</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+                  </div>
+                  <div id="nt-wallet-balance" class="nt-status-value">—</div>
+                  <div id="nt-wallet-label" class="nt-status-sub">Not connected</div>
+                </div>
+
+                <!-- IPFS Card -->
+                <div class="nt-status-card" id="nt-card-ipfs" style="cursor:pointer;" title="Open IPFS">
+                  <div class="nt-status-card-header">
+                    <div class="nt-status-dot" id="nt-ipfs-dot" style="background:#ff4757;"></div>
+                    <span class="nt-status-card-title">IPFS Node</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+                  </div>
+                  <div id="nt-ipfs-peers" class="nt-status-value">0 peers</div>
+                  <div id="nt-ipfs-label" class="nt-status-sub">Starting up…</div>
+                </div>
+
+                <!-- Agent Card -->
+                <div class="nt-status-card" id="nt-card-agent" style="cursor:pointer;" title="Open Agent Chat">
+                  <div class="nt-status-card-header">
+                    <div class="nt-status-dot" id="nt-agent-dot" style="background:#ff4757;"></div>
+                    <span class="nt-status-card-title">Soul Agent</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2" style="margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+                  </div>
+                  <div id="nt-agent-model" class="nt-status-value">Offline</div>
+                  <div id="nt-agent-label" class="nt-status-sub">localhost:8765</div>
+                </div>
+
+              </div>
+
+              <!-- Hidden nav targets for renderer.js backward compat -->
+              <span id="newtab-btn-settings" style="display:none"></span>
+              <span id="newtab-btn-spaces" style="display:none"></span>
+
+            </div>
+
+            <style>
+              /* ═══════════════════════════════════
+                 BUCKS NEW TAB — Design System
+                 Zones: Hero → Dock → Status Cards
+              ═══════════════════════════════════ */
+
+              #view-newtab {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 32px;
+                padding: 0 32px 48px;
+                height: 100%;
+              }
+
+              /* ── Zone 1: Hero ── */
+              .nt-hero {
+                text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 2px;
+              }
+              .nt-time {
+                font-family: 'Sora', sans-serif;
+                font-size: 72px;
+                font-weight: 800;
+                letter-spacing: -0.05em;
+                line-height: 1;
+                background: linear-gradient(175deg, #fff 20%, rgba(255,255,255,0.42));
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+              }
+              .nt-greeting {
+                font-family: 'Sora', sans-serif;
+                font-size: 15px;
+                font-weight: 600;
+                color: rgba(255,255,255,0.45);
+                margin-top: 8px;
+                letter-spacing: 0.01em;
+              }
+              .nt-date {
+                font-size: 12px;
+                color: rgba(255,255,255,0.24);
+                margin-top: 3px;
+                letter-spacing: 0.02em;
+              }
+
+              /* ── Zone 2: App Dock ── */
+              .nt-dock-wrap {
+                display: flex;
+                justify-content: center;
+              }
+              .nt-dock {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                padding: 10px 14px;
+                border-radius: 26px;
+                background: rgba(255,255,255,0.05);
+                border: 1px solid rgba(255,255,255,0.1);
+                backdrop-filter: blur(40px);
+                -webkit-backdrop-filter: blur(40px);
+                box-shadow: 0 12px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.12);
+                flex-wrap: nowrap;
+              }
+              .nt-dock-sep {
+                width: 1px;
+                height: 36px;
+                background: rgba(255,255,255,0.1);
+                margin: 0 6px;
+                flex-shrink: 0;
+              }
+              .nt-app-btn {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 5px;
+                padding: 6px 8px;
+                border-radius: 16px;
+                border: none;
+                background: transparent;
+                cursor: pointer;
+                color: rgba(255,255,255,0.45);
+                font-family: 'Instrument Sans', system-ui, sans-serif;
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.01em;
+                transition: background 0.15s, color 0.15s, transform 0.15s;
+                flex-shrink: 0;
+                white-space: nowrap;
+                min-width: 52px;
+              }
+              .nt-app-btn:hover {
+                background: rgba(255,255,255,0.08);
+                color: rgba(255,255,255,0.9);
+                transform: translateY(-3px);
+              }
+              .nt-app-icon {
+                width: 42px;
+                height: 42px;
+                border-radius: 13px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.15s, box-shadow 0.15s;
+              }
+              .nt-app-btn:hover .nt-app-icon {
+                transform: scale(1.1);
+              }
+              .nt-app-icon--ghost {
+                background: rgba(255,255,255,0.07);
+                border: 1px solid rgba(255,255,255,0.11);
+                box-shadow: none !important;
+              }
+
+              /* ── Zone 3: Status Cards ── */
+              .nt-status-row {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+                width: 100%;
+                max-width: 580px;
+              }
+              .nt-status-card {
+                padding: 16px 18px;
+                border-radius: 20px;
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,255,255,0.09);
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                transition: background 0.2s, border-color 0.2s, transform 0.15s;
+              }
+              .nt-status-card:hover {
+                background: rgba(255,255,255,0.07);
+                border-color: rgba(255,255,255,0.16);
+                transform: translateY(-2px);
+              }
+              .nt-status-card-header {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+              }
+              .nt-status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                transition: background 0.3s;
+              }
+              .nt-status-dot.online { background: #2ed573 !important; box-shadow: 0 0 6px rgba(46,213,115,0.7); }
+              .nt-status-dot.warning { background: #f7931a !important; box-shadow: 0 0 6px rgba(247,147,26,0.7); }
+              .nt-status-card-title {
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.07em;
+                text-transform: uppercase;
+                color: rgba(255,255,255,0.35);
+              }
+              .nt-status-value {
+                font-family: 'Sora', sans-serif;
+                font-size: 18px;
+                font-weight: 700;
+                color: rgba(255,255,255,0.88);
+                letter-spacing: -0.02em;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+              .nt-status-sub {
+                font-size: 11px;
+                color: rgba(255,255,255,0.3);
+              }
+            </style>
+
+            <!-- SPACES VIEW -->
+            <div id="view-spaces" class="dashboard-view hidden">
+              <div style="display:flex; align-items:center; margin-bottom:22px;">
+                <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em;">Spaces</div>
+                <button id="btn-create-space" style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border-radius:13px; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.1); color:#fff; font-family:inherit; font-size:14px; font-weight:600; cursor:pointer;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>New space</button>
+              </div>
+              <div id="spaces-list-container" style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                <!-- Replaced dynamically by renderer.js -->
+              </div>
+            </div>
+
+
+
+            <!-- CHAT TAB VIEW — Full-page dedicated chat experience -->
+            <div id="view-chat-tab" class="dashboard-view hidden" style="display:flex; flex-direction:row; gap:0; height:100%; min-height:500px; border-radius:20px; overflow:hidden; border:1px solid rgba(255,255,255,0.1);">
+              <!-- Chat History Sidebar -->
+              <div id="chat-tab-history-panel" style="width:220px; flex-shrink:0; background:rgba(20,20,24,0.7); border-right:1px solid rgba(255,255,255,0.08); display:flex; flex-direction:column; padding:14px 10px; gap:8px; overflow-y:auto;">
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:rgba(255,255,255,0.4); padding:4px 6px; margin-bottom:4px;">Chat History</div>
+                <div id="chat-tab-history-list" style="display:flex; flex-direction:column; gap:4px;">
+                  <!-- Rendered dynamically --></div>
+                <button id="btn-new-chat-thread" style="margin-top:auto; display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.14); background:rgba(255,255,255,0.06); color:#fff; font-family:inherit; font-size:13px; cursor:pointer; font-weight:600;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> New Chat
+                </button>
+              </div>
+              <!-- Main Chat Area -->
+              <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+                <!-- Header -->
+                <div style="display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03);">
+                  <div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#7b3fe4,#a978ff); display:flex; align-items:center; justify-content:center;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M12 3l1.7 4.6 4.6 1.7-4.6 1.7L12 15.6l-1.7-4.6L5.7 9.3l4.6-1.7z"/></svg>
+                  </div>
+                  <div>
+                    <div style="font-weight:700; font-size:14px;" id="chat-tab-title">Bucks AI Agent</div>
+                    <div style="font-size:11px; color:rgba(255,255,255,0.45);">Agentic · Multi-turn · Contextual</div>
+                  </div>
+                </div>
+                <!-- Messages -->
+                <div id="chat-tab-messages" style="flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:14px; scrollbar-width:thin;">
+                  <div style="display:flex; justify-content:center; padding:30px 0;">
+                    <div style="text-align:center; max-width:400px;">
+                      <div style="font-size:36px; margin-bottom:12px;">✨</div>
+                      <div style="font-weight:700; font-size:18px; margin-bottom:8px;">Start a conversation</div>
+                      <div style="font-size:13px; color:rgba(255,255,255,0.5); line-height:1.6;">Ask anything — research, browse the web, analyze data, interact with IPFS, or just chat.</div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Input Row -->
+                <div style="padding:14px 18px; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:10px; align-items:flex-end;">
+                  <textarea id="chat-tab-input" placeholder="Message the agent…  (or /agent <task> to act on this tab)" rows="1" style="flex:1; min-width:0; resize:none; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.14); border-radius:12px; padding:10px 14px; color:#fff; font-family:inherit; font-size:14px; outline:none; max-height:120px; overflow-y:auto; scrollbar-width:thin; line-height:1.5;"></textarea>
+                  <button id="chat-tab-send" style="width:40px; height:40px; border-radius:11px; border:none; background:linear-gradient(135deg,#7b3fe4,#a978ff); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:transform 0.15s, opacity 0.15s;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+                  </button>
+                  <button id="chat-tab-stop" title="Stop the agent" style="display:none; width:40px; height:40px; border-radius:11px; border:1px solid rgba(255,120,120,0.5); background:rgba(255,80,80,0.12); color:#ff8a8a; cursor:pointer; align-items:center; justify-content:center; flex-shrink:0;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+
+            <div id="view-history" class="dashboard-view hidden">
+              <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em; margin-bottom:22px;">Browsing History</div>
+              <div id="history-list-container" style="display:flex; flex-direction:column; gap:6px; max-height: 380px; overflow-y: auto;">
+                <!-- Filled dynamically by renderer.js -->
+              </div>
+            </div>
+
+            <!-- BOOKMARKS VIEW -->
+            <div id="view-bookmarks" class="dashboard-view hidden">
+              <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em; margin-bottom:22px;">Bookmarks</div>
+              <div id="bookmarks-list-container" style="display:flex; flex-direction:column; gap:6px; max-height: 380px; overflow-y: auto;">
+                <!-- Filled dynamically by renderer.js -->
+              </div>
+            </div>
+
+            <!-- SETTINGS VIEW -->
+            <div id="view-settings" class="dashboard-view hidden">
+              <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em; margin-bottom:24px;">Settings</div>
+              
+              <div style="font-size:13px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:14px;">Wallpaper Theme</div>
+              <div style="display:flex; gap:14px; margin-bottom:28px;">
+                <button class="wallpaper-btn active" data-wp="slate" style="cursor:pointer; border:none; background:transparent; padding:0; display:flex; flex-direction:column; align-items:center; gap:9px;">
+                  <div style="width: 96px; height: 60px; border-radius: 14px; background: linear-gradient(165deg, #6f6f74 0%, #4a4a4f 55%, #2c2c30 100%); border: 2px solid #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.5);"></div>
+                  <span style="font-size:13px; font-weight:600; color:#fff;">Slate</span>
+                </button>
+                <button class="wallpaper-btn" data-wp="charcoal" style="cursor:pointer; border:none; background:transparent; padding:0; display:flex; flex-direction:column; align-items:center; gap:9px;">
+                  <div style="width: 96px; height: 60px; border-radius: 14px; background: linear-gradient(165deg, #2a2a2d 0%, #171719 60%, #0c0c0e 100%); border: 2px solid rgba(255,255,255,0.2);"></div>
+                  <span style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.6);">Charcoal</span>
+                </button>
+                <button class="wallpaper-btn" data-wp="light" style="cursor:pointer; border:none; background:transparent; padding:0; display:flex; flex-direction:column; align-items:center; gap:9px;">
+                  <div style="width: 96px; height: 60px; border-radius: 14px; background: linear-gradient(165deg, #dcdcde 0%, #b6b6ba 55%, #8e8e92 100%); border: 2px solid rgba(255,255,255,0.2);"></div>
+                  <span style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.6);">Light</span>
+                </button>
+              </div>
+
+              <div class="settings-form" style="display:flex; flex-direction:column; gap:16px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+                  <span>Search Engine</span>
+                  <select id="setting-search-engine" style="background:#2a2a2d; color:#fff; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:6px 12px; outline:none; font-family:inherit;">
+                    <option value="https://duckduckgo.com/?q=">DuckDuckGo</option>
+                    <option value="https://www.google.com/search?q=">Google</option>
+                    <option value="https://search.brave.com/search?q=">Brave Search</option>
+                  </select>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+                  <span>Homepage URL</span>
+                  <input type="text" id="setting-homepage" value="bucks://newtab" style="background:#2a2a2d; color:#fff; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:6px 12px; width: 220px; text-align: right; outline:none; font-family:inherit;">
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+                  <span>Ad-Blocker</span>
+                  <input type="checkbox" id="setting-adblock" checked style="width:16px; height:16px; accent-color:#f7931a;">
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+                  <span>HTTPS-Only Mode</span>
+                  <input type="checkbox" id="setting-https-only" style="width:16px; height:16px; accent-color:#f7931a;">
+                </div>
+                
+                <div style="margin-top: 14px;">
+                  <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:10px;">SWARM INTELLIGENCE</div>
+                  <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                      <span>Cluster Secret</span>
+                      <input type="password" id="setting-cluster-secret" placeholder="Secret Key..." style="background:#2a2a2d; color:#fff; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:6px 12px; width: 220px; outline:none; font-family:inherit;">
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                      <span>Cluster ID (CIDN)</span>
+                      <input type="text" id="setting-cluster-cidn" placeholder="mainnet" style="background:#2a2a2d; color:#fff; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:6px 12px; width: 220px; outline:none; font-family:inherit;">
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; font-size:12px; color:rgba(255,255,255,0.5);">
+                  <span>Latency Connection Status</span>
+                  <span id="stat-latency">— ms</span>
+                </div>
+
+                <div style="margin-top: 14px;">
+                  <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:10px;">PRIVACY</div>
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <span style="font-size:13px; color:rgba(255,255,255,0.7);">Clear cache, cookies &amp; history</span>
+                    <button id="btn-clear-browsing-data" style="padding:8px 14px; border-radius:10px; border:1px solid rgba(255,120,120,0.4); cursor:pointer; font-weight:600; font-size:12.5px; color:#ff8a8a; background:rgba(255,80,80,0.08);">Clear data</button>
+                  </div>
+                </div>
+
+                <button id="btn-save-settings" style="margin-top:14px; padding:12px; border-radius:12px; border:none; cursor:pointer; font-weight:600; color:#1c1c1f; background:linear-gradient(135deg,#f4f4f6,#d2d2d6);">Save Settings</button>
+              </div>
+            </div>
+
+            <!-- WALLET VIEW (Dashboard Embedded) -->
+            <div id="view-wallet" class="dashboard-view hidden">
+              <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em; margin-bottom:22px;">Bucks Wallet</div>
+              <div id="wallet-dashboard-status" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+                <div class="status-indicator offline" id="wallet-dashboard-dot" style="width:8px; height:8px; border-radius:50%; background:#ff4757;"></div>
+                <span id="wallet-dashboard-text" style="font-size:13px; color:rgba(255,255,255,0.7);">Connecting to node...</span>
+              </div>
+              
+              <div id="wallet-dashboard-content"></div>
+            </div>
+
+            <!-- IPFS VIEW (Dashboard Embedded) -->
+            <div id="view-ipfs" class="dashboard-view hidden">
+              <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; letter-spacing:-0.02em; margin-bottom:22px;">IPFS Social Network</div>
+              
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+                <div class="ipfs-status-card glass-panel" style="padding:16px; border-radius:18px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <div class="status-indicator offline" id="ipfs-dash-dot" style="width:8px; height:8px; border-radius:50%; background:#ff4757;"></div>
+                    <span id="ipfs-dash-status-text" style="font-size:14px; font-weight:600;">Starting IPFS node...</span>
+                  </div>
+                  <p id="ipfs-dash-peer-id" style="font-family:monospace; font-size:10px; color:rgba(255,255,255,0.5); margin:8px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">—</p>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; opacity:0.6;">
+                    <span id="ipfs-dash-peer-count">0 peers</span>
+                    <span id="ipfs-dash-feed-count">0 posts</span>
+                  </div>
+                </div>
+
+                <div class="storage-dashboard glass-panel" style="padding:16px; border-radius:18px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); display:flex; flex-direction:column; justify-content:center;">
+                  <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
+                    <span>Pinned Objects</span>
+                    <span id="storage-dash-pinned-count">0</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:8px;">
+                    <span>Storage Size</span>
+                    <span id="storage-dash-total-size">0 B</span>
+                  </div>
+                  <div style="height:4px; background:rgba(255,255,255,0.16); border-radius:2px; overflow:hidden;">
+                    <div id="storage-dash-progress-fill" style="width:0%; height:100%; background:#fff;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Shared File Publish Area -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:20px;">
+                <div style="padding:16px; border-radius:18px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+                  <h4 style="font-size:14px; margin:0 0 10px;">Follow Peer</h4>
+                  <div style="display:flex; gap:8px;">
+                    <input type="text" id="ipfs-dash-follow-id" placeholder="Paste PeerID..." style="flex:1; background:#2a2a2d; border:1px solid rgba(255,255,255,0.15); border-radius:8px; color:#fff; padding:8px 12px; font-size:12px; outline:none;">
+                    <button id="btn-ipfs-dash-follow" style="padding:8px 14px; border-radius:8px; border:none; background:#fff; color:#1c1c1f; font-weight:600; cursor:pointer;">Follow</button>
+                  </div>
+                </div>
+                <div style="padding:16px; border-radius:18px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+                  <h4 style="font-size:14px; margin:0 0 10px;">Publish Content</h4>
+                  <div style="display:flex; gap:8px; flex-direction:column;">
+                    <input type="text" id="ipfs-dash-publish-desc" placeholder="Message content..." style="background:#2a2a2d; border:1px solid rgba(255,255,255,0.15); border-radius:8px; color:#fff; padding:8px 12px; font-size:12px; outline:none;">
+                    <button id="btn-ipfs-dash-publish" style="padding:10px; border-radius:8px; border:none; background:#fff; color:#1c1c1f; font-weight:600; cursor:pointer;">Broadcast to Feed</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pinned list & Feed -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+                <div>
+                  <h4 style="font-size:14px; margin:0 0 8px;">Following Nodes</h4>
+                  <div id="ipfs-dash-following-list" style="font-size:12px; color:rgba(255,255,255,0.5); max-height:150px; overflow-y:auto;">
+                    <p style="text-align:center; margin:10px 0;">Not following any peers</p>
+                  </div>
+                </div>
+                <div>
+                  <h4 style="font-size:14px; margin:0 0 8px;">IPFS Social Feed</h4>
+                  <div id="ipfs-dash-feed" style="font-size:12px; color:rgba(255,255,255,0.5); max-height:150px; overflow-y:auto;">
+                    <p style="text-align:center; margin:10px 0;">Feed empty</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+          <!-- scroll indicator removed for clean home screen -->
+        </div>
+
+        <!-- FILES VIEW (Fullscreen) -->
+        <div id="view-files" class="dashboard-view hidden" style="position: absolute; inset: 0; z-index: 20; border-radius: 32px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.42);">
+          <webview id="bucks-files-webview" src="http://localhost:3939" style="display: flex !important; position: relative !important; width: 100%; height: 100%; border: none; background: transparent; box-shadow: none !important; border-radius: 20px;" allowpopups></webview>
+        </div>
+
+        <!-- DWEB STUDIO VIEW -->
+        <div id="view-studio" class="dashboard-view hidden" style="position: absolute; inset: 0; z-index: 20; border-radius: 32px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.42);">
+          <iframe id="bucks-studio-webview" src="bucks://studio" style="display: flex !important; position: relative !important; width: 100%; height: 100%; border: none; background: transparent; box-shadow: none !important; border-radius: 20px;"></iframe>
+        </div>
+
+        <!-- RIGHT SIDEBAR SLIDE-OUT PANELS (Slide in from right edge of browser content area) -->
+        <!-- Wallet Sidebar -->
+        <aside id="wallet-sidebar" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+              Bucks Wallet
+            </h2>
+            <div class="wallet-dot status-indicator offline" style="width:8px; height:8px; border-radius:50%; margin-left: 8px;"></div>
+            <button id="btn-close-wallet" class="icon-btn" title="Close Wallet" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px; margin-left: auto;">✕</button>
+          </div>
+          <div class="sidebar-content" id="wallet-content" style="padding:20px; overflow-y:auto; height:calc(100% - 60px);">
+            <!-- Rendered dynamically by renderer.js -->
+          </div>
+        </aside>
+
+        <!-- IPFS Social Sidebar -->
+        <aside id="ipfs-sidebar" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;"><circle cx="12" cy="5" r="3" /><circle cx="5" cy="19" r="3" /><circle cx="19" cy="19" r="3" /><line x1="12" y1="8" x2="5" y2="16" /><line x1="12" y1="8" x2="19" y2="16" /></svg>
+              IPFS Network
+            </h2>
+            <div class="ipfs-dot status-indicator offline" style="width:8px; height:8px; border-radius:50%; margin-left: 8px;"></div>
+            <button id="btn-close-ipfs" class="icon-btn" title="Close IPFS" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px; margin-left: auto;">✕</button>
+          </div>
+          <div class="sidebar-content" style="padding:20px; overflow-y:auto; height:calc(100% - 60px); display:flex; flex-direction:column; gap:16px;">
+            <div class="ipfs-status-card" style="padding:14px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div class="status-indicator offline" id="ipfs-status-dot" style="width:8px; height:8px; border-radius:50%;"></div>
+                <span id="ipfs-peer-id" style="font-family:monospace; font-size:11px; color:rgba(255,255,255,0.6);">Offline</span>
+              </div>
+              <div id="ipfs-peer-count" style="font-size:12px; margin-top:6px; color:rgba(255,255,255,0.5);">0 Peers</div>
+              <div id="swarm-status-badge" style="font-size:10px; margin-top:4px; display:inline-block; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.1);">Cluster: mainnet</div>
+            </div>
+
+            <!-- Storage details -->
+            <div style="padding:12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                <span>Pinned Objects</span>
+                <span id="storage-pinned-count">0</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                <span>Storage Size</span>
+                <span id="storage-total-size">0 B</span>
+              </div>
+              <div style="height:4px; background:rgba(255,255,255,0.16); border-radius:2px; overflow:hidden;">
+                <div id="storage-progress-fill" style="width:0%; height:100%; background:#fff;"></div>
+              </div>
+            </div>
+
+            <!-- Follow Peer -->
+            <div style="padding:12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+              <h4 style="font-size:13px; margin:0 0 8px;">Follow Peer</h4>
+              <div style="display:flex; gap:6px;">
+                <input type="text" id="ipfs-follow-id" placeholder="PeerID..." style="flex:1; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; padding:6px 10px; font-size:11px; outline:none;">
+                <button id="btn-ipfs-follow" style="padding:6px 10px; border-radius:6px; border:none; background:#fff; color:#000; font-size:11px; font-weight:700; cursor:pointer;">Follow</button>
+              </div>
+            </div>
+
+            <!-- Publish Content -->
+            <div style="padding:12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+              <h4 style="font-size:13px; margin:0 0 8px;">Publish to IPFS</h4>
+              <div style="display:flex; flex-direction:column; gap:6px;">
+                <label class="ipfs-file-label" for="ipfs-publish-file" style="display:block; padding:8px; border-radius:6px; border:1px dashed rgba(255,255,255,0.2); text-align:center; cursor:pointer; font-size:11px;">Choose File</label>
+                <input type="file" id="ipfs-publish-file" style="display:none;">
+                <input type="text" id="ipfs-publish-desc" placeholder="Description..." style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; padding:6px 10px; font-size:11px; outline:none;">
+                <button id="btn-ipfs-publish" style="padding:8px; border-radius:6px; border:none; background:#fff; color:#000; font-size:11px; font-weight:700; cursor:pointer;">Publish</button>
+              </div>
+            </div>
+
+            <!-- Lists -->
+            <div>
+              <h4 style="font-size:13px; margin:0 0 8px; color:rgba(255,255,255,0.5);">Following Nodes</h4>
+              <div id="ipfs-following-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+            </div>
+            <div>
+              <h4 style="font-size:13px; margin:0 0 8px; color:rgba(255,255,255,0.5);">Pinned List</h4>
+              <div id="ipfs-pinned-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+            </div>
+            <div>
+              <h4 style="font-size:13px; margin:0 0 8px; color:rgba(255,255,255,0.5);">Social Feed</h4>
+              <div id="ipfs-feed" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Settings Panel -->
+        <aside id="settings-panel" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">Settings</h2>
+            <button id="btn-close-settings" class="icon-btn" title="Close Settings" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px; margin-left: auto;">✕</button>
+          </div>
+          <div class="sidebar-content" style="padding:20px; overflow-y:auto; height:calc(100% - 60px);">
+            <p style="font-size:13px; color:rgba(255,255,255,0.6);">Use the settings dashboard inside the New Tab page to manage your preferences.</p>
+          </div>
+        </aside>
+
+        <!-- Bookmarks Panel -->
+        <aside id="bookmarks-panel" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">Bookmarks</h2>
+            <button id="btn-close-bookmarks" class="icon-btn" title="Close Bookmarks" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px; margin-left: auto;">✕</button>
+          </div>
+          <div class="sidebar-content" id="bookmarks-list-sidebar-container" style="padding:20px; overflow-y:auto; height:calc(100% - 60px);">
+            <!-- Rendered dynamically -->
+          </div>
+        </aside>
+
+        <!-- History Panel -->
+        <aside id="history-panel" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">Browsing History</h2>
+            <button id="btn-close-history" class="icon-btn" title="Close History" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px; margin-left: auto;">✕</button>
+          </div>
+          <div class="sidebar-content" id="history-list-sidebar-container" style="padding:20px; overflow-y:auto; height:calc(100% - 60px);">
+            <!-- Rendered dynamically -->
+          </div>
+        </aside>
+
+        <!-- Downloads Panel -->
+        <aside id="downloads-panel" class="glass-panel-side sidebar-hidden">
+          <div class="sidebar-header">
+            <h2 style="margin: 0; font-size: 17px; font-family: 'Sora', sans-serif; font-weight: 700; display: flex; align-items: center;">Downloads</h2>
+            <button id="btn-open-downloads-folder" title="Open downloads folder" style="margin-left:auto; margin-right:8px; background:rgba(255,255,255,0.08); border:none; color:#fff; cursor:pointer; font-size:11px; padding:5px 10px; border-radius:8px;">Open folder</button>
+            <button id="btn-close-downloads" class="icon-btn" title="Close Downloads" style="background:transparent; border:none; color:#fff; cursor:pointer; font-size:16px;">✕</button>
+          </div>
+          <div class="sidebar-content" id="downloads-list-container" style="padding:20px; overflow-y:auto; height:calc(100% - 60px);">
+            <!-- Rendered dynamically -->
+          </div>
+        </aside>
+
+        <!-- Origin Approval Modal -->
+        <div id="origin-approval" class="sidebar-hidden" style="position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;">
+          <div class="security-modal-overlay" style="position:absolute; inset:0; background:rgba(10,10,12,0.4); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);"></div>
+          <div class="security-modal glass-panel" style="position:relative; width:100%; max-width:400px; border-radius:28px; padding:28px; background:linear-gradient(155deg,rgba(74,74,78,0.64),rgba(32,32,36,0.54)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.22); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.32); text-align:center;">
+            <div class="security-header" style="margin-bottom:18px;">
+              <div class="security-shield" style="font-size:48px; margin-bottom:10px;">🛡️</div>
+              <h3 style="font-family:'Sora',sans-serif; font-size:20px; font-weight:700; margin:0; color:#fff;">Security Request</h3>
+            </div>
+            <div class="security-body" style="margin-bottom:24px;">
+              <p class="security-info" style="font-size:14px; line-height:1.6; color:rgba(255,255,255,0.7); margin:0 0 16px;">
+                <span id="requesting-origin" class="origin-tag" style="color:#f7931a; font-weight:600; background:rgba(255,255,255,0.06); padding:3px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.1);">DApp</span>
+                is requesting access to your
+                <span class="target-tag" style="color:#fff; font-weight:600; background:rgba(255,255,255,0.06); padding:3px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.1);">Bucks Wallet</span>
+              </p>
+              <div class="security-warning" style="background:rgba(255,71,87,0.1); border:1px solid rgba(255,71,87,0.2); padding:12px; border-radius:12px;">
+                <p style="color:#ff4757; font-size:12px; line-height:1.45; margin:0;">Allowing this permits the site to see your address and suggest transactions for you to sign.</p>
+              </div>
+            </div>
+            <div class="security-actions" style="display:flex; gap:12px;">
+              <button class="btn-deny" id="btn-origin-deny" style="flex:1; padding:12px; border-radius:12px; border:none; cursor:pointer; font-weight:700; background:rgba(255,71,87,0.18); color:#ff4757;">Deny Access</button>
+              <button class="btn-allow" id="btn-origin-allow" style="flex:1; padding:12px; border-radius:12px; border:none; cursor:pointer; font-weight:700; background:#fff; color:#000;">Allow Connection</button>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+    </div>
+
+    <!-- BOTTOM AGENT CHAT INTERFACE -->
+    <div class="bottom-chat-container" style="position:fixed; left:96px; right:0; bottom:22px; z-index:30; display:flex; flex-direction:column; align-items:center; gap:12px; padding:0 24px; pointer-events:none;">
+
+      <!-- Chat History Card (expands upward when messages exist) -->
+      <div id="chat-history-card" class="hidden" style="pointer-events:auto; width:100%; max-width:680px; max-height:52vh; overflow-y:auto; padding:18px; border-radius:26px; background:linear-gradient(155deg,rgba(70,70,74,0.58),rgba(30,30,34,0.48)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.2); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3); transition:all 0.3s ease;">
+        <!-- Header with close + clear -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08);">
+          <img src="bucks-logo.png" style="height:14px; object-fit:contain; filter:brightness(0) invert(1); opacity:0.85;" alt="Bucks Logo">
+          <div style="display:flex; gap:6px;">
+            <button id="btn-bottom-chat-clear" title="New chat" style="width:28px; height:28px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); cursor:pointer; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,0.65); transition:background 0.15s;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v6h6M20 20v-6h-6M20 9a8 8 0 00-14-3M4 15a8 8 0 0014 3"></path></svg></button>
+            <button id="btn-bottom-chat-close" title="Close" style="width:28px; height:28px; border-radius:8px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); cursor:pointer; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,0.65); font-size:13px; transition:background 0.15s;">✕</button>
+          </div>
+        </div>
+        <!-- Messages container -->
+        <div id="bottom-chat-messages" style="display:flex; flex-direction:column; gap:14px;"></div>
+      </div>
+
+      <!-- Suggestion Chips (shown on empty state) -->
+      <div id="chat-chips-container" style="pointer-events:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+        <button class="chat-chip" data-query="What's trending in crypto today?" style="padding:9px 16px; border-radius:18px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.8); cursor:pointer; font-family:inherit; font-size:13px; font-weight:500; backdrop-filter:blur(10px); transition:all 0.2s;">Trending crypto 🪙</button>
+        <button class="chat-chip" data-query="Find flights to Lisbon" style="padding:9px 16px; border-radius:18px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.8); cursor:pointer; font-family:inherit; font-size:13px; font-weight:500; backdrop-filter:blur(10px); transition:all 0.2s;">Flights to Lisbon ✈️</button>
+        <button class="chat-chip" data-query="Compare MacBook Air M4 vs Pro M4" style="padding:9px 16px; border-radius:18px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.8); cursor:pointer; font-family:inherit; font-size:13px; font-weight:500; backdrop-filter:blur(10px); transition:all 0.2s;">Compare MacBooks 💻</button>
+        <button class="chat-chip" data-query="Summarize active page" style="padding:9px 16px; border-radius:18px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.8); cursor:pointer; font-family:inherit; font-size:13px; font-weight:500; backdrop-filter:blur(10px); transition:all 0.2s;">Summarize Page 📄</button>
+      </div>
+
+      <!-- Main Input Bar -->
+      <div style="pointer-events:auto; width:100%; max-width:560px; display:flex; align-items:center; gap:8px; padding:6px 8px 6px 14px; border-radius:24px; background:rgba(30,30,34,0.75); backdrop-filter:blur(30px); -webkit-backdrop-filter:blur(30px); border:1px solid rgba(255,255,255,0.1); box-shadow:0 20px 50px rgba(0,0,0,0.3); transition: border-color 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.borderColor='rgba(255,255,255,0.18)'; this.style.boxShadow='0 20px 50px rgba(0,0,0,0.36)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.boxShadow='0 20px 50px rgba(0,0,0,0.3)';">
+        <input type="text" id="chat-input" placeholder="Ask anything, or /agent to automate..." style="flex:1; min-width:0; background:transparent; border:none; outline:none; color:#fff; font-family:inherit; font-size:14.5px; font-weight:400; padding:4px 0;">
+
+        <button id="btn-chat-reset" title="New chat" style="flex:none; width:30px; height:30px; border-radius:50%; border:none; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,0.55); transition:color 0.15s ease, background 0.15s ease;" onmouseover="this.style.color='#fff'; this.style.background='rgba(255,255,255,0.06)';" onmouseout="this.style.color='rgba(255,255,255,0.55)'; this.style.background='transparent';"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v6h6M20 20v-6h-6M20 9a8 8 0 00-14-3M4 15a8 8 0 0014 3"></path></svg></button>
+        <button id="btn-chat-send" style="flex:none; width:30px; height:30px; border-radius:50%; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:#ffffff; color:#1c1c1f; transition:transform 0.15s ease, opacity 0.15s ease;" onmouseover="this.style.transform='scale(1.05)';" onmouseout="this.style.transform='scale(1.0)';"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+      </div>
+    </div>
+
+    <!-- WIDGET LIBRARY OVERLAY -->
+    <div id="widget-library-overlay" class="overlay hidden" style="position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; padding:36px; background:rgba(10,10,12,0.4); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">
+      <div style="width:100%; max-width:720px; max-height:84vh; overflow-y:auto; border-radius:32px; padding:28px 30px; background:linear-gradient(155deg,rgba(74,74,78,0.62),rgba(32,32,36,0.52)); backdrop-filter:blur(50px) brightness(1.06); -webkit-backdrop-filter:blur(50px) brightness(1.06); border:1px solid rgba(255,255,255,0.22); box-shadow:0 50px 130px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.32);">
+        <div style="display:flex; align-items:center; margin-bottom:8px;">
+          <h2 style="font-family:'Sora',sans-serif; font-weight:700; font-size:26px; margin:0; letter-spacing:-0.02em;">Widget Library</h2>
+          <button id="btn-close-widget-library" style="margin-left:auto; width:38px; height:38px; border-radius:50%; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px;">✕</button>
+        </div>
+        <div style="font-size:14px; color:rgba(255,255,255,0.55); margin-bottom:22px;">Tap add to drop a widget onto your board. Drag tiles to rearrange.</div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">🕒</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Clock</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="clock" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">☀️</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Weather</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="weather" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">🗓️</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Calendar</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x2)</div></div>
+            <button class="btn-add-lib-widget" data-widget="calendar" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">🎵</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Now Playing</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Wide (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="music" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">⚡</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Agent Tasks</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="agent" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">📝</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Notes</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="notes" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">📈</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Markets</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Medium (2x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="markets" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; padding:16px; border-radius:17px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+            <div style="flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6e6e73,#34343a); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25); font-size: 24px;">📁</div>
+            <div style="flex:1; min-width:0;"><div style="font-size:15px; font-weight:700;">Space</div><div style="font-size:12.5px; color:rgba(255,255,255,0.5);">Small (1x1)</div></div>
+            <button class="btn-add-lib-widget" data-widget="space" style="flex:none; padding:8px 14px; border-radius:11px; border:none; cursor:pointer; font-weight:700; color:#1c1c1f; background:#fff;">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- APP STORE OVERLAY -->
+    <div id="store-overlay" class="overlay hidden" style="position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; padding:36px; background:rgba(10,10,12,0.42); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">
+      <div style="width:100%; max-width:920px; max-height:86vh; overflow-y:auto; border-radius:34px; padding:30px 32px; background:linear-gradient(155deg,rgba(74,74,78,0.62),rgba(32,32,36,0.52)); backdrop-filter:blur(50px) brightness(1.06); -webkit-backdrop-filter:blur(50px) brightness(1.06); border:1px solid rgba(255,255,255,0.22); box-shadow:0 50px 130px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.32);">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:24px;">
+          <h2 style="font-family:'Sora',sans-serif; font-weight:700; font-size:28px; margin:0; letter-spacing:-0.02em;">App Store</h2>
+          <div style="flex:1; max-width:280px; margin-left:8px; display:flex; align-items:center; gap:9px; padding:9px 14px; border-radius:13px; background:rgba(0,0,0,0.22); border:1px solid rgba(255,255,255,0.1);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4-4"></path></svg>
+            <span style="font-size:14px; color:rgba(255,255,255,0.55);">Search mini apps</span>
+          </div>
+          <button id="btn-close-store" style="margin-left:auto; width:38px; height:38px; border-radius:50%; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px;">✕</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:20px; padding:22px 24px; border-radius:24px; margin-bottom:26px; background:linear-gradient(120deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)); border:1px solid rgba(255,255,255,0.2); box-shadow:inset 0 1px 0 rgba(255,255,255,0.3);">
+          <div style="width:78px; height:78px; border-radius:20px; flex:none; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#7a7a7e,#3a3a40); border:1px solid rgba(255,255,255,0.2);"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3l1.7 4.6 4.6 1.7-4.6 1.7L12 15.6l-1.7-4.6L5.7 9.3l4.6-1.7z"></path></svg></div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:rgba(255,255,255,0.65);">App of the day</div>
+            <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:22px; margin:3px 0 4px;">Flow — agentic notes</div>
+            <div style="font-size:14px; color:rgba(255,255,255,0.78);">Notes that summarize, link and act on themselves.</div>
+          </div>
+          <button style="flex:none; padding:10px 22px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:700; color:#1c1c1f; background:#f0f0f2; box-shadow:0 6px 16px rgba(0,0,0,0.25);">GET</button>
+        </div>
+        
+        <div style="font-size:13px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:rgba(255,255,255,0.55); margin-bottom:16px;">Built-in Mini Apps</div>
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:22px 18px;" id="store-apps-grid">
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://calc">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#7b3fe4,#a978ff); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(123,63,228,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="10" y2="18"/><line x1="14" y1="18" x2="16" y2="18"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">Calculator</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Utility</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://notes">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#f7931a,#ffb347); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(247,147,26,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">Notes</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Productivity</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://clock">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#52b6ff,#2d7dff); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(82,182,255,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">Clock</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Time &amp; Timer</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://converter">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#54d98a,#22b85a); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(84,217,138,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">Converter</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Units &amp; More</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://qr">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#ff7a96,#ff2d6e); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(255,122,150,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="14" width="3" height="3"/><rect x="14" y="18" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">QR Generator</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Tools</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+          <div class="store-app-card" style="display:flex; flex-direction:column; align-items:center; gap:11px; cursor:pointer;" data-app-url="bucks://studio">
+            <div style="width:64px; height:64px; border-radius:18px; background:linear-gradient(135deg,#ff8275,#ff3b30); display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.2); box-shadow:0 8px 22px rgba(255,130,117,0.4);">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </div>
+            <div style="text-align:center;"><div style="font-size:13.5px; font-weight:600;">DWeb Studio</div><div style="font-size:11.5px; color:rgba(255,255,255,0.5);">Developer</div></div>
+            <button class="store-open-btn" style="padding:6px 16px; border-radius:99px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:700; color:#1c1c1f; background:#f0f0f2;">Open</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- CUSTOM TAB CONTEXT MENU -->
+    <div id="tab-context-menu" class="hidden" style="position: fixed; z-index: 10000; width: 180px; padding: 6px; border-radius: 14px; background: rgba(30, 30, 34, 0.95); backdrop-filter: blur(30px); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 2px;">
+      <!-- Content populated dynamically -->
+    </div>
+
+    <!-- NEWTAB CONTAINER TEMPLATE -->
+    <template id="newtab-template">
+      <!-- Let renderer.js createTab instantiate empty tab containers cleanly -->
+      <div class="newtab-placeholder" style="display:none;"></div>
+    </template>
+
+    <!-- Find Bar -->
+    <div id="find-bar" class="find-bar hidden">
+      <input type="text" id="find-input" placeholder="Find in page...">
+      <span id="find-results">0/0</span>
+      <button id="btn-find-prev">▲</button>
+      <button id="btn-find-next">▼</button>
+      <button id="btn-find-close">✕</button>
+    </div>
+
+    <!-- Left Dock Drag Arrow/Handle (only visible/active in web mode) -->
+    <div id="left-dock-trigger" style="position:fixed; left:0; top:50%; transform:translateY(-50%); z-index:99; width:16px; height:60px; background:rgba(74,74,78,0.7); backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.25); border-left:none; border-radius:0 12px 12px 0; cursor:pointer; display:none; align-items:center; justify-content:center; box-shadow:0 8px 24px rgba(0,0,0,0.3);">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" style="transition: transform 0.2s;"><path d="M9 18l6-6-6-6"></path></svg>
+    </div>
+
+
+
+  <!-- CUSTOM CREATE SPACE MODAL -->
+  <div id="create-space-modal" class="hidden" style="position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center; padding:24px;">
+    <div class="security-modal-overlay" id="create-space-modal-overlay" style="position:absolute; inset:0; background:rgba(10,10,12,0.4); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);"></div>
+    <div class="security-modal glass-panel" style="position:relative; width:100%; max-width:400px; border-radius:28px; padding:28px; background:linear-gradient(155deg,rgba(74,74,78,0.64),rgba(32,32,36,0.54)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.22); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.32);">
+      <div style="margin-bottom:20px; text-align:left;">
+        <h3 style="font-family:'Sora',sans-serif; font-size:20px; font-weight:700; margin:0; color:#fff;">Create New Space</h3>
+        <p style="font-size:12.5px; color:rgba(255,255,255,0.5); margin:4px 0 0;">Group your tabs to organize your workflow.</p>
+      </div>
+      <div style="margin-bottom:24px; text-align:left; display:flex; flex-direction:column; gap:16px;">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:0.04em;">Space Name</label>
+          <input type="text" id="create-space-name-input" placeholder="e.g. Development, Entertainment..." style="background:#2a2a2d; color:#fff; border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:10px 14px; outline:none; font-family:inherit; font-size:14px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05); width:100%; box-sizing:border-box;">
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:0.04em;">Select Accent Color</label>
+          <div style="display:flex; gap:12px; align-items:center; margin-top:6px;" id="create-space-colors-container">
+            <!-- Colored dots rendered dynamically by JS -->
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:12px;">
+        <button id="btn-create-space-cancel" style="flex:1; padding:12px; border-radius:12px; border:none; cursor:pointer; font-weight:700; background:rgba(255,255,255,0.1); color:#fff; transition: background 0.2s;">Cancel</button>
+        <button id="btn-create-space-confirm" style="flex:1; padding:12px; border-radius:12px; border:none; cursor:pointer; font-weight:700; background:#fff; color:#000; transition: opacity 0.2s;">Create Space</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="agent-browser-control.js"></script>
+  <script src="nexus-panel.js"></script>
+  <script src="renderer.js"></script>
+  <script src="three.min.js"></script>
+  <script src="background-animation.js"></script>
+</body>
+</html>

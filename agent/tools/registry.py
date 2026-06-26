@@ -42,7 +42,10 @@ class Tool:
 async def web_search(query: str, max_results: int = 6) -> str:
     """DuckDuckGo search — no API key, no tracking."""
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS            # current package name
+        except ImportError:
+            from duckduckgo_search import DDGS  # legacy fallback
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
         if not results:

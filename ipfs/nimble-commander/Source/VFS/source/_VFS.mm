@@ -1,0 +1,8 @@
+#include "ListingObjC.mm"
+#include "VFSEasyOps.mm"
+#include "VFSFile.mm"
+#include "ArcLA/EncodingDetection.mm"
+#include "Native/DisplayNamesCache.mm"
+#include "Native/OpenDirectory.mm"
+#include "NetIPFSCluster/PathRoutines.mm"
+#include "NetWebDAV/PathRoutines.mm"

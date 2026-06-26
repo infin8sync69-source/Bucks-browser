@@ -129,6 +129,7 @@ async def run(
     task_id:       Optional[str] = None,
     session_id:    str           = "default",
     image_b64:     Optional[str] = None,
+    system_prompt: Optional[str] = None,
 ) -> dict:
     """
     Full enhanced inference pipeline:
@@ -168,7 +169,7 @@ async def run(
     pref_context = preferences.build_preference_prompt()
 
     # ── 6: Build rich system prompt ───────────────────────────────────────
-    system_parts = [_BASE_SYSTEM]
+    system_parts = [system_prompt if system_prompt else _BASE_SYSTEM]
     if pref_context:
         system_parts.append(f"[User Preferences]\n{pref_context}")
     if kb_context:
