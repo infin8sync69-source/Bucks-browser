@@ -3685,6 +3685,10 @@
       document.body.appendChild(dock);
       return dock;
     },
+    // Rail context for auto-advance: when a video comes from a component,
+    // the sibling rail items queue up so an unplayable embed skips ahead.
+    _queue: [],
+    _queuePos: -1,
     play(vid, title) {
       if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid || '')) return;
       const dock = this._ensure();
@@ -3692,9 +3696,12 @@
       dock.classList.remove('mp-min');
       dock.querySelector('.mp-title').textContent = title || 'Now playing';
       const body = dock.querySelector('.mp-body');
-      const src = `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&rel=0`;
+      const overlay = body.querySelector('.mp-error');
+      if (overlay) overlay.remove();
+      const src = `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&rel=0&playsinline=1`;
       let wv = body.querySelector('webview');
       if (wv) {
+        wv.style.display = '';
         wv.src = src;
       } else {
         wv = document.createElement('webview');
@@ -3702,8 +3709,57 @@
         wv.setAttribute('allowpopups', 'false');
         wv.src = src;
         body.appendChild(wv);
+        wv.addEventListener('did-finish-load', () => {
+          // Embed-restricted videos (error 150/152/153: "Playback on other
+          // websites has been disabled") render YouTube's error UI instead of
+          // firing any event we can catch — so probe the player DOM for it.
+          setTimeout(() => window.__bucksMiniPlayer._checkEmbedError(), 1600);
+        });
       }
       dock.classList.add('mp-visible');
+    },
+    async _checkEmbedError() {
+      const dock = document.getElementById('bucks-mini-player');
+      const wv = dock && dock.querySelector('.mp-body webview');
+      if (!wv) return;
+      let failed = false;
+      try {
+        failed = await wv.executeJavaScript(
+          `!!document.querySelector('.ytp-error, .ytp-error-content-wrap')`, false);
+      } catch (_) { return; }
+      if (!failed) return;
+      const vid = dock.dataset.vid || '';
+      // Try the next video from the rail queue first — seamless recovery.
+      if (this._queue.length && this._queuePos >= 0 && this._queuePos < this._queue.length - 1) {
+        const next = this._queue[++this._queuePos];
+        if (typeof showToast === 'function') showToast('Video can’t be embedded — playing next result', 'info');
+        this._highlightRailItem(next.vid);
+        this.play(next.vid, next.channel ? `${next.title} · ${next.channel}` : next.title);
+        return;
+      }
+      // No queue left: friendly overlay with an open-in-tab escape hatch.
+      const body = dock.querySelector('.mp-body');
+      const wvEl = body.querySelector('webview');
+      if (wvEl) wvEl.style.display = 'none';
+      if (!body.querySelector('.mp-error')) {
+        const ov = document.createElement('div');
+        ov.className = 'mp-error';
+        ov.innerHTML = `
+          <div class="mp-error-msg">This video doesn’t allow embedded playback.</div>
+          <button class="mp-error-open">Watch on YouTube ↗</button>`;
+        ov.querySelector('.mp-error-open').addEventListener('click', () => {
+          if (vid) window.__bucksGenUIAction('navigate', `https://www.youtube.com/watch?v=${vid}`);
+          window.__bucksMiniPlayer.close();
+        });
+        body.appendChild(ov);
+      }
+    },
+    _highlightRailItem(vid) {
+      document.querySelectorAll('.gu-video').forEach((comp) => {
+        comp.querySelectorAll('.gu-video-item').forEach((it) => {
+          it.classList.toggle('active', it.getAttribute('data-vid') === vid);
+        });
+      });
     },
     close() {
       const dock = document.getElementById('bucks-mini-player');
@@ -3722,8 +3778,24 @@
     if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) return;
     const title = el.getAttribute('data-title') || '';
     const channel = el.getAttribute('data-channel') || '';
-    window.__bucksMiniPlayer.play(vid, channel ? `${title} · ${channel}` : title);
     const comp = el.closest('.gu-video');
+    // Feed the component's full result list to the mini player so an
+    // embed-restricted video can auto-advance to the next result.
+    if (comp) {
+      const queue = [];
+      comp.querySelectorAll('[data-vid]').forEach((it) => {
+        const v = it.getAttribute('data-vid');
+        if (v && !queue.some((q) => q.vid === v)) {
+          queue.push({ vid: v, title: it.getAttribute('data-title') || '', channel: it.getAttribute('data-channel') || '' });
+        }
+      });
+      window.__bucksMiniPlayer._queue = queue;
+      window.__bucksMiniPlayer._queuePos = queue.findIndex((q) => q.vid === vid);
+    } else {
+      window.__bucksMiniPlayer._queue = [];
+      window.__bucksMiniPlayer._queuePos = -1;
+    }
+    window.__bucksMiniPlayer.play(vid, channel ? `${title} · ${channel}` : title);
     if (comp) {
       comp.querySelectorAll('.gu-video-item').forEach(it => it.classList.toggle('active', it === el));
       const now = comp.querySelector('.gu-video-now');
@@ -4169,7 +4241,8 @@
       return `<div class="gu-cta-row">${btns}</div>`;
     },
     product_grid(d) {
-      const cards = (d.items || []).map(p => {
+      const PAGE = 8;
+      const cards = (d.items || []).map((p, i) => {
         // Clicking anywhere on the card (or View) opens the real listing when we
         // have its URL; otherwise it searches the product name.
         const kind = p.url ? 'navigate' : 'search';
@@ -4179,7 +4252,7 @@
                   onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>🛍️</div>'"/>`
           : '<div class="gu-product-noimg">🛍️</div>';
         return `
-        <div class="gu-product gu-product--click" onclick="window.__bucksGenUIAction('${kind}','${target}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
+        <div class="gu-product gu-product--click${i >= PAGE ? ' gu-hidden' : ''}" onclick="window.__bucksGenUIAction('${kind}','${target}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
           <div class="gu-product-img">${imgHtml}</div>
           <div class="gu-product-title">${_gu_esc(p.title)}</div>
           <div class="gu-product-meta">
@@ -4195,7 +4268,8 @@
         `<button class="gu-cta gu-shop-action" onclick="window.__bucksGenUIAction('${_gu_esc(a.kind || 'agent')}','${_gu_esc(a.value || a.label)}')">${_gu_esc(a.label)}</button>`
       ).join('');
       const actionRow = actions ? `<div class="gu-cta-row gu-shop-actions">${actions}</div>` : '';
-      return `<div class="gu-product-grid">${cards}</div>${actionRow}`;
+      const items = d.items || [];
+      return `<div class="gu-more-scope"><div class="gu-product-grid">${cards}</div>${actionRow}${_gu_moreBtn('product', d.query || '', items.length > PAGE)}</div>`;
     },
     stat_cards(d) {
       const cards = (d.stats || []).map(s => `
@@ -4216,8 +4290,9 @@
     image_gallery(d) {
       const items = (d.items || []).filter(it => it.image || it.thumbnail);
       if (!items.length) return '<div class="gu-empty">No images found.</div>';
-      const cells = items.map(it => `
-        <div class="gu-img-cell"
+      const PAGE = 12;
+      const cells = items.map((it, i) => `
+        <div class="gu-img-cell${i >= PAGE ? ' gu-hidden' : ''}"
              data-img="${_gu_attr(it.image || it.thumbnail)}"
              data-url="${_gu_attr(it.url || '')}"
              data-title="${_gu_attr(it.title || '')}"
@@ -4227,27 +4302,21 @@
                onerror="this.closest('.gu-img-cell').style.display='none'"/>
           ${it.source ? `<div class="gu-img-cap">${_gu_esc(it.source)}</div>` : ''}
         </div>`).join('');
-      
-      const query = d.query || d.title?.replace("Images — “", "")?.replace("”", "") || "";
-      const viewMoreBtn = query ? `
-        <div style="width: 100%; display: flex; justify-content: center; margin-top: 16px; flex-shrink: 0; padding-bottom: 8px;">
-          <button onclick="window.__bucksImageGalleryViewMore(this, '${_gu_attr(query)}')" style="padding: 9px 22px; border-radius: 99px; background: rgba(169, 120, 255, 0.14); border: 1px solid rgba(169, 120, 255, 0.35); color: #a978ff; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='rgba(169,120,255,0.24)';" onmouseout="this.style.background='rgba(169,120,255,0.14)';">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> View More
-          </button>
-        </div>` : '';
 
-      return `<div class="gu-image-gallery-container" style="display:flex; flex-direction:column; width:100%;">
+      const query = d.query || d.title?.replace("Images — “", "")?.replace("”", "") || "";
+      return `<div class="gu-image-gallery-container gu-more-scope" style="display:flex; flex-direction:column; width:100%;">
                 <div class="gu-image-gallery">${cells}</div>
-                ${viewMoreBtn}
+                ${_gu_moreBtn('images', query, items.length > PAGE)}
               </div>`;
     },
     video(d) {
       const vids = (d.videos || []).filter(v => /^[A-Za-z0-9_-]{6,20}$/.test(v.videoId || ''));
       if (!vids.length) return '<div class="gu-empty">No playable videos found.</div>';
+      const PAGE = 8;
       const pid = 'gu-yt-' + Math.random().toString(36).slice(2, 10);
       const first = vids[0];
       const rail = vids.map((v, i) => `
-        <div class="gu-video-item${i === 0 ? ' active' : ''}"
+        <div class="gu-video-item${i === 0 ? ' active' : ''}${i >= PAGE ? ' gu-hidden' : ''}"
              data-vid="${_gu_attr(v.videoId)}"
              data-title="${_gu_attr(v.title)}"
              data-channel="${_gu_attr(v.channel || '')}"
@@ -4265,7 +4334,8 @@
       // a body-level <webview> — survives chat re-renders/minimize/close =
       // background play). The hero area is a play button for the top result;
       // the ↗ chip opens the real YouTube page in a browser tab.
-      return `<div class="gu-video">
+      const query = d.query || '';
+      return `<div class="gu-video gu-more-scope">
         <div class="gu-video-player gu-video-hero"
              data-vid="${_gu_attr(first.videoId)}"
              data-title="${_gu_attr(first.title)}"
@@ -4281,6 +4351,7 @@
         </div>
         <div class="gu-video-now">${_gu_esc(first.title)}${first.channel ? ' · ' + _gu_esc(first.channel) : ''}</div>
         ${vids.length > 1 ? `<div class="gu-video-rail">${rail}</div>` : ''}
+        ${_gu_moreBtn('video', query, vids.length > PAGE)}
       </div>`;
     },
     weather(d) {
@@ -4770,12 +4841,34 @@
     sendChat(q);
   };
 
-  window.__bucksImageGalleryViewMore = (btn, query) => {
-    if (!btn || !query) return;
+  // ── Unified "View more" for media components ──
+  // First clicks reveal already-fetched items client-side (instant paging);
+  // once exhausted the button turns into a real follow-up search (--more).
+  const _GU_MORE = {
+    images:  { page: 12, cmd: (q) => `/images ${q} --more`,  fetchLabel: 'Crawling Web…' },
+    video:   { page: 8,  cmd: (q) => `/video ${q} --more`,   fetchLabel: 'Finding more videos…' },
+    product: { page: 8,  cmd: (q) => `/product ${q} --more`, fetchLabel: 'Finding more products…' },
+  };
+  window.__bucksGuViewMore = (btn, kind, query) => {
+    if (!btn) return;
+    const cfg = _GU_MORE[kind] || _GU_MORE.images;
+    const scope = btn.closest('.gu-more-scope');
+    const hidden = scope ? scope.querySelectorAll('.gu-hidden') : [];
+    if (hidden.length) {
+      // Reveal the next page from what we already fetched.
+      for (let i = 0; i < Math.min(cfg.page, hidden.length); i++) hidden[i].classList.remove('gu-hidden');
+      if (!scope.querySelectorAll('.gu-hidden').length) {
+        const label = btn.querySelector('.gu-more-label');
+        if (label) label.textContent = query ? 'Search more' : 'That’s everything';
+        if (!query) btn.disabled = true;
+      }
+      return;
+    }
+    if (!query) { btn.disabled = true; return; }
+    // Nothing left locally — run a wider search as a follow-up turn.
     btn.disabled = true;
-    btn.innerHTML = `<svg style="animation: spin 1.2s linear infinite;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.15)"></circle><path d="M4 12a8 8 0 018-8" fill="none" stroke-linecap="round"></path></svg> Crawling Web...`;
-    
-    const moreQuery = `/images ${query} --more`;
+    btn.innerHTML = `<svg style="animation: spin 1.2s linear infinite;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.15)"></circle><path d="M4 12a8 8 0 018-8" fill="none" stroke-linecap="round"></path></svg> ${cfg.fetchLabel}`;
+    const moreQuery = cfg.cmd(query);
     const chatTab = document.getElementById('view-chat-tab');
     if (chatTab && !chatTab.classList.contains('hidden')) {
       sendChatTab(moreQuery);
@@ -4783,6 +4876,23 @@
       sendChat(moreQuery);
     }
   };
+  // Back-compat alias (older rendered components may still reference it).
+  window.__bucksImageGalleryViewMore = (btn, query) => window.__bucksGuViewMore(btn, 'images', query);
+
+  // Shared button markup for the media components.
+  function _gu_moreBtn(kind, query, hasHidden) {
+    if (!hasHidden && !query) return '';
+    const label = hasHidden ? 'View more' : 'Search more';
+    return `
+      <div style="width:100%; display:flex; justify-content:center; margin-top:14px; flex-shrink:0; padding-bottom:6px;">
+        <button class="gu-more-btn" onclick="window.__bucksGuViewMore(this,'${kind}','${_gu_attr(query || '')}')"
+          style="padding:9px 22px; border-radius:99px; background:rgba(169,120,255,0.14); border:1px solid rgba(169,120,255,0.35); color:#a978ff; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:8px;"
+          onmouseover="this.style.background='rgba(169,120,255,0.24)';" onmouseout="this.style.background='rgba(169,120,255,0.14)';">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="gu-more-label">${label}</span>
+        </button>
+      </div>`;
+  }
 
   /* ── Generate follow-up suggestions based on query + intent ── */
   function generateFollowUps(query, intent, results) {

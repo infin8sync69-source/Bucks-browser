@@ -70,7 +70,7 @@ def product_grid_component(query: str, products: list[dict]) -> dict:
     return {
         "component": "product_grid",
         "title": f"Products for “{query}”",
-        "data": {"items": items},
+        "data": {"items": items, "query": query},
     }
 
 
@@ -126,7 +126,7 @@ def video_component(query: str, videos: list[dict], title: str = "") -> dict:
     return {
         "component": "video",
         "title": title or f"Videos — “{query}”",
-        "data": {"videos": vids},
+        "data": {"videos": vids, "query": query},
     }
 
 

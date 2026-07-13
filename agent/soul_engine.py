@@ -1266,10 +1266,12 @@ async def agent(req: Request) -> StreamingResponse:
             # renders its component directly and streams a short answer.
             if _is_shopping(message):
                 handled = "shopping"
-                shop_q = _shop_query(message)
+                is_more = "--more" in message.lower()
+                shop_q = _re.sub(r"\s*--more\b", "", _shop_query(message), flags=_re.I).strip()
                 yield sse({"type": "thinking", "content": "Finding products…"})
                 first_action = "product_lookup"
-                result, ui_spec = await run_tool("product_lookup", {"query": shop_q})
+                result, ui_spec = await run_tool(
+                    "product_lookup", {"query": shop_q, "max_results": 24 if is_more else 12})
                 if ui_spec:
                     yield sse({"type": "ui_component", **ui_spec})
                     emitted_ui = True
@@ -1299,10 +1301,12 @@ async def agent(req: Request) -> StreamingResponse:
 
             elif _is_video(message):
                 handled = "video"
-                media_q = _media_query(message)
+                is_more = "--more" in message.lower()
+                media_q = _re.sub(r"\s*--more\b", "", _media_query(message), flags=_re.I).strip()
                 yield sse({"type": "thinking", "content": "Finding videos…"})
                 first_action = "youtube_search"
-                result, ui_spec = await run_tool("youtube_search", {"query": media_q})
+                result, ui_spec = await run_tool(
+                    "youtube_search", {"query": media_q, "max_results": 24 if is_more else 12})
                 # Tokens BEFORE the component: the full-screen chat re-renders
                 # its thread on every appended chunk, and tokens arriving after
                 # an <iframe> exists would reload (restart) the video.

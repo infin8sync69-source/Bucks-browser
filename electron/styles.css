@@ -213,6 +213,12 @@ body.web-mode .webview-host {
   box-shadow: none !important;
 }
 
+/* Media-component pagination: items beyond the first page stay in the DOM
+   and are revealed by the "View more" button (renderer.js __bucksGuViewMore). */
+.gu-hidden {
+  display: none !important;
+}
+
 /* ─── Newtab container visibility ─── */
 .newtab-container {
   display: none !important;
@@ -1279,6 +1285,23 @@ body.web-mode .left-dock {
 #bucks-mini-player .mp-btn:hover { background: rgba(255,255,255,0.2); }
 #bucks-mini-player .mp-body { width: 100%; height: 216px; background: #000; }
 #bucks-mini-player .mp-body webview { width: 100%; height: 100%; border: 0; display: flex; }
+/* Embed-restricted video (YouTube error 150/152/153): friendly fallback. */
+#bucks-mini-player .mp-error {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 18px; text-align: center;
+  background: linear-gradient(160deg, #17171b, #0d0d10);
+}
+#bucks-mini-player .mp-error-msg {
+  font-size: 12.5px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; max-width: 260px;
+}
+#bucks-mini-player .mp-error-open {
+  padding: 8px 18px; border-radius: 99px; cursor: pointer;
+  background: rgba(255, 62, 62, 0.16); border: 1px solid rgba(255, 62, 62, 0.4);
+  color: #ff6b6b; font-family: inherit; font-size: 12.5px; font-weight: 600;
+  transition: background 0.2s;
+}
+#bucks-mini-player .mp-error-open:hover { background: rgba(255, 62, 62, 0.28); }
 /* Collapsed to an audio pill: webview stays mounted (0-height, audio keeps
    playing); the bar becomes the pill. Tap the bar to restore the video. */
 #bucks-mini-player.mp-min { width: 260px; }
