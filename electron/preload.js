@@ -30,6 +30,7 @@ const bucksAPI = {
 
   /* ─── IPFS Social Network (Local Helia) ─── */
   ipfsInfo: () => ipcRenderer.invoke('ipfs-info'),
+  ipfsConnect: (multiaddr) => ipcRenderer.invoke('ipfs-connect', { multiaddr }),
   ipfsPeers: () => ipcRenderer.invoke('ipfs-peers'),
   ipfsPublish: (content, metadata) => ipcRenderer.invoke('ipfs-publish', { content, metadata }),
   ipfsFeed: () => ipcRenderer.invoke('ipfs-feed'),
@@ -50,11 +51,22 @@ const bucksAPI = {
   /* ─── Social RPC (proxied through main to port 8000) ─── */
   socialRPC: (params) => ipcRenderer.invoke('social-rpc', params),
 
+  /* ─── P2P Encrypted Chat (Signal over Gossipsub, no server) ─── */
+  chatSend: (peerId, text, attachmentCid) => ipcRenderer.invoke('chat-send', { peerId, text, attachmentCid }),
+  chatSendFile: (peerId, fileData, filename) => ipcRenderer.invoke('chat-send-file', { peerId, fileData, filename }),
+  chatHistory: (peerId) => ipcRenderer.invoke('chat-history', { peerId }),
+  chatConversations: () => ipcRenderer.invoke('chat-conversations'),
+  chatMarkRead: (peerId) => ipcRenderer.invoke('chat-mark-read', { peerId }),
+  chatOwnBundle: () => ipcRenderer.invoke('chat-own-bundle'),
+  chatProcessBundle: (peerId, bundle) => ipcRenderer.invoke('chat-process-bundle', { peerId, bundle }),
+  chatHasBundle: (peerId) => ipcRenderer.invoke('chat-has-bundle', { peerId }),
+  onChatMessage: (callback) => ipcRenderer.on('chat-message', (_e, data) => callback(data)),
+
   /* ─── Web Intelligence (Agent Browser — proxied through main) ─── */
   webSearch: (query, maxResults) => ipcRenderer.invoke('web-search', { query, maxResults: maxResults || 5 }),
   webFetch: (url, maxChars) => ipcRenderer.invoke('web-fetch', { url, maxChars: maxChars || 4000 }),
   webFetchSummary: (url) => ipcRenderer.invoke('web-fetch-summary', { url }),
-
+  showWallet: process.env.BUCKS_SHOW_WALLET === '1',
 };
 
 // ── Project NEXUS — Agentic Interface API ─────────────────────────────────────
@@ -96,6 +108,20 @@ const nexusAPI = {
 
   /** List all persisted goals from the DB. */
   listGoals: () => ipcRenderer.invoke('nexus:list-goals'),
+
+  /** Current Soul Engine lifecycle status (starting/loading/ready/unavailable). */
+  soulEngineStatus: () => ipcRenderer.invoke('soul-engine-status'),
+
+  /**
+   * Subscribe to Soul Engine status changes pushed from the supervisor.
+   * @param {function} cb - Receives { state, model?, provider?, detail? }
+   * @returns {function} Unsubscribe function
+   */
+  onSoulEngineStatus: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('soul-engine-status', handler);
+    return () => ipcRenderer.removeListener('soul-engine-status', handler);
+  },
 
   /**
    * Subscribe to typed agent step events.

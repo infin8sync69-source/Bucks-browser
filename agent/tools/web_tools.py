@@ -9,23 +9,71 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 
 
+def _ddg_html_search(query: str, max_results: int = 6) -> list[dict]:
+    results = []
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        }
+        resp = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for r in soup.find_all("div", class_="result"):
+                a_title = r.find("a", class_="result__a")
+                snippet_elem = r.find(class_="result__snippet")
+                if a_title:
+                    title = a_title.get_text().strip()
+                    href = a_title.get("href", "")
+                    body = snippet_elem.get_text().strip() if snippet_elem else ""
+                    if href.startswith("/l/?"):
+                        from urllib.parse import parse_qs, urlparse
+                        parsed = parse_qs(urlparse(href).query)
+                        if "uddg" in parsed:
+                            href = parsed["uddg"][0]
+                    results.append({"title": title, "href": href, "body": body})
+                    if len(results) >= max_results:
+                        break
+    except Exception as e:
+        import logging
+        logging.getLogger("bucks.tools.web").error(f"DDG HTML search fallback failed: {e}")
+    return results
+
+
 @tool("web_search")
-def web_search(query: str, max_results: int = 6) -> str:
+def web_search(query: str, max_results: int = 6) -> dict:
     """
-    Search the web with DuckDuckGo. Returns titles, URLs, and snippets.
-    No API key required — fully local.
+    Search the web with DuckDuckGo. Returns titles, URLs, and snippets,
+    and displays them as a visual list component.
     """
+    results = []
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
-        if not results:
-            return "No results found."
-        lines = []
-        for r in results:
-            lines.append(f"**{r.get('title', '')}**\n{r.get('href', '')}\n{r.get('body', '')}\n")
-        return "\n---\n".join(lines)
     except Exception as e:
-        return f"Search error: {e}"
+        import logging
+        logging.getLogger("bucks.tools.web").warning(f"Standard DDGS text search failed: {e}")
+
+    if not results:
+        results = _ddg_html_search(query, max_results=max_results)
+
+    if not results:
+        return {
+            "text": "No results found.",
+            "_ui": None
+        }
+
+    lines = []
+    for r in results:
+        lines.append(f"**{r.get('title', '')}**\n{r.get('href', '')}\n{r.get('body', '')}\n")
+    text_summary = "\n---\n".join(lines)
+
+    from genui import search_results_component
+    ui_spec = search_results_component(query, results)
+
+    return {
+        "text": text_summary,
+        "_ui": ui_spec
+    }
 
 
 @tool("fetch_url")

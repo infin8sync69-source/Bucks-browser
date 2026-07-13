@@ -1,7 +1,9 @@
 """
 Model Configuration — Edge-first SLM selection + cloud fallback.
 
-Edge SLMs (via Ollama, fully local, no API key):
+Edge SLMs (embedded via llama-cpp-python by default — see edge_llm.py —
+no separate service to install or run; Ollama remains available as an
+opt-in provider for anyone who already runs it):
   qwen2.5:3b    — 1.9 GB  — strong Arabic/multilingual, default
   phi3:mini     — 2.3 GB  — best reasoning/param ratio (Microsoft, Apache 2.0)
   llama3.2:1b   — 0.6 GB  — ultra-light, Raspberry Pi class
@@ -15,9 +17,15 @@ Selection priority: RAM-based auto-select or explicit SLM_MODEL env var.
 import os
 import platform
 from typing import Literal
+from dotenv import load_dotenv
+
+# Load agent/.env file if present
+load_dotenv()
 
 # ── Provider ──────────────────────────────────────────────────────────────────
-MODEL_PROVIDER  = os.getenv("MODEL_PROVIDER", "ollama").lower()
+# "edge" = embedded llama-cpp-python, in-process, no external daemon (default).
+# "ollama" = talk to a locally running Ollama server instead (opt-in).
+MODEL_PROVIDER  = os.getenv("MODEL_PROVIDER", "edge").lower()
 LITAI_API_KEY   = os.getenv("LITAI_API_KEY", "")
 LITAI_BASE_URL  = os.getenv("LITAI_BASE_URL", "https://lightning.ai/api/v1")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -36,20 +44,27 @@ EDGE_SLMS = [
     {"id": "llama3.2:3b",   "size_gb": 1.9,  "license": "llama",   "arabic": False},
     {"id": "qwen2.5:3b",    "size_gb": 1.9,  "license": "apache2", "arabic": True},
     {"id": "phi3:mini",     "size_gb": 2.3,  "license": "apache2", "arabic": False},
+    {"id": "qwen2.5:7b",    "size_gb": 4.7,  "license": "apache2", "arabic": True},
+    {"id": "llama3.1:8b",   "size_gb": 4.8,  "license": "llama",   "arabic": False},
 ]
 
-# Default: qwen2.5:3b — best Arabic support for Quran-grounded reasoning
-SLM_MODEL   = os.getenv("SLM_MODEL", "qwen2.5:3b")
+# Default: qwen2.5:7b — best Arabic support + high reasoning for Quran-grounded reasoning
+SLM_MODEL   = os.getenv("SLM_MODEL", "qwen2.5:7b")
 SLM_ENABLED = os.getenv("SLM_ENABLED", "true").lower() == "true"
 
 
-def auto_select_slm(available_ram_gb: float = 4.0, require_arabic: bool = True) -> str:
+def auto_select_slm(available_ram_gb: float = 4.0, require_arabic: bool = True,
+                    viable=None) -> str:
     """
     Pick the best edge SLM that fits in available RAM.
     Prefers Arabic-capable models when require_arabic=True (needed for Quran soul).
+    `viable` (optional callable id->bool) filters out models that can't actually
+    be obtained right now — e.g. not cached and no disk headroom to download.
     Returns model id string for Ollama.
     """
     candidates = [m for m in EDGE_SLMS if m["size_gb"] * 1.5 <= available_ram_gb]
+    if viable is not None:
+        candidates = [m for m in candidates if viable(m["id"])]
     if not candidates:
         return "llama3.2:1b"  # always fits on any device
     if require_arabic:
@@ -60,10 +75,17 @@ def auto_select_slm(available_ram_gb: float = 4.0, require_arabic: bool = True) 
 
 
 def get_available_ram_gb() -> float:
-    """Estimate available RAM on this device."""
+    """RAM budget for the embedded model.
+
+    Uses half of TOTAL RAM (floored by currently-available) rather than the
+    instantaneous free figure: macOS keeps most RAM occupied by caches and
+    open apps, so "available" at boot understates what the OS will happily
+    reclaim — tiering on it made a 16 GB machine pick a 3B model forever.
+    """
     try:
         import psutil
-        return psutil.virtual_memory().available / (1024 ** 3)
+        vm = psutil.virtual_memory()
+        return max(vm.available, vm.total * 0.5) / (1024 ** 3)
     except ImportError:
         return 4.0  # assume 4 GB if psutil not available
 
@@ -136,6 +158,11 @@ QURAN_RAG_EMBED_BATCH   = int(os.getenv("QURAN_RAG_EMBED_BATCH", "50"))
 RAG_EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
 RAG_TOP_K       = int(os.getenv("RAG_TOP_K",   "5"))
 IPFS_API_URL    = os.getenv("IPFS_API_URL",    "http://localhost:5001")
+# IPFS Cluster REST API (ipfs-cluster-service) — used when reachable so
+# knowledge fragments/adapters replicate across every peer in the cluster
+# instead of depending on this one node; falls back to single-node IPFS_API_URL
+# pinning when no cluster is running. See ipfs_cluster_client.py.
+IPFS_CLUSTER_API_URL = os.getenv("IPFS_CLUSTER_API_URL", "http://127.0.0.1:9094")
 
 # ── Reinforcement Learning ─────────────────────────────────────────────────────
 RL_ALPHA   = float(os.getenv("RL_ALPHA",   "0.1"))

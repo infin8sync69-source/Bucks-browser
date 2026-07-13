@@ -1,3 +1,42 @@
+// Prevent EPIPE errors from crashing the Electron main process (common when stdout/stderr are redirected/closed)
+if (process.stdout && typeof process.stdout.on === 'function') {
+  process.stdout.on('error', (err) => {
+    if (err.code === 'EPIPE') {
+      // Ignore EPIPE error
+    }
+  });
+}
+if (process.stderr && typeof process.stderr.on === 'function') {
+  process.stderr.on('error', (err) => {
+    if (err.code === 'EPIPE') {
+      // Ignore EPIPE error
+    }
+  });
+}
+
+// Wrap console methods to catch synchronous EPIPE errors thrown during logging
+const wrapConsole = (method) => {
+  const original = console[method];
+  if (typeof original === 'function') {
+    console[method] = function(...args) {
+      try {
+        original.apply(console, args);
+      } catch (err) {
+        if (err && err.code === 'EPIPE') {
+          // Ignore EPIPE (broken pipe) errors
+        } else {
+          throw err;
+        }
+      }
+    };
+  }
+};
+wrapConsole('log');
+wrapConsole('error');
+wrapConsole('warn');
+wrapConsole('info');
+wrapConsole('debug');
+
 const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell } = require('electron');
 // app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -162,6 +201,18 @@ function createWindow(settings, opts = {}) {
     return { action: 'deny' };
   });
 
+  // Preventively block the shell frame from navigating off its allowed schemes
+  // (the did-navigate handler below is reactive — it fires after load starts).
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = /^(bucks|ipfs|ipns|file):\/\//.test(url) ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)/.test(url) ||
+      url.startsWith('data:');
+    if (!allowed) {
+      console.warn(`[Security] Blocked shell navigation to: ${url}`);
+      event.preventDefault();
+    }
+  });
+
   // Forward renderer console logs to main terminal
   win.webContents.on('console-message', (event, level, message) => {
     try { process.stdout.write('[Renderer UI] ' + message + '\n'); } catch (e) { }
@@ -180,31 +231,49 @@ function createWindow(settings, opts = {}) {
   return win;
 }
 
-/* ─── Request Filtering (Ad-block & HTTPS Upgrade) ─── */
+/* ─── Request Filtering (Ad-block, HTTPS Upgrade & YouTube Embed Fix) ─── */
 const COMPILED_AD_PATTERNS = AD_BLOCK_PATTERNS.map(pattern => new RegExp('^' + pattern.split('*').join('.*') + '$', 'i'));
 
 function setupRequestFilters() {
-  session.defaultSession.webRequest.onBeforeRequest(
-    { urls: ['*://*/*'] },
-    (details, callback) => {
-      const url = details.url;
+  const sessions = [
+    session.defaultSession,
+    session.fromPartition('bucks-private')
+  ];
 
-      // 1. HTTPS Upgrade
-      if (httpsOnlyEnabled && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
-        return callback({ redirectURL: url.replace('http://', 'https://') });
+  for (const sess of sessions) {
+    // 1. YouTube Referrer / Origin Fix for embedding (Error 153)
+    sess.webRequest.onBeforeSendHeaders(
+      { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*'] },
+      (details, callback) => {
+        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
+        details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        callback({ requestHeaders: details.requestHeaders });
       }
+    );
 
-      // 2. Ad-blocking optimization (Precompiled regex)
-      const isAd = COMPILED_AD_PATTERNS.some(regex => regex.test(url));
+    // 2. HTTPS Upgrade & Ad-blocking
+    sess.webRequest.onBeforeRequest(
+      { urls: ['*://*/*'] },
+      (details, callback) => {
+        const url = details.url;
 
-      if (adBlockEnabled && isAd) {
-        blockedCount++;
-        return callback({ cancel: true });
+        // 1. HTTPS Upgrade
+        if (httpsOnlyEnabled && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+          return callback({ redirectURL: url.replace('http://', 'https://') });
+        }
+
+        // 2. Ad-blocking optimization (Precompiled regex)
+        const isAd = COMPILED_AD_PATTERNS.some(regex => regex.test(url));
+
+        if (adBlockEnabled && isAd) {
+          blockedCount++;
+          return callback({ cancel: true });
+        }
+
+        callback({});
       }
-
-      callback({});
-    }
-  );
+    );
+  }
 }
 
 /* ─── Setup IPC handlers ─── */
@@ -269,19 +338,9 @@ function setupIPC() {
   // Platform info
   ipcMain.handle('get-platform', () => process.platform);
 
-  // Wallet Reset (delete wallets.json to allow creating a new one)
+  // Wallet Reset (delete stored wallets to allow creating a new one)
   ipcMain.handle('wallet-reset', async () => {
-    const fs = require('fs');
-    const path = require('path');
-    const walletPath = path.join(process.cwd(), 'wallets.json');
-    try {
-      if (fs.existsSync(walletPath)) {
-        fs.unlinkSync(walletPath);
-      }
-      return { success: true };
-    } catch (e) {
-      return { success: false, error: e.message };
-    }
+    return require('./bucks-node').resetWallets();
   });
 
   // ─── Phase 7: Security Hardening ───
@@ -441,27 +500,8 @@ function setupIPC() {
     const endpoint = params.endpoint;
     const body = params.body || null;
     try {
-      // Connect to the Bucks node (default localhost:8080)
-      return new Promise((resolve) => {
-        const options = {
-          hostname: 'localhost',
-          port: 8080,
-          path: endpoint,
-          method: method,
-          headers: { 'Content-Type': 'application/json' },
-        };
-        const req = http.request(options, (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            try { resolve(JSON.parse(data)); }
-            catch (e) { resolve(data); }
-          });
-        });
-        req.on('error', (err) => resolve({ error: err.message }));
-        if (body) req.write(JSON.stringify(body));
-        req.end();
-      });
+      // Embedded Bucks Node — in-process, no localhost server needed
+      return await require('./bucks-node').handleRPC(method, endpoint, body);
     } catch (err) {
       return { error: err.message };
     }
@@ -594,70 +634,68 @@ function setupIPC() {
     }
   });
 
-  // IPC: DuckDuckGo search + top results fetched
+  // IPC: Google search + top results fetched
   ipcMain.handle('web-search', async (_e, { query, maxResults }) => {
     if (!isInternalOrigin(_e.sender)) return { error: 'Unauthorized' };
     const results = [];
+    let instant = null;
     try {
-      // 1. DuckDuckGo Instant Answer API (JSON)
-      const ddgInstant = await httpGet(
-        `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      let instant = null;
-      try {
-        const ddgData = JSON.parse(ddgInstant.body);
-        if (ddgData.AbstractText) {
-          instant = {
-            title: ddgData.Heading || query,
-            snippet: ddgData.AbstractText,
-            url: ddgData.AbstractURL || `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
-            source: ddgData.AbstractSource || 'DuckDuckGo'
-          };
-        } else if (ddgData.Answer) {
-          instant = {
-            title: 'Quick Answer',
-            snippet: ddgData.Answer,
-            url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
-            source: 'DuckDuckGo'
-          };
-        }
-        // Also extract related topics
-        if (ddgData.RelatedTopics) {
-          ddgData.RelatedTopics.slice(0, 3).forEach(rt => {
-            if (rt.FirstURL && rt.Text) {
-              results.push({ title: rt.Text.split(' - ')[0] || rt.Text.slice(0, 60), snippet: rt.Text, url: rt.FirstURL, source: 'DuckDuckGo' });
-            }
-          });
-        }
-      } catch (_) {}
+      const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      };
+      const response = await httpGet(googleUrl, { headers });
+      const html = response.body;
 
-      // 2. DuckDuckGo HTML search for organic links
-      const ddgHtml = await httpGet(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-      const linkMatches = [...ddgHtml.body.matchAll(/<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-      const snippetMatches = [...ddgHtml.body.matchAll(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)];
-
-      for (let i = 0; i < Math.min(linkMatches.length, maxResults || 4); i++) {
-        const rawUrl = linkMatches[i][1];
-        const title = stripHtml(linkMatches[i][2]).trim();
-        const snippet = snippetMatches[i] ? stripHtml(snippetMatches[i][1]).trim() : '';
-
-        // Decode DuckDuckGo redirect URLs
-        let cleanUrl = rawUrl;
-        try {
-          if (rawUrl.includes('uddg=')) {
-            cleanUrl = decodeURIComponent(rawUrl.split('uddg=')[1].split('&')[0]);
-          } else if (rawUrl.startsWith('//duckduckgo.com/l/')) {
-            cleanUrl = decodeURIComponent(rawUrl.split('uddg=')[1] || rawUrl);
-          }
-        } catch (_) {}
-
-        if (cleanUrl && title && !cleanUrl.includes('duckduckgo.com')) {
-          results.push({ title, snippet, url: cleanUrl, source: new URL(cleanUrl).hostname.replace('www.', '') });
+      // 1. Extract organic search results
+      const linkRegex = /<a\s+href="([^"]+)"[^>]*><h3[^>]*>([\s\S]*?)<\/h3>/gi;
+      let match;
+      const matches = [];
+      while ((match = linkRegex.exec(html)) !== null) {
+        const url = match[1];
+        const title = stripHtml(match[2]).trim();
+        if (url.startsWith('http') && !url.includes('google.com')) {
+          matches.push({ url, title });
         }
       }
 
-      // 3. If we still have < 2 results, try Wikipedia
+      // 2. Extract snippets for matched URLs
+      for (let i = 0; i < Math.min(matches.length, maxResults || 5); i++) {
+        const item = matches[i];
+        let snippet = '';
+        const escapedUrl = item.url.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const snippetRegex = new RegExp(`href="${escapedUrl}"[\\s\\S]*?<div[^>]+class="[^"]*(?:VwiC3b|yDJP4c|MUbB0c|s3xf6)[^"]*"[^>]*>([\\s\\S]*?)<\/div>`, 'i');
+        const snippetMatch = snippetRegex.exec(html);
+        if (snippetMatch) {
+          snippet = stripHtml(snippetMatch[1]).trim();
+        } else {
+          const fallbackRegex = new RegExp(`href="${escapedUrl}"[\\s\\S]*?<(?:div|span)[^>]*class="[^"]*(?:VwiC3b|yDJP4c|MUbB0c|s3xf6|BNeawe)[^"]*"[^>]*>([\\s\\S]*?)<\/(?:div|span)>`, 'i');
+          const fallbackMatch = fallbackRegex.exec(html);
+          if (fallbackMatch) {
+            snippet = stripHtml(fallbackMatch[1]).trim();
+          }
+        }
+        results.push({
+          title: item.title,
+          snippet: snippet || 'Visit page for more details.',
+          url: item.url,
+          source: new URL(item.url).hostname.replace('www.', '')
+        });
+      }
+
+      // 3. Try to extract a Quick Answer (Google featured snippet)
+      const featuredRegex = /<div[^>]+class="[^"]*(?:hgKElc|zzzZ1e|LGOj8)[^"]*"[^>]*>([\s\S]*?)<\/div>/i;
+      const featuredMatch = featuredRegex.exec(html);
+      if (featuredMatch && results.length > 0) {
+        instant = {
+          title: 'Google Quick Answer',
+          snippet: stripHtml(featuredMatch[1]).trim(),
+          url: results[0].url,
+          source: 'Google'
+        };
+      }
+
+      // 4. Wikipedia Fallback if < 2 results
       if (results.length < 2) {
         try {
           const wikiQuery = encodeURIComponent(query.replace(/\s+/g, '_').slice(0, 60));
@@ -693,25 +731,30 @@ function setupIPC() {
  * Checks if key backends are responsive on startup
  */
 async function checkServiceLiveness() {
+  // Blockchain node is now embedded (bucks-node.js) — nothing to probe.
+  // Soul Engine is optional; log its state for diagnostics.
   const services = [
-    { name: 'IPFS Social (Global)', port: 8000, path: '/' },
-    { name: 'Blockchain Node', port: 8080, path: '/api/status' }
+    { name: 'Soul Engine (Agent AI)', port: 8765, path: '/health' }
   ];
 
   for (const s of services) {
-    const req = http.get(`http://localhost:${s.port}${s.path}`, (res) => {
-      console.log(`[Liveness] ${s.name} is ONLINE (Port ${s.port})`);
+    const req = http.get(`http://127.0.0.1:${s.port}${s.path}`, (res) => {
+      const online = res.statusCode >= 200 && res.statusCode < 300;
+      console.log(`[Liveness] ${s.name} is ${online ? 'ONLINE' : `RESPONDING (HTTP ${res.statusCode})`} (Port ${s.port})`);
+      res.resume();
     });
     req.on('error', () => {
       console.warn(`[Liveness] ${s.name} is OFFLINE (Port ${s.port})`);
-      // We don't block startup, but we log the issue. 
-      // renderer.js will handle the UI feedback.
     });
   }
 }
 
 /* ─── IPFS Social IPC Handlers ─── */
 function setupIPFS() {
+  ipcMain.handle('ipfs-connect', async (_e, { multiaddr }) => {
+    return await ipfs.connectPeer(multiaddr);
+  });
+
   ipcMain.handle('ipfs-info', async () => {
     return ipfs.getNodeInfo();
   });
@@ -760,6 +803,17 @@ function setupIPFS() {
   ipcMain.handle('ipfs-search-dweb', async (_e, { query }) => {
     return ipfs.searchDweb(query);
   });
+
+  /* ─── P2P Encrypted Chat (Signal protocol over Gossipsub) ─── */
+  const chatEngine = require('./chat-engine');
+  ipcMain.handle('chat-send', (_e, { peerId, text, attachmentCid }) => chatEngine.sendMessage(peerId, text, attachmentCid || null));
+  ipcMain.handle('chat-send-file', (_e, { peerId, fileData, filename }) => chatEngine.sendFile(peerId, fileData, filename));
+  ipcMain.handle('chat-history', (_e, { peerId }) => chatEngine.getChatHistory(peerId));
+  ipcMain.handle('chat-conversations', () => chatEngine.getConversations());
+  ipcMain.handle('chat-mark-read', (_e, { peerId }) => chatEngine.markAsRead(peerId));
+  ipcMain.handle('chat-own-bundle', () => chatEngine.getOwnBundle());
+  ipcMain.handle('chat-process-bundle', (_e, { peerId, bundle }) => chatEngine.processPeerBundle(peerId, bundle));
+  ipcMain.handle('chat-has-bundle', (_e, { peerId }) => chatEngine.hasPeerBundle(peerId));
 
   /* ─── File Manager state & download handlers ─── */
   ipcMain.handle('file-manager-get', async () => {
@@ -953,11 +1007,30 @@ function setupProtocols() {
 
 let ipfsServerProcess = null;
 
-function startIpfsServer() {
+// Is something already listening on a local TCP port? Resolves quickly so we
+// can skip spawning a helper that would just crash with EADDRINUSE.
+function _portInUse(port) {
+  return new Promise((resolve) => {
+    const socket = require('net').connect({ host: '127.0.0.1', port }, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('error', () => resolve(false));
+    socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });
+  });
+}
+
+async function startIpfsServer() {
   const { spawn } = require('child_process');
   const fs = require('fs');
   const path = require('path');
   const serverPath = path.join(__dirname, '../ipfs/server.js');
+  // Skip if the file-manager proxy is already up (a prior run or a standalone
+  // cluster stack) — spawning a second one would EADDRINUSE-crash on :3939.
+  if (await _portInUse(3939)) {
+    console.log('[App] IPFS proxy server already running on :3939 — reusing it.');
+    return;
+  }
   if (fs.existsSync(serverPath)) {
     console.log('[App] Starting IPFS proxy server...');
     ipfsServerProcess = spawn('node', [serverPath], {
@@ -986,8 +1059,19 @@ app.whenReady().then(async () => {
   const soulBridge = require('./ipfs-agent-soul');
   // ── Project NEXUS: Agentic Interface IPC Bridge ──
   const nexusBridge = require('./nexus-ipc-bridge');
+  // ── Soul Engine supervisor: Electron owns the local-AI lifecycle now ──
+  const soulEngine = require('./soul-engine-supervisor');
 
   const settings = loadSettings();
+
+  // Embedded blockchain node (wallets, mining, txs) — works offline,
+  // syncs with peers once gossip attaches below.
+  const bucksNode = require('./bucks-node');
+  try {
+    bucksNode.init({ dataDir: path.join(app.getPath('userData'), 'bucks-chain') });
+  } catch (e) {
+    console.error('[App] Bucks node failed to init:', e.message);
+  }
 
   setupProtocols();
 
@@ -998,6 +1082,16 @@ app.whenReady().then(async () => {
 
   // Register NEXUS bridge now that mainWindow exists
   nexusBridge.register(mainWindow, agentSwarm);
+
+  // Bring the local AI up as part of core startup. Pushes status to the
+  // renderer so the agent UI can show "warming up / ready / unavailable"
+  // instead of the old silent "/health OFFLINE" failure.
+  soulEngine.start((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('soul-engine-status', status);
+    }
+  }).catch((e) => console.error('[App] Soul Engine supervisor error:', e.message));
+  ipcMain.handle('soul-engine-status', () => soulEngine.getStatus());
 
   // ─── Phase 1.8: Context Menus ───
   app.on('web-contents-created', (event, contents) => {
@@ -1093,11 +1187,25 @@ app.whenReady().then(async () => {
     const heliaNode = ipfs.getHeliaNode();
     const gossip    = ipfs.getGossip();
     if (heliaNode && gossip) {
+      // Attach blockchain sync to the swarm mesh
       try {
-        await agentSwarm.start(heliaNode, gossip);
-        console.log('[App] Agent swarm layer started.');
+        bucksNode.attachGossip(gossip);
       } catch (err) {
-        console.error('[App] Agent swarm failed to start:', err.message);
+        console.error('[App] Bucks node gossip attach failed:', err.message);
+      }
+      // Swarm delegation targets an agent server on :3000 the app does not
+      // start, and its gossip messages are unsigned (spoofable nodeId, forgeable
+      // results, ballot-stuffable consensus). It stays OFF unless explicitly
+      // enabled, so a future contributor can't silently ship the un-audited path.
+      if (process.env.BUCKS_EXPERIMENTAL_SWARM === '1') {
+        try {
+          await agentSwarm.start(heliaNode, gossip);
+          console.log('[App] Agent swarm layer started (EXPERIMENTAL — unsigned, unaudited).');
+        } catch (err) {
+          console.error('[App] Agent swarm failed to start:', err.message);
+        }
+      } else {
+        console.log('[App] Agent swarm disabled (set BUCKS_EXPERIMENTAL_SWARM=1 to enable).');
       }
 
       // 4. Start soul bridge (advertise own soul, handle peer souls)
@@ -1106,6 +1214,29 @@ app.whenReady().then(async () => {
         console.log('[App] Soul bridge started.');
       } catch (err) {
         console.error('[App] Soul bridge failed to start:', err.message);
+      }
+
+      // 5. Start E2E-encrypted P2P chat engine (Signal over gossipsub)
+      try {
+        const chatEngine = require('./chat-engine');
+        await chatEngine.initChat(heliaNode, gossip, ipfs.getFsModule());
+        chatEngine.setOnMessageCallback((payload) => {
+          if (mainWindow && mainWindow.webContents) {
+            mainWindow.webContents.send('chat-message', payload);
+          }
+        });
+        console.log('[App] Chat engine started.');
+      } catch (err) {
+        console.error('[App] Chat engine failed to start:', err.message);
+      }
+
+      // 6. Check for updates and notify (electron-updater boilerplate)
+      try {
+        const { autoUpdater } = require('electron-updater');
+        autoUpdater.checkForUpdatesAndNotify();
+        console.log('[App] Auto-updater check initiated.');
+      } catch (err) {
+        console.error('[App] Auto-updater failed to initialize:', err.message);
       }
     }
   } catch (err) {
@@ -1122,8 +1253,10 @@ app.on('before-quit', async () => {
       console.error('[App] Failed to kill IPFS proxy server:', e);
     }
   }
+  try { require('./soul-engine-supervisor').stop(); } catch (_) {}
   try { require('./agent-swarm').stop(); } catch (_) {}
   try { require('./ipfs-agent-soul').stop(); } catch (_) {}
+  try { require('./bucks-node').stop(); } catch (_) {}
   if (ipfs) await ipfs.stopNode();
 });
 

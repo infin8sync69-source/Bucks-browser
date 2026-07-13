@@ -36,8 +36,45 @@
     _buildDOM();
     _bindHotkey();
     _bindNexusEvents();
+    _bindEngineStatus();
     _pollSwarmStatus();
     console.log('[NEXUS] Panel initialised — ⌘+Shift+A to open');
+  }
+
+  /* Local-AI engine status pill — reflects the supervisor lifecycle so users
+   * see "warming up / ready / unavailable / conflict" instead of silent fail. */
+  function _renderEngineStatus(s) {
+    const led = _$('nexus-engine-led');
+    const label = _$('nexus-engine-label');
+    const pill = _$('nexus-engine-pill');
+    if (!led || !label || !pill) return;
+    const map = {
+      ready:       ['#4ade80', s && s.model ? `AI: ${s.model}` : 'AI ready',            'Local AI engine ready'],
+      loading:     ['#fbbf24', 'AI warming up…',    'Model is loading'],
+      starting:    ['#fbbf24', 'AI starting…',      s && s.detail ? s.detail : 'Launching engine'],
+      conflict:    ['#f87171', 'AI port conflict',  s && s.detail ? s.detail : 'Port 8765 in use by another app'],
+      unavailable: ['#9ca3af', 'AI unavailable',    s && s.detail ? s.detail : 'Run agent/start_soul_engine.sh once'],
+      error:       ['#f87171', 'AI error',          s && s.detail ? s.detail : 'Engine error'],
+      stopped:     ['#9ca3af', 'AI stopped',        'Engine stopped'],
+      unknown:     ['#9ca3af', 'AI…',               'Checking engine'],
+    };
+    const [color, text, tip] = map[s && s.state] || map.unknown;
+    led.style.background = color;
+    led.style.boxShadow = `0 0 6px ${color}`;
+    label.textContent = text;
+    pill.title = tip;
+  }
+
+  async function _bindEngineStatus() {
+    if (!window.nexusAPI) return;
+    try {
+      if (window.nexusAPI.onSoulEngineStatus) {
+        window.nexusAPI.onSoulEngineStatus(_renderEngineStatus);
+      }
+      if (window.nexusAPI.soulEngineStatus) {
+        _renderEngineStatus(await window.nexusAPI.soulEngineStatus());
+      }
+    } catch (_) { /* best effort */ }
   }
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -143,6 +180,18 @@
         background: var(--nx-muted);
         transition: background 0.3s;
         flex-shrink: 0;
+      }
+      .nx-engine-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        margin-left: auto; padding: 3px 9px; border-radius: 999px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 11px; color: rgba(255,255,255,0.75);
+        white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+      }
+      .nx-engine-led {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #9ca3af; flex-shrink: 0; transition: background .3s, box-shadow .3s;
       }
       .nx-status-dot.running {
         background: var(--nx-done);
@@ -460,6 +509,10 @@
         <div id="nexus-header">
           <div class="nx-logo">N</div>
           <div class="nx-header-title">Bucks NEXUS Agent</div>
+          <div class="nx-engine-pill" id="nexus-engine-pill" title="Local AI engine status">
+            <span class="nx-engine-led" id="nexus-engine-led"></span>
+            <span id="nexus-engine-label">AI…</span>
+          </div>
           <div class="nx-status-dot" id="nexus-status-dot" title="Agent idle"></div>
           <button id="nexus-btn-swarm"   title="Swarm Status">⬡</button>
           <button id="nexus-btn-history" title="Goal History">📋</button>

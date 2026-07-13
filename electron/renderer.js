@@ -894,6 +894,18 @@
       tabsContainer.appendChild(el);
     });
 
+    // Append new tab '+' button at the end of opened tabs
+    const plusBtn = document.createElement('button');
+    plusBtn.id = 'tabs-plus-btn';
+    plusBtn.title = 'New tab';
+    plusBtn.className = 'urlbar-btn';
+    plusBtn.style.cssText = 'flex-shrink:0; width:26px; height:26px; border-radius:8px; margin-left:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.2s;';
+    plusBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>`;
+    plusBtn.addEventListener('click', () => createTab());
+    plusBtn.addEventListener('mouseover', () => plusBtn.style.background = 'rgba(255,255,255,0.12)');
+    plusBtn.addEventListener('mouseout', () => plusBtn.style.background = 'rgba(255,255,255,0.06)');
+    tabsContainer.appendChild(plusBtn);
+
     // Auto-scroll the active tab into view
     const activeEl = tabsContainer.querySelector('.tab.active');
     if (activeEl) {
@@ -908,6 +920,74 @@
       tabsContainer.scrollLeft += e.deltaY;
     }
   }, { passive: false });
+
+  // ─── Vertical Tabs Slab List ───
+  function renderTabsSlabList() {
+    const list = document.getElementById('tabs-slab-list');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    tabs.forEach((tab) => {
+      const item = document.createElement('div');
+      const isActive = tab.id === activeTabId;
+      item.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.15s;
+        background: ${isActive ? 'rgba(123, 63, 228, 0.2)' : 'transparent'};
+        border: 1px solid ${isActive ? 'rgba(123, 63, 228, 0.35)' : 'transparent'};
+      `;
+      
+      const space = spaces.find(s => s.id === (tab.spaceId || 'default')) || { name: 'General', color: '#52b6ff' };
+      
+      item.innerHTML = `
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${space.color}; flex-shrink: 0;" title="Space: ${space.name}"></span>
+        <div style="flex: 1; min-width: 0; text-align: left;">
+          <div style="font-size: 13px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(tab.title)}</div>
+          <div style="font-size: 10px; color: rgba(255,255,255,0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(tab.url || 'bucks://newtab')}</div>
+        </div>
+        <button class="slab-close-btn" style="background:transparent; border:none; color:rgba(255,255,255,0.4); cursor:pointer; font-size:10px; display:flex; align-items:center; justify-content:center; padding:4px;" title="Close tab">✕</button>
+      `;
+      
+      item.addEventListener('click', (e) => {
+        if (!e.target.closest('.slab-close-btn')) {
+          setActiveTab(tab.id);
+          document.getElementById('tabs-slab-dropdown')?.classList.add('hidden');
+        }
+      });
+      
+      item.querySelector('.slab-close-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTab(tab.id);
+        renderTabsSlabList(); // refresh
+      });
+      
+      list.appendChild(item);
+    });
+  }
+
+  // Toggle Tabs Slab Dropdown
+  document.getElementById('btn-tabs-slab')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const dropdown = document.getElementById('tabs-slab-dropdown');
+    if (!dropdown) return;
+    const isHidden = dropdown.classList.contains('hidden');
+    
+    // Hide other dropdowns
+    document.getElementById('space-selector-dropdown')?.classList.add('hidden');
+    document.getElementById('more-dropdown-menu')?.classList.add('hidden');
+    
+    if (isHidden) {
+      dropdown.classList.remove('hidden');
+      renderTabsSlabList();
+    } else {
+      dropdown.classList.add('hidden');
+    }
+  });
 
   let selectedTabIdForContextMenu = null;
 
@@ -1493,14 +1573,47 @@
 
   /* ═══════════ NAVIGATION CONTROLS ═══════════ */
 
+  // Dashboard view navigation history
+  const dashboardHistory = ['newtab'];
+  let dashboardHistoryIndex = 0;
+  let isNavigatingDashboardHistory = false;
+
+  function goBackDashboard() {
+    if (dashboardHistoryIndex > 0) {
+      dashboardHistoryIndex--;
+      isNavigatingDashboardHistory = true;
+      showDashboardView(dashboardHistory[dashboardHistoryIndex]);
+      isNavigatingDashboardHistory = false;
+    }
+  }
+
+  function goForwardDashboard() {
+    if (dashboardHistoryIndex < dashboardHistory.length - 1) {
+      dashboardHistoryIndex++;
+      isNavigatingDashboardHistory = true;
+      showDashboardView(dashboardHistory[dashboardHistoryIndex]);
+      isNavigatingDashboardHistory = false;
+    }
+  }
+
   $('#btn-back')?.addEventListener('click', () => {
     const tab = tabs.find((t) => t.id === activeTabId);
-    if (tab?.webview) tab.webview.goBack();
+    const inWebMode = document.body.classList.contains('web-mode');
+    if (inWebMode && tab?.webview && typeof tab.webview.canGoBack === 'function' && tab.webview.canGoBack()) {
+      tab.webview.goBack();
+    } else {
+      goBackDashboard();
+    }
   });
 
   $('#btn-forward')?.addEventListener('click', () => {
     const tab = tabs.find((t) => t.id === activeTabId);
-    if (tab?.webview) tab.webview.goForward();
+    const inWebMode = document.body.classList.contains('web-mode');
+    if (inWebMode && tab?.webview && typeof tab.webview.canGoForward === 'function' && tab.webview.canGoForward()) {
+      tab.webview.goForward();
+    } else {
+      goForwardDashboard();
+    }
   });
 
   $('#btn-refresh')?.addEventListener('click', () => {
@@ -1719,12 +1832,93 @@
   }
 
   function showDashboardView(viewName) {
+    if (viewName === 'home') {
+      viewName = 'newtab';
+    }
+
+    if (viewName === 'newtab') {
+      const pendingTransfer = localStorage.getItem('pending-chat-transfer');
+      if (pendingTransfer) {
+        localStorage.removeItem('pending-chat-transfer');
+        try {
+          const messages = JSON.parse(pendingTransfer);
+          if (Array.isArray(messages) && messages.length) {
+            const id = createChatThread('Chat');
+            const thread = chatTabThreads[id];
+            if (thread) {
+              thread.messages = messages.map(m => {
+                if (m.role === 'component') return { role: 'component', ui: m.ui };
+                return { role: m.role === 'user' ? 'user' : 'assistant', text: m.text || '' };
+              });
+              const firstUser = thread.messages.find(m => m.role === 'user');
+              if (firstUser) {
+                thread.title = firstUser.text.slice(0, 42) + (firstUser.text.length > 42 ? '…' : '');
+                persistRename(id, thread.title);
+              }
+              thread.messages.forEach(m => {
+                if (m.role === 'component') persistMessage(id, 'component', JSON.stringify(m.ui));
+                else persistMessage(id, m.role, m.text);
+              });
+            }
+            viewName = 'chat-tab';
+            chatTabActiveThread = id;
+            setTimeout(() => {
+              renderChatTabHistory();
+              renderChatTabMessages();
+            }, 50);
+          }
+        } catch (e) {
+          console.error('[Chat Transfer] Failed to load carried-over chat:', e);
+        }
+      }
+    }
+
+    // Manage dashboard history
+    if (!isNavigatingDashboardHistory) {
+      dashboardHistory.splice(dashboardHistoryIndex + 1);
+      if (dashboardHistory[dashboardHistory.length - 1] !== viewName) {
+        dashboardHistory.push(viewName);
+        dashboardHistoryIndex = dashboardHistory.length - 1;
+      }
+    }
+
+    // The Ephemeral UI response zone is scoped to the Home/New Tab dashboard —
+    // return the shared chat panel to its default (undocked) home before
+    // showing any other view, so it doesn't get stranded inside a hidden view.
+    if (viewName !== 'newtab' && viewName !== 'home') {
+      undockChatPanel();
+      if (window.BucksEarthMap && window.BucksEarthMap.isOpen()) {
+        window.BucksEarthMap.close();
+      }
+    }
+
+    // Home and New Tab are the same Agentic-UI dashboard (search + dock +
+    // status zones) — #view-home has no content of its own.
+    const resolvedViewName = viewName === 'home' ? 'newtab' : viewName;
+
+    if (resolvedViewName === 'newtab') {
+      document.body.classList.add('dock-collapsed');
+    } else {
+      document.body.classList.remove('dock-collapsed', 'dock-expanded');
+    }
+
     // Hide all views, show target view
     const views = document.querySelectorAll('.dashboard-view');
     views.forEach(v => v.classList.add('hidden'));
-    const target = document.getElementById(`view-${viewName}`);
+    const target = document.getElementById(`view-${resolvedViewName}`);
     if (target) {
       target.classList.remove('hidden');
+      if (viewName === 'chat-tab') {
+        addressBar.value = 'bucks://chat';
+        updateSecurityIcon('secure');
+        populateNavChatModels();
+      } else if (viewName === 'newtab') {
+        addressBar.value = '';
+        updateSecurityIcon('pending');
+      } else if (['files', 'studio', 'spaces', 'history', 'bookmarks', 'settings', 'wallet', 'ipfs'].includes(viewName)) {
+        addressBar.value = 'bucks://' + viewName;
+        updateSecurityIcon('secure');
+      }
       if (viewName === 'files') {
         const wv = document.getElementById('bucks-files-webview');
         if (wv) {
@@ -1750,21 +1944,31 @@
       }
     }
 
-    // Toggle files-mode class on body to allow fullscreen layout overrides
-    if (viewName === 'files' || viewName === 'studio') {
-      document.body.classList.add('files-mode');
-    } else {
-      document.body.classList.remove('files-mode');
-    }
+    // Files mode overrides removed - layout remains static across all views.
+    document.body.classList.remove('files-mode');
 
     // Dynamic width expansion for wide layouts (Files / Chat Tab / Studio)
     const dashboardWindow = document.getElementById('dashboard-window');
     if (dashboardWindow) {
-      if (viewName === 'files' || viewName === 'chat-tab' || viewName === 'studio') {
+      if (viewName === 'files' || viewName === 'chat-tab' || viewName === 'studio' || viewName === 'messages') {
         dashboardWindow.style.maxWidth = 'calc(100% - 80px)';
         dashboardWindow.style.width = '100%';
+        // Fill the viewport so the full-screen chat/files/studio views get a
+        // real height (composer pinned to the bottom, messages scroll) instead
+        // of collapsing to content height and clipping.
+        dashboardWindow.style.height = '100%';
       } else {
         dashboardWindow.style.maxWidth = '880px';
+        dashboardWindow.style.height = '';
+      }
+    }
+
+    const ntSearchInput = document.getElementById('nt-search-input');
+    if (ntSearchInput) {
+      if (viewName === 'chat-tab') {
+        ntSearchInput.placeholder = "Message the agent…  (or /agent <task> to act on this tab)";
+      } else {
+        ntSearchInput.placeholder = "Ask Bucks, search the web, or find a place — try “Mysore” or “Bangalore to Mysore”";
       }
     }
 
@@ -1844,6 +2048,7 @@
   });
   $('#nav-spaces')?.addEventListener('click', () => showDashboardView('spaces'));
   $('#nav-files')?.addEventListener('click', () => showDashboardView('files'));
+  $('#nav-messages')?.addEventListener('click', () => showDashboardView('messages'));
   $('#nav-studio')?.addEventListener('click', () => showDashboardView('studio'));
   
   $('#nav-apps')?.addEventListener('click', () => {
@@ -2351,6 +2556,245 @@
     } catch (_) {}
   }
 
+  /* ═══════════ PROFILE PANEL ═══════════ */
+  {
+    const profileSection = document.getElementById('profile-section');
+    const profilePanel = document.getElementById('profile-panel');
+    const profilePeerId = document.getElementById('profile-peer-id');
+    const profileUuid = document.getElementById('profile-uuid');
+    const profileDisplayName = document.getElementById('profile-display-name');
+    const profileDisplayEmail = document.getElementById('profile-display-email');
+    const profileAvatar = document.getElementById('profile-avatar');
+    const profileStatusDot = document.getElementById('profile-status-dot');
+    const profilePeerCount = document.getElementById('profile-peer-count');
+    const profileFollowingCount = document.getElementById('profile-following-count');
+    const profileFeedCount = document.getElementById('profile-feed-count');
+    const profileSyncedCount = document.getElementById('profile-synced-count');
+    const profileCopyPeerId = document.getElementById('profile-copy-peer-id');
+    const profileCopyUuid = document.getElementById('profile-copy-uuid');
+    const profileSyncInput = document.getElementById('profile-sync-input');
+    const profileSyncBtn = document.getElementById('profile-sync-btn');
+    const profileSyncStatus = document.getElementById('profile-sync-status');
+    const profileNameSpan = document.querySelector('#profile-section span');
+    const profileUsernameInput = document.getElementById('profile-username-input');
+    const profileUsernameSave = document.getElementById('profile-username-save');
+    const profileUsernameStatus = document.getElementById('profile-username-status');
+
+    let _profilePeerId = '';
+    let _profileUuid = '';
+
+    // Generate a stable UUID from Peer ID (deterministic, no external deps)
+    function peerIdToUuid(peerId) {
+      let hash = 0;
+      for (let i = 0; i < peerId.length; i++) {
+        hash = ((hash << 5) - hash + peerId.charCodeAt(i)) | 0;
+      }
+      const hex = Math.abs(hash).toString(16).padStart(8, '0');
+      const p2 = peerId.slice(-12);
+      const uuid = `${hex}-${p2.slice(0,4)}-4${p2.slice(4,7)}-${p2.slice(7,11)}-${peerId.slice(6,18)}`;
+      return uuid.toLowerCase();
+    }
+
+    // Apply username everywhere it's shown
+    function applyUsername(name) {
+      if (profileDisplayName) profileDisplayName.textContent = name;
+      if (profileNameSpan) profileNameSpan.textContent = name;
+      if (profileAvatar) profileAvatar.textContent = name.charAt(0).toUpperCase();
+      if (profileUsernameInput) profileUsernameInput.value = name;
+      if (profileDisplayEmail) {
+        const tag = name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+        profileDisplayEmail.textContent = `${tag}@bucks.p2p`;
+      }
+    }
+
+    // Load saved display name
+    const savedName = localStorage.getItem('bucks-profile-name') || 'Bucks User';
+    applyUsername(savedName);
+
+    // Save username via button
+    if (profileUsernameSave && profileUsernameInput) {
+      function saveUsername() {
+        const name = profileUsernameInput.value.trim();
+        if (!name) {
+          if (profileUsernameStatus) { profileUsernameStatus.textContent = '⚠ Name cannot be empty'; profileUsernameStatus.style.color = '#ffa502'; }
+          return;
+        }
+        if (name.length > 30) {
+          if (profileUsernameStatus) { profileUsernameStatus.textContent = '⚠ Max 30 characters'; profileUsernameStatus.style.color = '#ffa502'; }
+          return;
+        }
+        localStorage.setItem('bucks-profile-name', name);
+        applyUsername(name);
+        if (profileUsernameStatus) {
+          profileUsernameStatus.textContent = '✅ Username saved!';
+          profileUsernameStatus.style.color = '#2ed573';
+          setTimeout(() => { profileUsernameStatus.textContent = ''; }, 2500);
+        }
+        // Flash save button green
+        profileUsernameSave.style.transform = 'scale(0.95)';
+        setTimeout(() => { profileUsernameSave.style.transform = 'scale(1)'; }, 150);
+      }
+      profileUsernameSave.addEventListener('click', saveUsername);
+      profileUsernameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); saveUsername(); }
+      });
+    }
+
+    // Toggle profile panel
+    if (profileSection && profilePanel) {
+      profileSection.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = profilePanel.classList.contains('hidden');
+        // Close the 3-dots menu if open
+        const moreMenu = document.getElementById('more-dropdown-menu');
+        if (moreMenu) moreMenu.classList.add('hidden');
+        profilePanel.classList.toggle('hidden');
+        if (isHidden) refreshProfileInfo();
+      });
+      document.addEventListener('click', (e) => {
+        if (!profilePanel.contains(e.target) && !profileSection.contains(e.target)) {
+          profilePanel.classList.add('hidden');
+        }
+      });
+    }
+
+    // Synced peers counter (persisted)
+    let syncedPeers = [];
+    try { syncedPeers = JSON.parse(localStorage.getItem('bucks-synced-peers') || '[]'); } catch (_) { syncedPeers = []; }
+    function saveSyncedPeers() {
+      try { localStorage.setItem('bucks-synced-peers', JSON.stringify(syncedPeers)); } catch (_) {}
+    }
+
+    async function refreshProfileInfo() {
+      try {
+        const info = await window.bucksAPI.ipfsInfo();
+        if (info && info.peerId) {
+          _profilePeerId = info.peerId;
+          _profileUuid = peerIdToUuid(info.peerId);
+          if (profilePeerId) profilePeerId.textContent = info.peerId;
+          if (profileUuid) profileUuid.textContent = _profileUuid;
+          if (profileStatusDot) {
+            profileStatusDot.style.background = '#2ed573';
+            profileStatusDot.title = 'Node Online';
+          }
+          if (profilePeerCount) profilePeerCount.textContent = info.peers || 0;
+          if (profileFollowingCount) profileFollowingCount.textContent = (info.following || []).length;
+          if (profileFeedCount) profileFeedCount.textContent = info.feedCount || 0;
+          if (profileSyncedCount) profileSyncedCount.textContent = syncedPeers.length;
+        } else {
+          if (profilePeerId) profilePeerId.textContent = 'Node starting…';
+          if (profileUuid) profileUuid.textContent = 'Waiting…';
+          if (profileStatusDot) {
+            profileStatusDot.style.background = '#ffa502';
+            profileStatusDot.title = 'Connecting…';
+          }
+        }
+      } catch (err) {
+        if (profilePeerId) profilePeerId.textContent = 'Offline';
+        if (profileUuid) profileUuid.textContent = 'Offline';
+        if (profileStatusDot) {
+          profileStatusDot.style.background = '#ff4757';
+          profileStatusDot.title = 'Offline';
+        }
+      }
+    }
+
+    // Copy buttons
+    if (profileCopyPeerId) {
+      profileCopyPeerId.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (_profilePeerId) {
+          navigator.clipboard.writeText(_profilePeerId);
+          if (window._showToast) window._showToast('Peer ID copied to clipboard');
+          profileCopyPeerId.style.background = 'rgba(46,213,115,0.25)';
+          setTimeout(() => { profileCopyPeerId.style.background = 'rgba(255,255,255,0.06)'; }, 1200);
+        }
+      });
+    }
+    if (profileCopyUuid) {
+      profileCopyUuid.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (_profileUuid) {
+          navigator.clipboard.writeText(_profileUuid);
+          if (window._showToast) window._showToast('UUID copied to clipboard');
+          profileCopyUuid.style.background = 'rgba(46,213,115,0.25)';
+          setTimeout(() => { profileCopyUuid.style.background = 'rgba(255,255,255,0.06)'; }, 1200);
+        }
+      });
+    }
+
+    // Sync button
+    if (profileSyncBtn && profileSyncInput) {
+      async function doSync() {
+        const val = profileSyncInput.value.trim();
+        if (!val) {
+          if (profileSyncStatus) profileSyncStatus.textContent = '⚠ Paste a Peer ID or UUID first';
+          return;
+        }
+        if (val === _profilePeerId || val === _profileUuid) {
+          if (profileSyncStatus) profileSyncStatus.textContent = "⚠ That's your own ID";
+          return;
+        }
+        if (val.length < 10) {
+          if (profileSyncStatus) profileSyncStatus.textContent = '⚠ ID looks too short';
+          return;
+        }
+
+        profileSyncBtn.disabled = true;
+        if (profileSyncStatus) profileSyncStatus.innerHTML = '⏳ Syncing…';
+
+        try {
+          // Follow the peer on IPFS network
+          await window.bucksAPI.ipfsFollow(val);
+
+          // Add to synced list
+          if (!syncedPeers.includes(val)) {
+            syncedPeers.push(val);
+            saveSyncedPeers();
+          }
+
+          // Also add as a chat contact (opens a Messages thread)
+          let contacts = [];
+          try { contacts = JSON.parse(localStorage.getItem('bucks-msg-contacts') || '[]'); } catch (_) {}
+          if (!contacts.includes(val)) {
+            contacts.push(val);
+            localStorage.setItem('bucks-msg-contacts', JSON.stringify(contacts));
+          }
+
+          if (profileSyncStatus) profileSyncStatus.innerHTML = '✅ Synced! Peer added to Messages & Following.';
+          if (profileSyncedCount) profileSyncedCount.textContent = syncedPeers.length;
+          profileSyncInput.value = '';
+
+          if (window._showToast) window._showToast(`Synced with peer ${val.slice(0,10)}…`);
+        } catch (err) {
+          if (profileSyncStatus) profileSyncStatus.innerHTML = `❌ Sync failed: ${err.message}`;
+        }
+        profileSyncBtn.disabled = false;
+      }
+
+      profileSyncBtn.addEventListener('click', doSync);
+      profileSyncInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSync();
+      });
+    }
+
+    // Auto-refresh profile info periodically & on startup
+    refreshProfileInfo();
+    setInterval(() => {
+      if (profilePanel && !profilePanel.classList.contains('hidden')) {
+        refreshProfileInfo();
+      }
+    }, 5000);
+
+    // Also update the top-bar profile section avatar on load
+    if (!IS_PRIVATE) {
+      refreshProfileInfo().then(() => {
+        const savedN = localStorage.getItem('bucks-profile-name');
+        if (savedN) applyUsername(savedN);
+      });
+    }
+  }
+
   /* ═══════════ AD-BLOCKER BADGE ═══════════ */
   setInterval(async () => {
     try {
@@ -2583,14 +3027,12 @@
     }
 
     try {
-      const socialRes = await window.bucksAPI.socialRPC({ endpoint: '/' });
-
+      // Social layer is fully P2P (gossipsub) — status is the Helia node itself
       const isHeliaOnline = info && info.status === 'online';
-      const isSocialOnline = socialRes && !socialRes.error;
 
       if (ipfsDot) {
-        ipfsDot.className = 'ipfs-dot ' + (isHeliaOnline && isSocialOnline ? 'online' : (isHeliaOnline || isSocialOnline ? 'warning' : 'offline'));
-        ipfsDot.title = `Helia: ${isHeliaOnline ? 'ON' : 'OFF'} | Social: ${isSocialOnline ? 'ON' : 'OFF'}`;
+        ipfsDot.className = 'ipfs-dot ' + (isHeliaOnline ? 'online' : 'offline');
+        ipfsDot.title = `Helia: ${isHeliaOnline ? 'ON' : 'OFF'} | Swarm peers: ${info?.peers ?? 0}`;
       }
 
       // Render following list
@@ -2670,6 +3112,9 @@
   }
 
   window._ipfsUnpin = async (cid) => {
+    const confirm = window.confirm("Are you sure you want to unpin this content? Removing this deletes your local copy. Copies other people pinned stay on their machines.");
+    if (!confirm) return;
+
     await window.bucksAPI.ipfsUnpin(cid);
     showToast('Unpinned: ' + cid.slice(0, 12) + '…');
     refreshIPFSStatus();
@@ -2701,12 +3146,8 @@
   window._ipfsUnfollow = async (peerId) => {
     try {
       await window.bucksAPI.ipfsUnfollow(peerId);
-      await window.bucksAPI.socialRPC({
-        method: 'POST',
-        endpoint: `/unfollow/${peerId}`
-      });
     } catch (e) {
-      console.error('[IPFS UI] Unfollow social error:', e);
+      console.error('[IPFS UI] Unfollow error:', e);
     }
     refreshIPFSStatus();
   };
@@ -2720,17 +3161,11 @@
     if (!peerId) return;
 
     try {
-      // 1. Follow in local Helia node (for co-hosting/discovery)
+      // Follow in local Helia node (feed gossip picks up their posts)
       const localRes = await window.bucksAPI.ipfsFollow(peerId);
 
-      // 2. Follow in Social Backend (for global feed/notifications)
-      const socialRes = await window.bucksAPI.socialRPC({
-        method: 'POST',
-        endpoint: `/follow/${peerId}`
-      });
-
       if (input) input.value = '';
-      showToast(`${localRes.status === 'followed' || (socialRes && !socialRes.error) ? '✓ Following' : 'Error'} ${peerId.slice(0, 12)}…`);
+      showToast(`${localRes.status === 'followed' || localRes.status === 'already_following' ? '✓ Following' : 'Error'} ${peerId.slice(0, 12)}…`);
       refreshIPFSStatus();
     } catch (e) {
       showToast('Follow failed', 'error');
@@ -2758,22 +3193,10 @@
     try {
       showToast('Broadcasting to IPFS...', 'info');
 
-      // 1. Convert text to byte array and publish to local Helia node
+      // Publish to local Helia node — the post gossips to all swarm peers
       const encoder = new TextEncoder();
       const content = Array.from(encoder.encode(text));
       const localPost = await window.bucksAPI.ipfsPublish(content, metadata);
-
-      // 2. Broadcast to Global Social Layer
-      const socialRes = await window.bucksAPI.socialRPC({
-        method: 'POST',
-        endpoint: '/upload',
-        body: {
-          cid: localPost.cid,
-          title: metadata.name,
-          description: metadata.description,
-          type: 'post'
-        }
-      });
 
       showToast(`Broadcasted successfully! CID: ${localPost.cid.slice(0, 8)}…`, 'success');
       if (descInput) descInput.value = '';
@@ -2804,30 +3227,10 @@
     try {
       showToast('Publishing to IPFS...', 'info');
 
-      // 1. Publish to local Helia node
+      // Publish to local Helia node — the post gossips to all swarm peers
       const arrayBuffer = await file.arrayBuffer();
       const content = Array.from(new Uint8Array(arrayBuffer));
       const localPost = await window.bucksAPI.ipfsPublish(content, metadata);
-
-      // 2. Broadcast to Global Social Layer (Port 8000)
-      // We send as FormData to match the backend expectation
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('title', metadata.name);
-      formData.append('description', metadata.description);
-
-      // We use socialRPC but with special handling for FormData if our proxy supports it
-      // For now, we'll use a standard json-based upload or a simplified bridge
-      const socialRes = await window.bucksAPI.socialRPC({
-        method: 'POST',
-        endpoint: '/upload',
-        body: {
-          cid: localPost.cid,
-          title: metadata.name,
-          description: metadata.description,
-          type: 'post'
-        }
-      });
 
       showToast(`Published successfully! CID: ${localPost.cid.slice(0, 8)}…`, 'success');
       descInput.value = '';
@@ -2854,12 +3257,11 @@
       const container = document.getElementById('ipfs-feed');
       container.innerHTML = '<div class="skeleton-loader"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>';
 
-      // Fetch from Global Social Layer (Port 8000)
-      const res = await window.bucksAPI.socialRPC({ endpoint: '/feed/aggregated' });
-      const feed = res.library || [];
+      // Fetch from the local Helia node — aggregates own posts + gossiped peer posts
+      const feed = (await window.bucksAPI.ipfsFeed()) || [];
 
       if (!feed.length) {
-        container.innerHTML = '<p class="tx-empty">No content yet. Follow peers to see their posts.</p>';
+        container.innerHTML = '<p class="tx-empty">No content yet. Publish something or connect to peers to see their posts.</p>';
         const dashFeed = document.getElementById('ipfs-dash-feed');
         if (dashFeed) dashFeed.innerHTML = container.innerHTML;
         return;
@@ -2871,7 +3273,8 @@
 
       container.innerHTML = feed.map(post => {
         const time = post.timestamp ? new Date(post.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'recently';
-        const peerShort = post.peer_id ? `${post.peer_id.slice(0, 8)}…${post.peer_id.slice(-4)}` : 'Unknown';
+        const peerId = post.peerId || post.peer_id;
+        const peerShort = peerId ? `${peerId.slice(0, 8)}…${peerId.slice(-4)}` : 'Unknown';
         const size = post.size ? formatSize(post.size) : (post.metadata?.size ? formatSize(post.metadata.size) : '');
         const isPinnedLocally = pinnedCids.has(post.cid);
 
@@ -2902,7 +3305,7 @@
       }
     } catch (e) {
       console.error('[IPFS UI] Feed error:', e);
-      const errMsg = `<p class="tx-empty" style="color:var(--danger)">Offline: Social Gateway (8000)</p>`;
+      const errMsg = `<p class="tx-empty" style="color:var(--danger)">IPFS node is still starting…</p>`;
       document.getElementById('ipfs-feed').innerHTML = errMsg;
       const dashFeed = document.getElementById('ipfs-dash-feed');
       if (dashFeed) dashFeed.innerHTML = errMsg;
@@ -2913,17 +3316,7 @@
     try {
       showToast('Sending appreciation...', 'info');
 
-      // 1. Send Global Like/Recommendation (Port 8000)
-      const socialRes = await window.bucksAPI.socialRPC({
-        method: 'POST',
-        endpoint: `/interactions/${cid}/like`
-      });
-
-      if (socialRes.error) {
-        console.warn('[Social] Like failed:', socialRes.error);
-      }
-
-      // 2. Co-Hosting: Pin content locally (Helia node)
+      // Co-Hosting: pin content locally — this node becomes a host for it
       const localRes = await window.bucksAPI.ipfsUpvote(cid);
 
       if (localRes.status === 'pinned') {
@@ -2990,7 +3383,7 @@
   }
 
   /* ═══════════ AGENT BRAIN — Web-Intelligent Multi-Turn Chat ═══════════ */
-  const SOUL_ENGINE = 'http://localhost:8765';
+  const SOUL_ENGINE = 'http://127.0.0.1:8765';
   let chatBusy = false;
 
   // Multi-turn conversation memory (shared across home chat bar + left panel)
@@ -3013,11 +3406,64 @@
   }
 
   /* ── Intent Classification ── */
+  // Shopping intent → deterministic product_lookup on the backend (real products,
+  // images, buy links). Kept in sync with soul_engine.py::_is_shopping.
+  function isShoppingQuery(q) {
+    const m = ' ' + q.toLowerCase().trim() + ' ';
+    const kw = ['buy ', 'shop ', 'shop for', 'purchase', 'cheapest', 'cheaper',
+      'best price', 'for sale', 'add to cart', 'order online', 'where to buy',
+      'shopping for', 'deals on', ' deals'];
+    if (kw.some(k => m.includes(k))) return true;
+    if (/\b(find|show|get)\s+me\s+(a|an|some|the best)\b/.test(m) &&
+        /\b(buy|under|below|cheap|budget|₹|\$|rs\.?)\b/.test(m)) return true;
+    return false;
+  }
+
+  // Media / research intents → deterministic ephemeral-UI pipelines on the
+  // backend. Kept in sync with soul_engine.py::_is_video/_is_images/_is_research.
+  function isMediaOrResearchQuery(q) {
+    const s = q.trim();
+    if (/^(play|watch)\b/i.test(s)) return true;
+    if (/\b(youtube|music video|videos? (of|about)|trailer|listen to)\b/i.test(s)) return true;
+    if (/\b(images?|photos?|pictures?|pics|wallpapers?)\s+(of|for|about)\b/i.test(s)) return true;
+    if (/\b(show|find|get)\s+(me\s+)?(some\s+)?(images?|photos?|pictures?|pics|wallpapers?)\b/i.test(s)) return true;
+    if (/^research\b|\b(deep|in-?depth)\s+(research|dive|analysis|report|insight)/i.test(s)) return true;
+    if (/\b(detailed|comprehensive|full)\s+(report|analysis|overview|research)\b/i.test(s)) return true;
+    if (/\btell me everything about\b/i.test(s)) return true;
+    if (/^compare\b|\b(vs\.?|versus)\b/i.test(s)) return true;
+    // Weather → deterministic weather_lookup + weather card (soul_engine.py::_is_weather)
+    if (/\b(weather|forecast|temperature)\b/i.test(s)) return true;
+    if (/\b(is it|will it)\s+(rain|snow|sunny|hot|cold|humid)/i.test(s)) return true;
+    return false;
+  }
+
   function classifyIntent(q) {
     const lower = q.toLowerCase().trim();
 
     // Explicit agent command prefix
     if (lower.startsWith('/agent')) return 'agent';
+
+    // Shopping → route to the agent (deterministic product_lookup)
+    if (isShoppingQuery(lower)) return 'shopping';
+
+    // Location / directions intent (on map page only)
+    const isMapPage = (() => { const v = document.getElementById('view-newtab'); return v && !v.classList.contains('hidden'); })();
+    if (isMapPage) {
+      // "X to Y" routing pattern
+      if (/^.+\s+to\s+.+$/i.test(lower)) return 'location';
+      // Explicit directions
+      if (/^(directions?|navigate|route|drive|walk|cycle)\s+(to|from)\s+/i.test(lower)) return 'location';
+      // Bare place name — short queries (1-4 words) without question words
+      if (lower.split(/\s+/).length <= 4
+          && !/\b(what|who|when|why|how|is|are|was|were|does|do|can|will|should)\b/.test(lower)
+          && !/\b(price|cost|buy|stock|weather|score|news|latest)\b/.test(lower)
+          && !/^(go to|open|navigate to|visit|browse to|search for|find|look up|google|search)\s/.test(lower)
+          && !/^https?:\/\//.test(lower)
+          && !/^[a-z0-9-]+\.(com|org|net|io|ai|co|uk|gov|edu)\b/.test(lower)
+          && !lower.startsWith('/')) {
+        return 'location';
+      }
+    }
 
     // Browser actions
     if (/^(go to|open|navigate to|visit|browse to)\s+\S+/.test(lower)) return 'navigate';
@@ -3078,15 +3524,35 @@
     createTab(normalizeURL(url));
   };
 
+  // Open the earth map and route between two places (called from ephemeral location cards)
+  window._bucksLocationRoute = (from, to) => {
+    if (window.BucksEarthMap) {
+      window.BucksEarthMap.openAt(20, 0, 5);
+      // Give the map a moment to open, then fill in routing fields and trigger
+      setTimeout(() => {
+        const fromInput = document.querySelector('.em-from');
+        const toInput = document.querySelector('.em-to');
+        if (fromInput) fromInput.value = from;
+        if (toInput) toInput.value = to;
+        // Trigger the directions panel and fetch route
+        const dirBtn = document.querySelector('.em-dirbtn');
+        if (dirBtn) dirBtn.click();
+        // Use the earth-maps routeByNames if exposed
+        if (window.BucksEarthMap.routeByNames) {
+          window.BucksEarthMap.routeByNames(from, to);
+        }
+      }, 400);
+    }
+  };
+
   window.submitAgentFollowup = (encodedQuery) => {
     if (!encodedQuery) return;
     const query = decodeURIComponent(encodedQuery);
-    const sideInput = document.getElementById('chat-tab-input');
-    if (sideInput && sideInput.offsetParent !== null) {
-      sideInput.value = query;
+    const chatTab = document.getElementById('view-chat-tab');
+    if (chatTab && !chatTab.classList.contains('hidden')) {
       sendChatTab(query);
     } else {
-      const input = document.getElementById('chat-input');
+      const input = document.getElementById('chat-input') || document.getElementById('nt-search-input');
       if (input) {
         const q = query.startsWith('/') ? query : `/agent ${query}`;
         input.value = q;
@@ -3094,6 +3560,883 @@
       }
     }
   };
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     GENERATIVE UI — render predefined components from a spec.
+     Spec shape: { component, title?, data }. See agent/genui.py for the
+     builders. renderComponent(spec) returns an HTMLElement to append.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  // CTA action dispatcher — CTAs reference these by kind.
+  window.__bucksGenUIAction = function (kind, value) {
+    try {
+      if (kind === 'navigate') {
+        // Open the real destination in a browser tab (same path agent links use).
+        if (value && window.openAgentLink) window.openAgentLink(value);
+        else if (value) createTab(value);
+      } else if (kind === 'search') {
+        sendChat(value);
+      } else if (kind === 'agent') {
+        sendChat(value.startsWith('/agent') ? value : `/agent ${value}`);
+      } else if (kind === 'copy') {
+        navigator.clipboard?.writeText(value).catch(() => {});
+      }
+    } catch (e) { console.error('[GenUI] action failed', e); }
+  };
+
+  function _gu_esc(s) { return escapeHtml(String(s == null ? '' : s)); }
+
+  // Attribute-safe escaping (escapeHtml leaves quotes intact, which breaks
+  // inline attribute interpolation) — used by the media components below.
+  function _gu_attr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
+  }
+
+  /* ── Ephemeral UI: media helpers (lightbox + YouTube player swap) ────────── */
+
+  window.__bucksCloseLightbox = function () {
+    const lb = document.getElementById('gu-lightbox');
+    if (lb) lb.remove();
+    document.removeEventListener('keydown', window.__bucksLightboxKey);
+  };
+  window.__bucksLightboxKey = function (e) {
+    if (e.key === 'Escape') window.__bucksCloseLightbox();
+  };
+
+  // Open a full-size image overlay. Reads data-img / data-url / data-title
+  // from the clicked element so no untrusted string rides inside onclick.
+  window.__bucksLightboxFromEl = function (el) {
+    if (!el) return;
+    const img = el.getAttribute('data-img') || '';
+    const url = el.getAttribute('data-url') || '';
+    const title = el.getAttribute('data-title') || '';
+    if (!/^https?:\/\//i.test(img)) return;
+    window.__bucksCloseLightbox();
+    const lb = document.createElement('div');
+    lb.id = 'gu-lightbox';
+    lb.innerHTML = `
+      <div class="gu-lb-backdrop"></div>
+      <div class="gu-lb-body">
+        <img class="gu-lb-img" src="${_gu_attr(img)}" referrerpolicy="no-referrer"/>
+        <div class="gu-lb-bar">
+          <div class="gu-lb-title">${_gu_esc(title)}</div>
+          <div class="gu-lb-actions">
+            ${url ? `<button class="gu-cta gu-lb-open">Open source ↗</button>` : ''}
+            <button class="gu-cta gu-lb-close">✕ Close</button>
+          </div>
+        </div>
+      </div>`;
+    lb.querySelector('.gu-lb-backdrop').addEventListener('click', window.__bucksCloseLightbox);
+    lb.querySelector('.gu-lb-close').addEventListener('click', window.__bucksCloseLightbox);
+    const openBtn = lb.querySelector('.gu-lb-open');
+    if (openBtn) openBtn.addEventListener('click', () => {
+      window.__bucksCloseLightbox();
+      window.__bucksGenUIAction('navigate', url);
+    });
+    document.body.appendChild(lb);
+    document.addEventListener('keydown', window.__bucksLightboxKey);
+  };
+
+  /* ── Global mini-player ────────────────────────────────────────────────────
+     YouTube's iframe embed rejects the app's file:// page origin ("Error 153"),
+     so in-message players can't work — and the chat re-renders its thread on
+     every streamed chunk, which would reload any in-message player anyway.
+     Instead, ONE floating dock on document.body hosts a <webview> (the embed
+     loads as its own top-level document, origin youtube-nocookie.com, so it
+     plays). Because it lives outside the chat DOM it keeps playing when the
+     chat minimizes, closes, or re-renders — i.e. background play. Collapse (—)
+     shrinks it to an audio pill without unloading the webview. */
+  window.__bucksMiniPlayer = {
+    _ensure() {
+      let dock = document.getElementById('bucks-mini-player');
+      if (dock) return dock;
+      dock = document.createElement('div');
+      dock.id = 'bucks-mini-player';
+      dock.innerHTML = `
+        <div class="mp-bar">
+          <span class="mp-eq">♪</span>
+          <span class="mp-title"></span>
+          <button class="mp-btn mp-open" title="Open in YouTube tab">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+          </button>
+          <button class="mp-btn mp-collapse" title="Collapse to audio pill (keeps playing)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="mp-btn mp-close" title="Stop and close">✕</button>
+        </div>
+        <div class="mp-body"></div>`;
+      dock.querySelector('.mp-open').addEventListener('click', () => {
+        const vid = dock.dataset.vid || '';
+        if (vid) window.__bucksGenUIAction('navigate', `https://www.youtube.com/watch?v=${vid}`);
+        window.__bucksMiniPlayer.close();
+      });
+      dock.querySelector('.mp-collapse').addEventListener('click', () => {
+        dock.classList.toggle('mp-min');
+      });
+      dock.querySelector('.mp-bar').addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        dock.classList.remove('mp-min');   // tap the pill to restore video
+      });
+      dock.querySelector('.mp-close').addEventListener('click', () => {
+        window.__bucksMiniPlayer.close();
+      });
+      document.body.appendChild(dock);
+      return dock;
+    },
+    play(vid, title) {
+      if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid || '')) return;
+      const dock = this._ensure();
+      dock.dataset.vid = vid;
+      dock.classList.remove('mp-min');
+      dock.querySelector('.mp-title').textContent = title || 'Now playing';
+      const body = dock.querySelector('.mp-body');
+      const src = `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&rel=0`;
+      let wv = body.querySelector('webview');
+      if (wv) {
+        wv.src = src;
+      } else {
+        wv = document.createElement('webview');
+        if (typeof IS_PRIVATE !== 'undefined' && IS_PRIVATE) wv.setAttribute('partition', 'bucks-private');
+        wv.setAttribute('allowpopups', 'false');
+        wv.src = src;
+        body.appendChild(wv);
+      }
+      dock.classList.add('mp-visible');
+    },
+    close() {
+      const dock = document.getElementById('bucks-mini-player');
+      if (!dock) return;
+      dock.querySelector('.mp-body').innerHTML = '';   // unload webview = stop audio
+      dock.classList.remove('mp-visible', 'mp-min');
+      dock.dataset.vid = '';
+    },
+  };
+
+  // Play the clicked rail item's video in the global mini-player and move the
+  // active highlight within this component.
+  window.__bucksPlayVideoFromEl = function (playerId, el) {
+    if (!el) return;
+    const vid = el.getAttribute('data-vid') || '';
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) return;
+    const title = el.getAttribute('data-title') || '';
+    const channel = el.getAttribute('data-channel') || '';
+    window.__bucksMiniPlayer.play(vid, channel ? `${title} · ${channel}` : title);
+    const comp = el.closest('.gu-video');
+    if (comp) {
+      comp.querySelectorAll('.gu-video-item').forEach(it => it.classList.toggle('active', it === el));
+      const now = comp.querySelector('.gu-video-now');
+      if (now) now.textContent = `▶ ${title}${channel ? ' · ' + channel : ''}`;
+    }
+  };
+
+  function _gu_faviconImg(favicon, domain) {
+    const letter = (domain || '?').charAt(0).toUpperCase();
+    if (!favicon) return `<div class="gu-favi gu-favi-fallback">${_gu_esc(letter)}</div>`;
+    return `<img class="gu-favi" src="${_gu_esc(favicon)}" onerror="this.outerHTML='<div class=\\'gu-favi gu-favi-fallback\\'>${_gu_esc(letter)}</div>'"/>`;
+  }
+
+  // Build an inline-SVG chart (line | bar | pie). No external dependency.
+  function _gu_chart(data) {
+    const kind = data.kind || 'bar';
+    const series = data.series || [];
+    const W = 320, H = 160, pad = 26;
+    if (!series.length) return '<div class="gu-empty">No chart data</div>';
+    if (kind === 'pie') {
+      const total = series.reduce((s, p) => s + (Number(p.value) || 0), 0) || 1;
+      let a0 = -Math.PI / 2, cx = 80, cy = 80, r = 64, segs = '';
+      const colors = ['#7b3fe4', '#52b6ff', '#2ed573', '#f7931a', '#ff4757', '#a978ff'];
+      series.forEach((p, i) => {
+        const frac = (Number(p.value) || 0) / total, a1 = a0 + frac * 2 * Math.PI;
+        const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+        const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+        const large = frac > 0.5 ? 1 : 0;
+        segs += `<path d="M${cx},${cy} L${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 ${large} 1 ${x1.toFixed(1)},${y1.toFixed(1)} Z" fill="${colors[i % colors.length]}" opacity="0.85"/>`;
+        a0 = a1;
+      });
+      const legend = series.map((p, i) => `<div class="gu-legend-item"><span class="gu-legend-dot" style="background:${colors[i % colors.length]}"></span>${_gu_esc(p.label)} (${_gu_esc(p.value)})</div>`).join('');
+      return `<div class="gu-chart-wrap"><svg viewBox="0 0 160 160" width="160" height="160">${segs}</svg><div class="gu-legend">${legend}</div></div>`;
+    }
+    // line/bar share axis math
+    const pts = series[0].points || series.map(s => ({ x: s.label, y: s.value }));
+    const ys = pts.map(p => Number(p.y) || 0);
+    const maxY = Math.max(...ys, 1), minY = Math.min(...ys, 0);
+    const span = (maxY - minY) || 1;
+    const n = pts.length;
+    const xStep = (W - pad * 2) / Math.max(n - 1, 1);
+    const sx = i => pad + i * xStep;
+    const sy = v => H - pad - ((v - minY) / span) * (H - pad * 2);
+    let body = '';
+    if (kind === 'line') {
+      const d = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(i).toFixed(1)},${sy(Number(p.y) || 0).toFixed(1)}`).join(' ');
+      body = `<path d="${d}" fill="none" stroke="#7b3fe4" stroke-width="2.5"/>` +
+        pts.map((p, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(Number(p.y) || 0).toFixed(1)}" r="3" fill="#a978ff"/>`).join('');
+    } else {
+      const bw = Math.min(xStep * 0.6, 34);
+      body = pts.map((p, i) => {
+        const yv = sy(Number(p.y) || 0);
+        return `<rect x="${(sx(i) - bw / 2).toFixed(1)}" y="${yv.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(H - pad - yv, 1).toFixed(1)}" rx="3" fill="#7b3fe4" opacity="0.85"/>`;
+      }).join('');
+    }
+    const labels = pts.map((p, i) => `<text x="${sx(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.4)">${_gu_esc(String(p.x).slice(0, 6))}</text>`).join('');
+    return `<div class="gu-chart-wrap"><svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${body}${labels}</svg></div>`;
+  }
+
+  // ─── Dynamic Product Grid Engine ───
+  window.__productGrids = new Map();
+
+  function parseNumericPrice(priceStr) {
+    if (!priceStr) return 0;
+    const clean = String(priceStr).replace(/,/g, '');
+    const match = clean.match(/[\d.]+/);
+    return match ? parseFloat(match[0]) : 0;
+  }
+
+  window.__renderProductGridHTML = function(gridId) {
+    const gridData = window.__productGrids.get(gridId);
+    if (!gridData) return '<div class="gu-empty">No products.</div>';
+
+    const { items, limit, sortBy, filterBy } = gridData;
+
+    // Apply filter
+    let filtered = [...items];
+    if (filterBy === 'low') {
+      filtered = filtered.filter(p => {
+        const val = parseNumericPrice(p.price);
+        return val > 0 && val < 1000;
+      });
+    } else if (filterBy === 'high') {
+      filtered = filtered.filter(p => {
+        const val = parseNumericPrice(p.price);
+        return val >= 1000 || (p.price && p.price.includes('$') && val >= 50);
+      });
+    } else if (filterBy === 'rating') {
+      filtered = filtered.filter(p => p.rating && parseFloat(p.rating) >= 4.0);
+    }
+
+    // Apply sort
+    if (sortBy === 'price-asc') {
+      filtered.sort((a, b) => parseNumericPrice(a.price) - parseNumericPrice(b.price));
+    } else if (sortBy === 'price-desc') {
+      filtered.sort((a, b) => parseNumericPrice(b.price) - parseNumericPrice(a.price));
+    } else if (sortBy === 'rating-desc') {
+      filtered.sort((a, b) => (parseFloat(b.rating) || 0) - (parseFloat(a.rating) || 0));
+    }
+
+    const totalCount = items.length;
+    const showingCount = Math.min(limit, filtered.length);
+    const visibleItems = filtered.slice(0, showingCount);
+
+    const cardsHtml = visibleItems.map(p => {
+      const kind = p.url ? 'navigate' : 'search';
+      const target = p.url || p.title;
+      const imgHtml = p.image
+        ? `<img src="${_gu_esc(p.image)}" loading="lazy" referrerpolicy="no-referrer"
+                onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>🛍️</div>'"/>`
+        : '<div class="gu-product-noimg">🛍️</div>';
+
+      return `
+      <div class="gu-product gu-product--click" onclick="window.__bucksGenUIAction('${kind}','${_gu_esc(target).replace(/'/g, "\\'")}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
+        <div class="gu-product-img">${imgHtml}</div>
+        <div class="gu-product-title">${_gu_esc(p.title)}</div>
+        <div class="gu-product-meta">
+          <span class="gu-product-price">${_gu_esc(p.price)}</span>
+          ${p.rating != null ? `<span class="gu-product-rating">★ ${_gu_esc(p.rating)}</span>` : ''}
+        </div>
+        ${p.badge ? `<span class="gu-product-badge">${_gu_esc(p.badge)}</span>` : ''}
+        <div class="gu-product-actions" onclick="event.stopPropagation();">
+          <button class="gu-cta gu-product-cta" onclick="window.__bucksGenUIAction('${kind}','${_gu_esc(target).replace(/'/g, "\\'")}')">${p.url ? 'View & Buy' : 'View'}</button>
+          <button class="gu-cta gu-product-ask" onclick="window.__askAboutProduct('${_gu_esc(p.title).replace(/'/g, "\\'")}')" title="Ask AI about this product">💬</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    const hasMore = showingCount < filtered.length;
+    const viewMoreBtn = hasMore
+      ? `<button class="gu-cta gu-view-more" onclick="window.__viewMoreProducts('${gridId}')">View More (${filtered.length - showingCount} left)</button>`
+      : '';
+
+    const toolbarHtml = `
+      <div class="gu-product-toolbar">
+        <span class="gu-product-count">${totalCount} products found</span>
+        <div class="gu-product-controls">
+          <select class="gu-select" onchange="window.__filterProductGrid('${gridId}', this.value)">
+            <option value="all" ${filterBy === 'all' ? 'selected' : ''}>All Prices</option>
+            <option value="low" ${filterBy === 'low' ? 'selected' : ''}>Under $50 / ₹1000</option>
+            <option value="high" ${filterBy === 'high' ? 'selected' : ''}>Over $50 / ₹1000</option>
+            <option value="rating" ${filterBy === 'rating' ? 'selected' : ''}>4★ & above</option>
+          </select>
+          <select class="gu-select" onchange="window.__sortProductGrid('${gridId}', this.value)">
+            <option value="default" ${sortBy === 'default' ? 'selected' : ''}>Featured</option>
+            <option value="price-asc" ${sortBy === 'price-asc' ? 'selected' : ''}>Price: Low-High</option>
+            <option value="price-desc" ${sortBy === 'price-desc' ? 'selected' : ''}>Price: High-Low</option>
+            <option value="rating-desc" ${sortBy === 'rating-desc' ? 'selected' : ''}>Rating</option>
+          </select>
+        </div>
+      </div>
+    `;
+
+    return `
+      <div class="gu-product-grid-wrapper" id="${gridId}_wrap">
+        ${toolbarHtml}
+        <div class="gu-product-grid">${cardsHtml}</div>
+        ${viewMoreBtn}
+      </div>
+    `;
+  };
+
+  window.__filterProductGrid = function(gridId, filterValue) {
+    const gridData = window.__productGrids.get(gridId);
+    if (gridData) {
+      gridData.filterBy = filterValue;
+      gridData.limit = 3;
+      const wrap = document.getElementById(`${gridId}_wrap`);
+      if (wrap) {
+        wrap.outerHTML = window.__renderProductGridHTML(gridId);
+      }
+    }
+  };
+
+  window.__sortProductGrid = function(gridId, sortValue) {
+    const gridData = window.__productGrids.get(gridId);
+    if (gridData) {
+      gridData.sortBy = sortValue;
+      const wrap = document.getElementById(`${gridId}_wrap`);
+      if (wrap) {
+        wrap.outerHTML = window.__renderProductGridHTML(gridId);
+      }
+    }
+  };
+
+  window.__viewMoreProducts = function(gridId) {
+    const gridData = window.__productGrids.get(gridId);
+    if (gridData) {
+      gridData.limit += 6;
+      const wrap = document.getElementById(`${gridId}_wrap`);
+      if (wrap) {
+        wrap.outerHTML = window.__renderProductGridHTML(gridId);
+      }
+    }
+  };
+
+  window.__askAboutProduct = function(title) {
+    const query = `Tell me more about the product: ${title}`;
+    const viewChatTab = document.getElementById('view-chat-tab');
+    if (viewChatTab && !viewChatTab.classList.contains('hidden')) {
+      sendChatTab(query);
+    } else {
+      const ntInput = document.getElementById('nt-search-input');
+      if (ntInput) {
+        ntInput.value = query;
+        dockChatPanel();
+        sendChat(query);
+        ntInput.value = '';
+      }
+    }
+  };
+
+  // ─── Translate Slash Commands for LLM Agent ───
+  function translateSlashCommand(val) {
+    const trimmed = (val || '').trim();
+    if (!trimmed.startsWith('/')) return trimmed;
+
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('/product lookup ')) {
+      return `Look up products for: ${trimmed.substring(16).trim()}`;
+    }
+    if (lower === '/product lookup') {
+      return 'Look up products';
+    }
+    if (lower.startsWith('/content scrap ')) {
+      return `Scrape the text content of: ${trimmed.substring(15).trim()}`;
+    }
+    if (lower === '/content scrap') {
+      return 'Scrape web page content';
+    }
+    if (lower.startsWith('/content scrape ')) {
+      return `Scrape the text content of: ${trimmed.substring(16).trim()}`;
+    }
+    if (lower === '/content scrape') {
+      return 'Scrape web page content';
+    }
+
+    const spaceIdx = trimmed.indexOf(' ');
+    const cmd = spaceIdx !== -1 ? trimmed.substring(0, spaceIdx) : trimmed;
+    const arg = spaceIdx !== -1 ? trimmed.substring(spaceIdx + 1).trim() : '';
+
+    switch (cmd.toLowerCase()) {
+      case '/search':
+        return arg ? `Search the web for: ${arg}` : 'Search the web';
+      case '/product-lookup':
+      case '/product':
+        return arg ? `Look up products for: ${arg}` : 'Look up products';
+      case '/scrape':
+        return arg ? `Scrape the text content of: ${arg}` : 'Scrape web page content';
+      case '/summarize':
+      case '/summerize':
+        return arg ? `Read and summarize the web page at: ${arg}` : 'Read and summarize page';
+      case '/images':
+      case '/image':
+        return arg ? `Show me images of ${arg}` : 'Search for images';
+      case '/video':
+      case '/play':
+        return arg ? `Play ${arg}` : 'Play a video';
+      case '/research':
+        return arg ? `Research ${arg}` : 'Run deep research';
+      case '/weather':
+        return arg ? `What's the weather in ${arg}?` : 'Show the weather';
+      case '/links':
+        return arg ? `Extract all links from the page at: ${arg}` : 'Extract page links';
+      case '/code':
+        return arg ? `Execute this code in the sandbox: ${arg}` : 'Execute code in sandbox';
+      case '/calendar-list':
+        return 'List my calendar events';
+      case '/calendar-add':
+        return arg ? `Add a calendar event with details: ${arg}` : 'Add calendar event';
+      case '/track':
+        return arg ? `Track order status for: ${arg}` : 'Track shipment status';
+      case '/ipfs-upload':
+        return arg ? `Upload this text to IPFS: ${arg}` : 'Upload text to IPFS';
+      case '/ipfs-cat':
+        return arg ? `Read text content from IPFS CID: ${arg}` : 'Read content from IPFS';
+      case '/ipfs-load':
+        return arg ? `Load custom agent tool from IPFS CID: ${arg}` : 'Load dynamic tool from IPFS';
+      default:
+        return trimmed;
+    }
+  }
+
+  // ─── Slash Command Autocomplete Auto-Suggestions ───
+  function setupCommandSuggestions(inputEl, parentEl, offsetLeftRight = false) {
+    let activeIndex = 0;
+    let dropdown = null;
+
+    const commands = [
+      // Local Views
+      { cmd: '/wallet', desc: 'Open Wallet view. Check balances and transactions.', keywords: ['wallet', 'money', 'send', 'crypto'] },
+      { cmd: '/ipfs', desc: 'Explore decentralized IPFS content and follow peers.', keywords: ['ipfs', 'dweb', 'social', 'publish'] },
+      { cmd: '/files', desc: 'Launch File Manager to browse downloads and local files.', keywords: ['files', 'manager', 'explorer', 'downloads'] },
+      { cmd: '/studio', desc: 'DWeb Studio creator interface. Build decentralized applications.', keywords: ['studio', 'dweb', 'creator', 'build'] },
+      { cmd: '/history', desc: 'Open History dashboard. Search your navigation timeline.', keywords: ['history', 'tabs', 'visits'] },
+      { cmd: '/bookmarks', desc: 'Open Bookmarks manager. View and load saved sites.', keywords: ['bookmarks', 'saved', 'favorites'] },
+      { cmd: '/settings', desc: 'Browser configurations. Toggle adblocker and settings.', keywords: ['settings', 'config', 'adblock'] },
+      { cmd: '/agent', desc: 'Agentic browser control. Run autonomous agent steps.', keywords: ['agent', 'browser', 'control', 'click', 'type'] },
+
+      // Skillsets
+      { cmd: '/search', desc: 'DDG Web Search. Search the web and synthesize results.', keywords: ['search', 'web', 'google', 'find'] },
+      { cmd: '/product-lookup', desc: 'Product Search. Fetch real products from trusted retailers.', keywords: ['product', 'shopping', 'lookup', 'buy', 'price'] },
+      { cmd: '/scrape', desc: 'Scrape Content. Fetch clean readable text from a URL.', keywords: ['scrape', 'fetch', 'url', 'read', 'text'] },
+      { cmd: '/images', desc: 'Image Gallery. Search the web for images, tap to view full-size.', keywords: ['images', 'photos', 'pictures', 'gallery', 'wallpaper'] },
+      { cmd: '/video', desc: 'Play Videos. Search YouTube and play right here in chat.', keywords: ['video', 'play', 'watch', 'youtube', 'music'] },
+      { cmd: '/research', desc: 'Deep Research. Multi-source dossier with insights, images & sources.', keywords: ['research', 'deep', 'report', 'insight', 'analysis'] },
+      { cmd: '/weather', desc: 'Weather Card. Current conditions and multi-day forecast for any place.', keywords: ['weather', 'forecast', 'temperature', 'rain'] },
+      { cmd: '/summarize', desc: 'Summarize Page. Read and synthesize webpage contents.', keywords: ['summarize', 'summary', 'page', 'read', 'article'] },
+      { cmd: '/links', desc: 'Extract Links. Extract all hyperlinks from a webpage.', keywords: ['links', 'extract', 'href', 'url'] },
+      { cmd: '/code', desc: 'Run Code. Execute Python, JS, or Bash in a sandbox.', keywords: ['code', 'run', 'python', 'javascript', 'bash'] },
+      { cmd: '/calendar-list', desc: 'List Calendar. List all events scheduled in calendar.', keywords: ['calendar', 'events', 'list', 'schedule'] },
+      { cmd: '/calendar-add', desc: 'Add Calendar. Add a new event to your calendar.', keywords: ['calendar', 'add', 'event', 'new'] },
+      { cmd: '/track', desc: 'Track Shipment. Retrieve shipping and delivery updates.', keywords: ['track', 'order', 'shipment', 'dhl', 'fedex'] },
+      { cmd: '/ipfs-upload', desc: 'IPFS Upload. Upload text content to IPFS.', keywords: ['ipfs', 'upload', 'text', 'cid'] },
+      { cmd: '/ipfs-cat', desc: 'IPFS Retrieve. Read and fetch text content from a CID.', keywords: ['ipfs', 'cat', 'cid', 'retrieve'] },
+      { cmd: '/ipfs-load', desc: 'IPFS Load Tool. Dynamically load an agent tool from IPFS.', keywords: ['ipfs', 'load', 'tool', 'plugin'] }
+    ];
+
+    function renderDropdown(filtered) {
+      if (dropdown) dropdown.remove();
+      if (filtered.length === 0) return;
+
+      dropdown = document.createElement('div');
+      dropdown.className = 'command-suggestions-dropdown';
+      if (offsetLeftRight) {
+        dropdown.style.left = '14px';
+        dropdown.style.right = '14px';
+      } else {
+        dropdown.style.left = '0';
+        dropdown.style.right = '0';
+      }
+
+      filtered.forEach((cmd, idx) => {
+        const item = document.createElement('div');
+        item.className = `command-suggestion-item ${idx === activeIndex ? 'active' : ''}`;
+        item.innerHTML = `
+          <div class="command-suggestion-header">
+            <span class="command-suggestion-cmd">${escapeHtml(cmd.cmd)}</span>
+          </div>
+          <div class="command-suggestion-desc">${escapeHtml(cmd.desc)}</div>
+        `;
+        item.addEventListener('click', () => {
+          inputEl.value = cmd.cmd + ' ';
+          inputEl.focus();
+          cleanup();
+        });
+        dropdown.appendChild(item);
+      });
+
+      parentEl.appendChild(dropdown);
+    }
+
+    function cleanup() {
+      if (dropdown) {
+        dropdown.remove();
+        dropdown = null;
+      }
+      activeIndex = 0;
+    }
+
+    inputEl.addEventListener('input', () => {
+      const val = inputEl.value;
+      if (val.startsWith('/')) {
+        const query = val.toLowerCase();
+        // If there is a space, they are typing their query/arguments. Dismiss suggestions.
+        if (query.includes(' ')) {
+          cleanup();
+          return;
+        }
+        const filtered = commands.filter(c => 
+          c.cmd.startsWith(query) || 
+          c.keywords.some(k => k.startsWith(query.substring(1)))
+        );
+        activeIndex = Math.min(activeIndex, Math.max(0, filtered.length - 1));
+        renderDropdown(filtered);
+      } else {
+        cleanup();
+      }
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (!dropdown) return;
+
+      const items = dropdown.querySelectorAll('.command-suggestion-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % items.length;
+        items.forEach((item, idx) => {
+          item.classList.toggle('active', idx === activeIndex);
+        });
+        items[activeIndex].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = (activeIndex - 1 + items.length) % items.length;
+        items.forEach((item, idx) => {
+          item.classList.toggle('active', idx === activeIndex);
+        });
+        items[activeIndex].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        const activeItem = items[activeIndex];
+        if (activeItem) {
+          e.preventDefault();
+          e.stopPropagation();
+          const cmdText = activeItem.querySelector('.command-suggestion-cmd').textContent;
+          inputEl.value = cmdText + ' ';
+          inputEl.focus();
+          cleanup();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cleanup();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (dropdown && !parentEl.contains(e.target)) {
+        cleanup();
+      }
+    });
+  }
+
+  const _GENUI_RENDERERS = {
+    answer(d) {
+      const parsed = formatNexusAnswer(d.markdown || d.text || '');
+      return `<div class="gu-answer">${parsed.html}</div>`;
+    },
+    list(d) {
+      const items = (d.items || []).map(it => `
+        <a class="gu-list-item" href="#" onclick="window.__bucksGenUIAction('navigate','${_gu_esc(it.url)}');event.preventDefault();">
+          ${_gu_faviconImg(it.favicon, it.domain)}
+          <div class="gu-list-body">
+            <div class="gu-list-title">${_gu_esc(it.title)}</div>
+            <div class="gu-list-sub">${_gu_esc(it.subtitle)}</div>
+            <div class="gu-list-domain">${_gu_esc(it.domain)}</div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="gu-list-arrow"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>
+        </a>`).join('');
+      return `<div class="gu-list">${items}</div>`;
+    },
+    cta_row(d) {
+      const btns = (d.actions || []).map(a => `
+        <button class="gu-cta" onclick="window.__bucksGenUIAction('${_gu_esc(a.kind || 'search')}','${_gu_esc(a.value || a.label)}')">${_gu_esc(a.label)}</button>`).join('');
+      return `<div class="gu-cta-row">${btns}</div>`;
+    },
+    product_grid(d) {
+      const cards = (d.items || []).map(p => {
+        // Clicking anywhere on the card (or View) opens the real listing when we
+        // have its URL; otherwise it searches the product name.
+        const kind = p.url ? 'navigate' : 'search';
+        const target = _gu_esc(p.url || p.title);
+        const imgHtml = p.image
+          ? `<img src="${_gu_esc(p.image)}" loading="lazy" referrerpolicy="no-referrer"
+                  onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>🛍️</div>'"/>`
+          : '<div class="gu-product-noimg">🛍️</div>';
+        return `
+        <div class="gu-product gu-product--click" onclick="window.__bucksGenUIAction('${kind}','${target}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
+          <div class="gu-product-img">${imgHtml}</div>
+          <div class="gu-product-title">${_gu_esc(p.title)}</div>
+          <div class="gu-product-meta">
+            <span class="gu-product-price">${_gu_esc(p.price)}</span>
+            ${p.rating != null ? `<span class="gu-product-rating">★ ${_gu_esc(p.rating)}</span>` : ''}
+          </div>
+          ${p.badge ? `<span class="gu-product-badge">${_gu_esc(p.badge)}</span>` : ''}
+          <button class="gu-cta gu-product-cta" onclick="event.stopPropagation();window.__bucksGenUIAction('${kind}','${target}')">${p.url ? 'View & Buy' : 'View'}</button>
+        </div>`;
+      }).join('');
+      // Optional shopping follow-up actions (cheaper / top-rated / refine).
+      const actions = (d.actions || []).map(a =>
+        `<button class="gu-cta gu-shop-action" onclick="window.__bucksGenUIAction('${_gu_esc(a.kind || 'agent')}','${_gu_esc(a.value || a.label)}')">${_gu_esc(a.label)}</button>`
+      ).join('');
+      const actionRow = actions ? `<div class="gu-cta-row gu-shop-actions">${actions}</div>` : '';
+      return `<div class="gu-product-grid">${cards}</div>${actionRow}`;
+    },
+    stat_cards(d) {
+      const cards = (d.stats || []).map(s => `
+        <div class="gu-stat">
+          <div class="gu-stat-label">${_gu_esc(s.label)}</div>
+          <div class="gu-stat-value">${_gu_esc(s.value)}</div>
+          ${s.delta != null ? `<div class="gu-stat-delta ${String(s.delta).startsWith('-') ? 'down' : 'up'}">${_gu_esc(s.delta)}</div>` : ''}
+        </div>`).join('');
+      return `<div class="gu-stat-cards">${cards}</div>`;
+    },
+    table(d) {
+      const cols = d.columns || [];
+      const head = `<tr>${cols.map(c => `<th>${_gu_esc(c)}</th>`).join('')}</tr>`;
+      const rows = (d.rows || []).map(r => `<tr>${r.map(cell => `<td>${_gu_esc(cell)}</td>`).join('')}</tr>`).join('');
+      return `<div class="gu-table-wrap"><table class="gu-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+    },
+    chart(d) { return _gu_chart(d); },
+    image_gallery(d) {
+      const items = (d.items || []).filter(it => it.image || it.thumbnail);
+      if (!items.length) return '<div class="gu-empty">No images found.</div>';
+      const cells = items.map(it => `
+        <div class="gu-img-cell"
+             data-img="${_gu_attr(it.image || it.thumbnail)}"
+             data-url="${_gu_attr(it.url || '')}"
+             data-title="${_gu_attr(it.title || '')}"
+             onclick="window.__bucksLightboxFromEl(this)"
+             title="${_gu_attr(it.title || 'View full size')}">
+          <img src="${_gu_attr(it.thumbnail || it.image)}" loading="lazy" referrerpolicy="no-referrer"
+               onerror="this.closest('.gu-img-cell').style.display='none'"/>
+          ${it.source ? `<div class="gu-img-cap">${_gu_esc(it.source)}</div>` : ''}
+        </div>`).join('');
+      
+      const query = d.query || d.title?.replace("Images — “", "")?.replace("”", "") || "";
+      const viewMoreBtn = query ? `
+        <div style="width: 100%; display: flex; justify-content: center; margin-top: 16px; flex-shrink: 0; padding-bottom: 8px;">
+          <button onclick="window.__bucksImageGalleryViewMore(this, '${_gu_attr(query)}')" style="padding: 9px 22px; border-radius: 99px; background: rgba(169, 120, 255, 0.14); border: 1px solid rgba(169, 120, 255, 0.35); color: #a978ff; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='rgba(169,120,255,0.24)';" onmouseout="this.style.background='rgba(169,120,255,0.14)';">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> View More
+          </button>
+        </div>` : '';
+
+      return `<div class="gu-image-gallery-container" style="display:flex; flex-direction:column; width:100%;">
+                <div class="gu-image-gallery">${cells}</div>
+                ${viewMoreBtn}
+              </div>`;
+    },
+    video(d) {
+      const vids = (d.videos || []).filter(v => /^[A-Za-z0-9_-]{6,20}$/.test(v.videoId || ''));
+      if (!vids.length) return '<div class="gu-empty">No playable videos found.</div>';
+      const pid = 'gu-yt-' + Math.random().toString(36).slice(2, 10);
+      const first = vids[0];
+      const rail = vids.map((v, i) => `
+        <div class="gu-video-item${i === 0 ? ' active' : ''}"
+             data-vid="${_gu_attr(v.videoId)}"
+             data-title="${_gu_attr(v.title)}"
+             data-channel="${_gu_attr(v.channel || '')}"
+             onclick="window.__bucksPlayVideoFromEl('${pid}', this)">
+          <div class="gu-video-thumb">
+            <img src="${_gu_attr(v.thumbnail)}" loading="lazy" referrerpolicy="no-referrer"/>
+            ${v.duration ? `<span class="gu-video-dur">${_gu_esc(v.duration)}</span>` : ''}
+          </div>
+          <div class="gu-video-meta">
+            <div class="gu-video-title">${_gu_esc(v.title)}</div>
+            <div class="gu-video-sub">${_gu_esc(v.channel || '')}${v.views ? ' · ' + _gu_esc(v.views) : ''}</div>
+          </div>
+        </div>`).join('');
+      // Playback happens in the GLOBAL mini-player dock (window.__bucksMiniPlayer,
+      // a body-level <webview> — survives chat re-renders/minimize/close =
+      // background play). The hero area is a play button for the top result;
+      // the ↗ chip opens the real YouTube page in a browser tab.
+      return `<div class="gu-video">
+        <div class="gu-video-player gu-video-hero"
+             data-vid="${_gu_attr(first.videoId)}"
+             data-title="${_gu_attr(first.title)}"
+             data-channel="${_gu_attr(first.channel || '')}"
+             onclick="window.__bucksPlayVideoFromEl('${pid}', this)"
+             title="Play here (mini-player)">
+          <img src="${_gu_attr(first.thumbnail)}" referrerpolicy="no-referrer"/>
+          <div class="gu-video-playbtn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+          </div>
+          <button class="gu-video-openyt" title="Open on YouTube"
+            onclick="event.stopPropagation();window.__bucksGenUIAction('navigate','https://www.youtube.com/watch?v=${_gu_attr(first.videoId)}')">YouTube ↗</button>
+        </div>
+        <div class="gu-video-now">${_gu_esc(first.title)}${first.channel ? ' · ' + _gu_esc(first.channel) : ''}</div>
+        ${vids.length > 1 ? `<div class="gu-video-rail">${rail}</div>` : ''}
+      </div>`;
+    },
+    weather(d) {
+      const cur = d.current || {};
+      const days = (d.days || []).slice(0, 7);
+      const num = v => (v == null || v === '' ? '—' : Math.round(Number(v)));
+      const strip = days.length ? `<div class="gu-wx-strip">${days.map(day => `
+        <div class="gu-wx-day">
+          <div class="gu-wx-day-name">${_gu_esc(day.day)}</div>
+          <div class="gu-wx-day-icon">${_gu_esc(day.icon || '🌡️')}</div>
+          <div class="gu-wx-day-temps"><b>${num(day.high_c)}°</b> <span>${num(day.low_c)}°</span></div>
+        </div>`).join('')}</div>` : '';
+      return `<div class="gu-weather">
+        <div class="gu-wx-now">
+          <div class="gu-wx-icon">${_gu_esc(cur.icon || '🌡️')}</div>
+          <div class="gu-wx-main">
+            <div class="gu-wx-temp">${num(cur.temp_c)}°C</div>
+            <div class="gu-wx-cond">${_gu_esc(cur.condition || '')}</div>
+          </div>
+          <div class="gu-wx-meta">
+            ${cur.feels_c != null ? `<div>Feels like ${num(cur.feels_c)}°C</div>` : ''}
+            ${cur.wind_kmh != null ? `<div>Wind ${num(cur.wind_kmh)} km/h</div>` : ''}
+            ${cur.humidity != null ? `<div>Humidity ${num(cur.humidity)}%</div>` : ''}
+          </div>
+        </div>
+        ${strip}
+      </div>`;
+    },
+    timeline(d) {
+      const events = d.events || [];
+      if (!events.length) return '<div class="gu-empty">No events.</div>';
+      return `<div class="gu-timeline">${events.map(ev => `
+        <div class="gu-tl-item">
+          <div class="gu-tl-marker"><span class="gu-tl-dot"></span><span class="gu-tl-line"></span></div>
+          <div class="gu-tl-body">
+            <div class="gu-tl-date">${_gu_esc(ev.date || '')}</div>
+            <div class="gu-tl-title">${_gu_esc(ev.title || '')}</div>
+            ${ev.text ? `<div class="gu-tl-text">${_gu_esc(ev.text)}</div>` : ''}
+          </div>
+        </div>`).join('')}</div>`;
+    },
+    checklist(d) {
+      const items = d.items || [];
+      if (!items.length) return '<div class="gu-empty">Empty list.</div>';
+      return `<div class="gu-checklist">${items.map(it => {
+        const text = typeof it === 'string' ? it : (it.text || '');
+        const done = typeof it === 'object' && !!it.done;
+        return `
+        <div class="gu-check-item${done ? ' done' : ''}" onclick="this.classList.toggle('done')">
+          <span class="gu-check-box"></span>
+          <span class="gu-check-text">${_gu_esc(text)}</span>
+        </div>`;
+      }).join('')}</div>`;
+    },
+    accordion(d) {
+      const items = (d.items || []).filter(it => it && (it.heading || it.q));
+      if (!items.length) return '<div class="gu-empty">Nothing to show.</div>';
+      return `<div class="gu-accordion">${items.map((it, i) => `
+        <details class="gu-acc-item"${i === 0 ? ' open' : ''}>
+          <summary class="gu-acc-head">${_gu_esc(it.heading || it.q)}</summary>
+          <div class="gu-acc-body">${_gu_esc(it.text || it.a || '')}</div>
+        </details>`).join('')}</div>`;
+    },
+    code(d) {
+      const code = String(d.code || '');
+      if (!code.trim()) return '<div class="gu-empty">No code.</div>';
+      const lang = _gu_esc(d.language || '');
+      return `<div class="gu-code">
+        <div class="gu-code-bar">
+          <span class="gu-code-lang">${lang || 'code'}</span>
+          <button class="gu-cta gu-code-copy"
+            onclick="navigator.clipboard.writeText(this.closest('.gu-code').querySelector('code').textContent).then(()=>{this.textContent='Copied ✓';setTimeout(()=>this.textContent='Copy',1200);})">Copy</button>
+        </div>
+        <pre class="gu-code-pre"><code>${_gu_esc(code)}</code></pre>
+      </div>`;
+    },
+    research(d) {
+      const hero = d.hero && /^https?:\/\//i.test(d.hero) ? `
+        <div class="gu-res-hero">
+          <img src="${_gu_attr(d.hero)}" referrerpolicy="no-referrer"
+               onerror="this.closest('.gu-res-hero').style.display='none'"/>
+          <div class="gu-res-hero-title">${_gu_esc(d.topic || '')}</div>
+        </div>` : '';
+      const summary = d.summary ? `<div class="gu-res-summary">${_gu_esc(d.summary)}</div>` : '';
+      const stats = (d.stats || []).length ? `<div class="gu-stat-cards">${d.stats.map(s => `
+        <div class="gu-stat">
+          <div class="gu-stat-label">${_gu_esc(s.label)}</div>
+          <div class="gu-stat-value">${_gu_esc(s.value)}</div>
+        </div>`).join('')}</div>` : '';
+      const sections = (d.sections || []).map(s => `
+        <div class="gu-res-section">
+          <div class="gu-res-heading">
+            <span>${_gu_esc(s.heading)}</span>
+            ${s.url ? `<span class="gu-res-domain" data-url="${_gu_attr(s.url)}"
+              onclick="window.__bucksGenUIAction('navigate', this.getAttribute('data-url'))">${_gu_esc(s.domain || 'source')} ↗</span>` : ''}
+          </div>
+          <div class="gu-res-text">${_gu_esc(s.text)}</div>
+        </div>`).join('');
+      const strip = (d.images || []).length ? `<div class="gu-res-strip">${d.images.map(im => `
+        <div class="gu-img-cell gu-res-strip-cell"
+             data-img="${_gu_attr(im.image || im.thumbnail)}"
+             data-url="${_gu_attr(im.url || '')}"
+             data-title="${_gu_attr(im.title || '')}"
+             onclick="window.__bucksLightboxFromEl(this)">
+          <img src="${_gu_attr(im.thumbnail || im.image)}" loading="lazy" referrerpolicy="no-referrer"
+               onerror="this.closest('.gu-img-cell').style.display='none'"/>
+        </div>`).join('')}</div>` : '';
+      const sources = (d.sources || []).length ? `<div class="gu-res-sources">
+        <div class="gu-res-sources-label">Sources</div>${(d.sources || []).map(s => `
+        <a class="gu-res-src" href="#" data-url="${_gu_attr(s.url)}"
+           onclick="window.__bucksGenUIAction('navigate', this.getAttribute('data-url'));event.preventDefault();">
+          ${_gu_faviconImg(s.favicon, s.domain)}<span>${_gu_esc(s.domain || s.title)}</span>
+        </a>`).join('')}</div>` : '';
+      const actions = (d.actions || []).length ? `<div class="gu-cta-row">${d.actions.map(a => `
+        <button class="gu-cta" data-kind="${_gu_attr(a.kind || 'agent')}" data-value="${_gu_attr(a.value || a.label)}"
+          onclick="window.__bucksGenUIAction(this.getAttribute('data-kind'), this.getAttribute('data-value'))">${_gu_esc(a.label)}</button>`).join('')}</div>` : '';
+      return `<div class="gu-research">${hero}${summary}${stats}${sections}${strip}${sources}${actions}</div>`;
+    },
+  };
+
+  // Render a component spec into a card element (returns the element).
+  function renderComponent(spec) {
+    const wrap = document.createElement('div');
+    wrap.className = 'gu-component';
+
+    if (spec && spec.component === 'product_grid') {
+      let gridId = spec.gridId;
+      if (!gridId) {
+        gridId = 'grid-' + Math.random().toString(36).substr(2, 9);
+        spec.gridId = gridId;
+      }
+      if (!window.__productGrids) window.__productGrids = new Map();
+      if (!window.__productGrids.has(gridId)) {
+        window.__productGrids.set(gridId, {
+          query: spec.title || '',
+          items: (spec.data && spec.data.items) || [],
+          limit: 3,
+          sortBy: 'default',
+          filterBy: 'all'
+        });
+      }
+      wrap.innerHTML = window.__renderProductGridHTML(gridId);
+      return wrap;
+    }
+
+    const renderer = _GENUI_RENDERERS[spec && spec.component];
+    if (!renderer) {
+      wrap.innerHTML = `<div class="gu-answer">${formatNexusAnswer((spec && spec.data && spec.data.markdown) || '').html}</div>`;
+      return wrap;
+    }
+    let inner = '';
+    try { inner = renderer(spec.data || {}); }
+    catch (e) { console.error('[GenUI] render failed', spec.component, e); inner = '<div class="gu-empty">Could not render component.</div>'; }
+    wrap.innerHTML = `${spec.title ? `<div class="gu-title">${_gu_esc(spec.title)}</div>` : ''}${inner}`;
+    return wrap;
+  }
 
   function formatNexusAnswer(text) {
     if (!text) return { html: '', links: [], followups: [] };
@@ -3156,10 +4499,20 @@
     }
     */
 
-    const msgContainer = document.getElementById('bottom-chat-messages');
+    const msgContainer = document.getElementById('nav-chat-messages-container');
     if (!msgContainer) return;
-    const chatCard = document.getElementById('chat-history-card');
-    if (chatCard) chatCard.classList.remove('hidden');
+
+    // ── Generative UI component ──
+    if (ev.type === 'ui_component') {
+      if (Array.isArray(agentConversation)) {
+        agentConversation.push({ role: 'component', ui: ev });
+      }
+      const el = renderComponent(ev);
+      el.style.cssText += 'animation:nxFadeUp .18s ease;';
+      msgContainer.appendChild(el);
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+      return;
+    }
 
     const style  = _NX_STYLE[ev.type]  || { accent: 'rgba(255,255,255,0.15)', label: ev.type, fg: 'rgba(255,255,255,0.5)' };
     const svg    = _NX_SVG[ev.type]    || '';
@@ -3354,7 +4707,7 @@
 
   /* ── Rich Ephemeral UI renderer with sources + follow-up chips ── */
   function renderWebAnswer({ answer, sources, followUps, elapsed, intent }) {
-    const msgContainer = document.getElementById('bottom-chat-messages');
+    const msgContainer = document.getElementById('nav-chat-messages-container');
     if (!msgContainer) return;
 
     // Format markdown-ish answer
@@ -3396,8 +4749,6 @@
       </div>
     `;
     msgContainer.scrollTop = msgContainer.scrollHeight;
-    const chatCard = document.getElementById('chat-history-card');
-    if (chatCard) chatCard.scrollTop = chatCard.scrollHeight;
   }
 
   /* ── Simple text answer (for chat/conversational responses) ── */
@@ -3419,26 +4770,66 @@
     sendChat(q);
   };
 
+  window.__bucksImageGalleryViewMore = (btn, query) => {
+    if (!btn || !query) return;
+    btn.disabled = true;
+    btn.innerHTML = `<svg style="animation: spin 1.2s linear infinite;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.15)"></circle><path d="M4 12a8 8 0 018-8" fill="none" stroke-linecap="round"></path></svg> Crawling Web...`;
+    
+    const moreQuery = `/images ${query} --more`;
+    const chatTab = document.getElementById('view-chat-tab');
+    if (chatTab && !chatTab.classList.contains('hidden')) {
+      sendChatTab(moreQuery);
+    } else {
+      sendChat(moreQuery);
+    }
+  };
+
   /* ── Generate follow-up suggestions based on query + intent ── */
   function generateFollowUps(query, intent, results) {
-    const q = query.toLowerCase();
+    const q = query.toLowerCase().trim();
     const suggestions = [];
+
+    // Strip a leading question stem to get the core "topic" of the query,
+    // so follow-ups are about what the user actually asked, not generic.
+    const topic = query
+      .replace(/^(what is|what are|who is|who are|how does|how do|how to|explain|tell me about|why is|why are|when is|where is|can you|could you|give me)\s*/i, '')
+      .replace(/[?.!]+$/, '')
+      .trim();
+    const shortTopic = topic.split(/\s+/).slice(0, 6).join(' ');
 
     if (intent === 'research' || intent === 'search') {
       if (results && results.length > 0) {
         suggestions.push(`More details about ${results[0].title?.split(' ').slice(0, 4).join(' ')}`);
       }
-      if (q.includes('what is')) suggestions.push(`How does ${query.replace(/what is\s*/i, '')} work?`);
-      if (q.includes('who is')) suggestions.push(`What is ${query.replace(/who is\s*/i, '')} known for?`);
-      suggestions.push(`Latest news about ${query.replace(/^(what is|who is|how does|explain)\s*/i, '').slice(0, 40)}`);
+      if (q.startsWith('what is') || q.startsWith('what are')) suggestions.push(`How does ${shortTopic} work?`);
+      if (q.startsWith('who is')) suggestions.push(`What is ${shortTopic} known for?`);
+      suggestions.push(`Latest news about ${shortTopic}`);
     } else if (intent === 'navigate') {
       suggestions.push(`Search for alternatives to this site`);
       suggestions.push(`Summarize this page`);
     } else {
-      suggestions.push(`Search the web for more`);
-      suggestions.push(`Tell me more`);
+      // Conversational chat — build contextual follow-ups from the query topic
+      // instead of the old generic "Search the web for more" / "Tell me more".
+      if (shortTopic) {
+        if (q.startsWith('what is') || q.startsWith('what are')) {
+          suggestions.push(`How does ${shortTopic} work?`);
+          suggestions.push(`What are the pros and cons of ${shortTopic}?`);
+        } else if (q.startsWith('how')) {
+          suggestions.push(`Show me a step-by-step example`);
+          suggestions.push(`What are common mistakes with ${shortTopic}?`);
+        } else if (q.startsWith('convert') || /\b(usd|eur|gbp|inr|btc|price|cost)\b/i.test(q)) {
+          suggestions.push(`Show the latest exchange rate`);
+          suggestions.push(`Convert a different amount`);
+        } else {
+          suggestions.push(`Tell me more about ${shortTopic}`);
+          suggestions.push(`Give me a practical example`);
+        }
+      } else {
+        suggestions.push(`Explain that in more detail`);
+      }
     }
-    return suggestions.slice(0, 3);
+    // De-duplicate and cap at 3
+    return [...new Set(suggestions.filter(Boolean))].slice(0, 3);
   }
 
   /* ── Synthesize answer from web search results ── */
@@ -3610,13 +5001,61 @@
 
   function resetChat() {
     chatBusy = false;
-    const msgContainer = document.getElementById('bottom-chat-messages');
+    const msgContainer = document.getElementById('nav-chat-messages-container');
     if (msgContainer) msgContainer.innerHTML = '';
     agentConversation = [];
-    const chips = document.getElementById('chat-chips-container');
+    const chips = document.getElementById('nav-chat-chips-container');
     if (chips) chips.style.display = 'flex';
-    const card = document.getElementById('chat-history-card');
-    if (card) card.classList.add('hidden');
+  }
+
+  async function captureActivePageContext() {
+    const consentPage = document.getElementById('nav-consent-page')?.checked;
+    const consentSelection = document.getElementById('nav-consent-selection')?.checked;
+    const consentTabs = document.getElementById('nav-consent-tabs')?.checked;
+    const consentFiles = document.getElementById('nav-consent-files')?.checked;
+    
+    let contextParts = [];
+    
+    if (consentFiles) {
+      contextParts.push('[FILES_RAG_ENABLED]');
+    }
+
+    try {
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab && activeTab.webview && !activeTab.url.startsWith('bucks://')) {
+        if (consentPage) {
+          try {
+            const bodyText = await activeTab.webview.executeJavaScript("document.body.innerText");
+            if (bodyText) {
+              const capText = bodyText.slice(0, 6000) + (bodyText.length > 6000 ? '\n...[truncated]' : '');
+              contextParts.push(`--- ACTIVE PAGE TEXT (${activeTab.title || ''} - ${activeTab.url}) ---\n${capText}`);
+            }
+          } catch (err) {
+            console.warn('[Context Capture] Failed to read webview page text:', err);
+            contextParts.push(`Active page: ${activeTab.title || ''} (${activeTab.url})`);
+          }
+        }
+        if (consentSelection) {
+          try {
+            const selectedText = await activeTab.webview.executeJavaScript("window.getSelection().toString()");
+            if (selectedText && selectedText.trim() !== '') {
+              contextParts.push(`--- SELECTED TEXT ---\n${selectedText}`);
+            }
+          } catch (err) {
+            console.warn('[Context Capture] Failed to read webview selection:', err);
+          }
+        }
+      } else if (activeTab && consentPage) {
+        contextParts.push(`Active page: ${activeTab.title || ''} (${activeTab.url})`);
+      }
+    } catch (_) {}
+    
+    if (consentTabs) {
+      const openTabsList = tabs.map((t, idx) => `${idx + 1}. "${t.title || 'Untitled'}" (${t.url})`).join('\n');
+      contextParts.push(`--- OPEN TABS LIST ---\n${openTabsList}`);
+    }
+    
+    return contextParts.join('\n\n');
   }
 
   async function sendChat(query) {
@@ -3625,24 +5064,28 @@
     chatBusy = true;
     const startTime = Date.now();
 
+    // Ensure nav chat panel is opened
+    const navPanel = document.getElementById('nav-chat-panel');
+    if (navPanel) navPanel.classList.remove('hidden');
+
     /* ── NEXUS AGENTIC PATH ──
      * Triggered by: /agent <goal>  OR  keywords like "search and open", "book", etc.
      * Routes to the soul engine /agent endpoint with agentic:true.
      * Renders typed step cards inline in #bottom-chat-messages.
      */
     const intent0 = classifyIntent(q);
-    const isAgentCmd = intent0 === 'agent' || q.startsWith('/agent');
+    const isAgentCmd = intent0 === 'agent' || intent0 === 'shopping' || q.startsWith('/agent') ||
+                       isMediaOrResearchQuery(q) ||
+                       /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search)/i.test(q);
     if (isAgentCmd) {
-      const goal = q.replace(/^\/agent\s*/i, '').trim() || q;
+      const goal = translateSlashCommand(q).replace(/^\/agent\s*/i, '').trim();
 
       // Show user bubble
-      const chatCard = document.getElementById('chat-history-card');
-      if (chatCard) chatCard.classList.remove('hidden');
-      const chips = document.getElementById('chat-chips-container');
+      const chips = document.getElementById('nav-chat-chips-container');
       if (chips) chips.style.display = 'none';
       const input = document.getElementById('chat-input');
       if (input) input.value = '';
-      const msgContainer = document.getElementById('bottom-chat-messages');
+      const msgContainer = document.getElementById('nav-chat-messages-container');
       if (msgContainer) {
         msgContainer.innerHTML += `<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
           <div style="max-width:82%;padding:9px 14px;border-radius:14px 14px 3px 14px;
@@ -3656,13 +5099,7 @@
       }
 
       // Get page context
-      let context = '';
-      try {
-        const activeTab = tabs.find(t => t.id === activeTabId);
-        if (activeTab && activeTab.url && !activeTab.url.startsWith('bucks://')) {
-          context = `Active page: ${activeTab.title || ''} (${activeTab.url})`;
-        }
-      } catch (_) {}
+      const context = await captureActivePageContext();
 
       _nxClearTokenCard();
       chatBusy = true;
@@ -3674,7 +5111,7 @@
         renderNexusStepCard({
           type: 'error',
           content: isOffline
-            ? 'Agent offline — start the soul engine:\ncd agent && python -m uvicorn soul_engine:app --port 8765'
+            ? 'The inbuilt AI engine is still starting up — give it a few seconds and try again.'
             : `Agent error: ${e.message || e}`,
         });
       } finally {
@@ -3695,13 +5132,11 @@
     // Show "sent" state
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
-    const chips = document.getElementById('chat-chips-container');
+    const chips = document.getElementById('nav-chat-chips-container');
     if (chips) chips.style.display = 'none';
 
-    // Show the chat card and append user message bubble
-    const chatCard = document.getElementById('chat-history-card');
-    if (chatCard) chatCard.classList.remove('hidden');
-    const msgContainer = document.getElementById('bottom-chat-messages');
+    // Append user message bubble
+    const msgContainer = document.getElementById('nav-chat-messages-container');
     if (msgContainer) {
       msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-end;">
         <div style="max-width:85%; padding:10px 14px; border-radius:14px 14px 4px 14px; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); font-size:13.5px; line-height:1.4; word-break:break-word; color:#fff;">${escapeHtml(q)}</div>
@@ -3716,13 +5151,10 @@
     const intent = classifyIntent(q);
 
     // Get active tab context
-    let activePageContext = '';
+    const activePageContext = await captureActivePageContext();
     let activeTab = null;
     try {
       activeTab = tabs.find(t => t.id === activeTabId);
-      if (activeTab && activeTab.url && !activeTab.url.startsWith('bucks://')) {
-        activePageContext = `Active page: ${activeTab.title || ''} (${activeTab.url})`;
-      }
     } catch (_) {}
 
     try {
@@ -3776,6 +5208,115 @@
         return;
       }
 
+      /* ══ LOCATION / DIRECTIONS (Ephemeral Map Card) ══ */
+      if (intent === 'location') {
+        renderAgentSteps([
+          { label: 'Finding location', sub: q.slice(0, 50), state: 'active' }
+        ]);
+
+        // Check "X to Y" routing pattern
+        const routeMatch = q.match(/^(.+?)\s+to\s+(.+)$/i);
+
+        if (routeMatch) {
+          // ── ROUTING ──
+          const from = routeMatch[1].trim();
+          const to = routeMatch[2].trim();
+          renderAgentSteps([
+            { label: 'Finding location', sub: `${from} → ${to}`, state: 'done' },
+            { label: 'Opening directions', sub: 'Loading map…', state: 'active' }
+          ]);
+          // Render ephemeral route card
+          const msgContainer = document.getElementById('nav-chat-messages-container');
+          if (msgContainer) {
+            const cardId = 'loc-card-' + Date.now();
+            msgContainer.innerHTML += `
+              <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
+                <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background:linear-gradient(145deg,rgba(123,63,228,0.12),rgba(60,60,70,0.35));border:1px solid rgba(123,63,228,0.25);box-shadow:0 4px 24px rgba(0,0,0,0.15);">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <span style="font-size:14px;font-weight:600;color:#fff;">Directions</span>
+                  </div>
+                  <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-bottom:12px;line-height:1.5;">
+                    <span style="color:rgba(80,220,140,0.9);font-weight:600;">From:</span> ${escapeHtml(from)}<br>
+                    <span style="color:rgba(255,120,90,0.9);font-weight:600;">To:</span> ${escapeHtml(to)}
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(20,0,5); setTimeout(()=>{ const inp = document.querySelector('.em-from'); if(inp){inp.value='${escapeHtml(from)}';} const inp2 = document.querySelector('.em-to'); if(inp2){inp2.value='${escapeHtml(to)}';} },300)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
+                      🗺️ Open in Map
+                    </button>
+                    <button onclick="window._bucksLocationRoute('${escapeHtml(from)}','${escapeHtml(to)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
+                      🧭 Get Directions
+                    </button>
+                  </div>
+                </div>
+              </div>`;
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+          }
+          agentConversation.push({ role: 'assistant', text: `Directions: ${from} → ${to}` });
+        } else {
+          // ── SINGLE PLACE SEARCH ──
+          // Try universe map first
+          if (window.BucksUniverseMap && window.BucksUniverseMap.flyTo(q)) {
+            renderAgentSteps([
+              { label: 'Finding location', sub: q, state: 'done' },
+              { label: 'Flying to celestial object', sub: q, state: 'active' }
+            ]);
+            agentConversation.push({ role: 'assistant', text: `Flying to ${q} in the Universe Map` });
+            chatBusy = false;
+            return;
+          }
+
+          // Geocode the place
+          const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=3&q=${encodeURIComponent(q)}`;
+          let places = [];
+          try {
+            const res = await fetch(geocodeUrl, { headers: { 'Accept-Language': 'en' } });
+            places = await res.json();
+          } catch (_) {}
+
+          if (places && places.length > 0) {
+            const p = places[0];
+            const name = p.display_name.split(',')[0];
+            const fullAddr = p.display_name;
+            const lat = (+p.lat).toFixed(4);
+            const lon = (+p.lon).toFixed(4);
+
+            renderAgentSteps([
+              { label: 'Finding location', sub: `Found: ${name}`, state: 'done' }
+            ]);
+
+            const msgContainer = document.getElementById('nav-chat-messages-container');
+            if (msgContainer) {
+              msgContainer.innerHTML += `
+                <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
+                  <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background:linear-gradient(145deg,rgba(123,63,228,0.12),rgba(60,60,70,0.35));border:1px solid rgba(123,63,228,0.25);box-shadow:0 4px 24px rgba(0,0,0,0.15);">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                      <span style="font-size:14.5px;font-weight:700;color:#fff;">${escapeHtml(name)}</span>
+                    </div>
+                    <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;line-height:1.4;">${escapeHtml(fullAddr)}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${lat}° N, ${lon}° E</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(${p.lat},${p.lon},14)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
+                        🗺️ Navigate
+                      </button>
+                      <button onclick="window._bucksLocationRoute('my location','${escapeHtml(name)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
+                        🧭 Directions
+                      </button>
+                    </div>
+                  </div>
+                </div>`;
+              msgContainer.scrollTop = msgContainer.scrollHeight;
+            }
+            agentConversation.push({ role: 'assistant', text: `Found: ${name} — ${fullAddr}` });
+          } else {
+            renderWebAnswer({ answer: `No location found for **"${q}"**. Try a different place name.`, sources: [], followUps: [] });
+          }
+        }
+        chatBusy = false;
+        return;
+      }
+
       /* ══ WEB SEARCH / RESEARCH ══ */
       if (intent === 'search' || intent === 'research') {
         renderAgentSteps([
@@ -3802,7 +5343,7 @@
         agentConversation.push({ role: 'assistant', text: answer, sources: allSources.map(s => s.url) });
 
         // Simulate Streaming Inference for Web Search
-        const msgContainer = document.getElementById('bottom-chat-messages');
+        const msgContainer = document.getElementById('nav-chat-messages-container');
         if (msgContainer) {
           msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="streaming-agent-bubble">
             <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
@@ -3849,7 +5390,7 @@
         let answered = false;
         try {
           let answer = '';
-          const msgContainer = document.getElementById('bottom-chat-messages');
+          const msgContainer = document.getElementById('nav-chat-messages-container');
           
           if (msgContainer) {
             msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="soul-engine-streaming-bubble">
@@ -3908,7 +5449,7 @@
           agentConversation.push({ role: 'assistant', text: answer, sources: allSources.map(s => s.url) });
           
           // Simulate Streaming Inference for Web Fallback
-          const msgContainer = document.getElementById('bottom-chat-messages');
+          const msgContainer = document.getElementById('nav-chat-messages-container');
           if (msgContainer) {
             msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="streaming-agent-bubble">
               <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
@@ -3961,53 +5502,234 @@
     }
   }
 
-  function wireAgentChat() {
-    // --- BOTTOM CHAT BAR WIRING ---
-    const bottomInput = document.getElementById('chat-input');
-    const bottomSend = document.getElementById('btn-chat-send');
-    const bottomReset = document.getElementById('btn-chat-reset');
-    const bottomClear = document.getElementById('btn-bottom-chat-clear');
-    const bottomClose = document.getElementById('btn-bottom-chat-close');
+  // ── Ephemeral UI: dock/undock the (single, shared) agent chat panel ──────
+  // #nav-chat-panel is the one real chat/agent engine — used both as a
+  // floating dropdown off the address bar, and as the in-flow "Ephemeral UI"
+  // response zone on the Home/New Tab dashboard. Reparenting it (rather than
+  // building a second copy) means every existing flow — plain chat, agentic
+  // tool trace, browser_action approval — keeps working unchanged; only its
+  // container and CSS positioning change.
+  function dockChatPanel() {
+    const navPanel = document.getElementById('nav-chat-panel');
+    const zone = document.getElementById('nt-ephemeral-zone');
+    const view = document.getElementById('view-newtab');
+    if (!navPanel || !zone || navPanel.dataset.docked === 'true') return;
+    navPanel.dataset.docked = 'true';
+    zone.appendChild(navPanel);
+    zone.classList.remove('hidden');
+    navPanel.classList.remove('hidden');
+    // Force reflow
+    zone.offsetHeight;
+    zone.classList.add('active');
+    if (view) view.classList.add('nt-ephemeral-active');
+    populateNavChatModels();
+  }
 
-    if (bottomInput) {
-      bottomInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          sendChat(bottomInput.value);
+  function undockChatPanel() {
+    const navPanel = document.getElementById('nav-chat-panel');
+    const zone = document.getElementById('nt-ephemeral-zone');
+    const originalParent = document.getElementById('url-search-wrap');
+    const view = document.getElementById('view-newtab');
+    
+    if (zone) {
+      zone.classList.remove('active');
+      setTimeout(() => {
+        navPanel?.classList.add('hidden');
+        if (navPanel && navPanel.dataset.docked === 'true' && originalParent) {
+          originalParent.appendChild(navPanel);
+          navPanel.dataset.docked = 'false';
+        }
+        zone.classList.add('hidden');
+      }, 300);
+    } else {
+      navPanel?.classList.add('hidden');
+      if (navPanel && navPanel.dataset.docked === 'true' && originalParent) {
+        originalParent.appendChild(navPanel);
+        navPanel.dataset.docked = 'false';
+      }
+    }
+    if (view) view.classList.remove('nt-ephemeral-active');
+  }
+
+  // Hand the current ephemeral conversation off to the full-screen chat-tab
+  // view (Claude/ChatGPT-style: history sidebar + composer, fills the window).
+  function expandChatToFullScreen() {
+    const id = createChatThread('Chat');
+    const thread = chatTabThreads[id];
+    if (thread && Array.isArray(agentConversation) && agentConversation.length) {
+      thread.messages = agentConversation.map(m => {
+        if (m.role === 'component') {
+          return { role: 'component', ui: m.ui };
+        }
+        return {
+          role: m.role === 'user' ? 'user' : 'assistant',
+          text: m.text || '',
+        };
+      });
+      // Title from the first user message; persist the carried-over messages.
+      const firstUser = thread.messages.find(m => m.role === 'user');
+      if (firstUser) {
+        thread.title = firstUser.text.slice(0, 42) + (firstUser.text.length > 42 ? '…' : '');
+        persistRename(id, thread.title);
+      }
+      thread.messages.forEach(m => {
+        if (m.role === 'component') {
+          persistMessage(id, 'component', JSON.stringify(m.ui));
+        } else {
+          persistMessage(id, m.role, m.text);
         }
       });
     }
-    if (bottomSend) {
-      bottomSend.addEventListener('click', () => {
-        sendChat(bottomInput ? bottomInput.value : '');
-      });
+    undockChatPanel();
+    showDashboardView('chat-tab');
+    renderChatTabHistory();
+    renderChatTabMessages();
+    setTimeout(() => document.getElementById('nt-search-input')?.focus(), 120);
+  }
+
+  function expandChatToNewTab() {
+    if (Array.isArray(agentConversation) && agentConversation.length) {
+      localStorage.setItem('pending-chat-transfer', JSON.stringify(agentConversation));
     }
-    if (bottomReset) {
-      bottomReset.addEventListener('click', resetChat);
+    try {
+      createTab('bucks://newtab');
+    } catch (_) {}
+  }
+
+  async function populateNavChatModels() {
+    const selects = [
+      document.getElementById('nav-chat-model-select'),
+      document.getElementById('tab-chat-model-select')
+    ].filter(Boolean);
+    if (!selects.length) return;
+    try {
+      const r = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) });
+      const data = await r.json();
+      const models = data?.models || [];
+      const current = data?.current || '';
+      if (models && models.length) {
+        const optionsHtml = models.map(m => {
+          const active = m.id === current || m.current ? 'selected' : '';
+          const disabled = !m.fits_ram && !m.current ? 'disabled' : '';
+          return `<option value="${m.id}" ${active} ${disabled}>${m.id} (${m.size_gb}GB)</option>`;
+        }).join('');
+        selects.forEach(sel => { sel.innerHTML = optionsHtml; });
+      } else {
+        selects.forEach(sel => { sel.innerHTML = '<option value="">Ollama Model</option>'; });
+      }
+    } catch (_) {
+      selects.forEach(sel => { sel.innerHTML = '<option value="">Offline</option>'; });
     }
-    if (bottomClear) {
-      bottomClear.addEventListener('click', resetChat);
-    }
-    if (bottomClose) {
-      bottomClose.addEventListener('click', () => {
-        const card = document.getElementById('chat-history-card');
-        if (card) card.classList.add('hidden');
+  }
+
+  function wireAgentChat() {
+    // --- NAV PANEL WIRING ---
+    const expandNav = document.getElementById('btn-nav-chat-expand');
+    if (expandNav) {
+      expandNav.addEventListener('click', () => {
+        expandChatToNewTab();
       });
     }
 
-    // Wire suggestion chips at bottom
-    document.querySelectorAll('.bottom-chat-container .chat-chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        sendChat(chip.getAttribute('data-query') || chip.textContent);
+    const historyNav = document.getElementById('btn-nav-chat-history');
+    if (historyNav) {
+      historyNav.addEventListener('click', () => {
+        undockChatPanel();
+        showDashboardView('chat-tab');
+        renderChatTabHistory();
       });
-    });
+    }
 
-    // --- NAV PANEL WIRING (legacy, kept for address bar queries) ---
+    const modelSelect = document.getElementById('nav-chat-model-select');
+    const tabModelSelect = document.getElementById('tab-chat-model-select');
+
+    const handleModelChange = async (model) => {
+      if (!model) return;
+      try {
+        await fetch(`${SOUL_ENGINE}/models/select`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+        showToast(`Switched active model to ${model}`, 'success');
+        updateNewtabStatus(); // Also update model name on status cards
+      } catch (err) {
+        showToast('Failed to switch active model', 'error');
+      }
+    };
+
+    if (modelSelect) {
+      modelSelect.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (tabModelSelect) tabModelSelect.value = val;
+        await handleModelChange(val);
+      });
+    }
+    if (tabModelSelect) {
+      tabModelSelect.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (modelSelect) modelSelect.value = val;
+        await handleModelChange(val);
+      });
+    }
+
+    // Synchronize checkboxes between Ephemeral UI and Chat Tab
+    const syncCheckbox = (id1, id2) => {
+      const el1 = document.getElementById(id1);
+      const el2 = document.getElementById(id2);
+      if (el1 && el2) {
+        el1.addEventListener('change', () => { el2.checked = el1.checked; });
+        el2.addEventListener('change', () => { el1.checked = el2.checked; });
+      }
+    };
+    syncCheckbox('nav-consent-page', 'tab-consent-page');
+    syncCheckbox('nav-consent-selection', 'tab-consent-selection');
+    syncCheckbox('nav-consent-tabs', 'tab-consent-tabs');
+    syncCheckbox('nav-consent-files', 'tab-consent-files');
+
     const dismissNav = document.getElementById('btn-nav-chat-dismiss');
     if (dismissNav) {
       dismissNav.addEventListener('click', () => {
-        const eph = document.getElementById('nav-chat-ephemeral-ui');
-        if (eph) eph.classList.add('hidden');
+        undockChatPanel();
+        resetChat();
+      });
+    }
+
+    const refreshNav = document.getElementById('btn-nav-chat-refresh');
+    if (refreshNav) {
+      refreshNav.addEventListener('click', () => {
+        resetChat();
+      });
+    }
+
+    // New chat: wipe the conversation AND restore the panel if minimized, so
+    // "＋ New" always lands the user in a fresh, ready-to-type state.
+    const newNav = document.getElementById('btn-nav-chat-new');
+    if (newNav) {
+      newNav.addEventListener('click', () => {
+        resetChat();
+        document.getElementById('nav-chat-panel')?.classList.remove('nav-chat-min');
+        const bar = document.getElementById('nt-search-input') || document.getElementById('address-bar');
+        bar?.focus();
+      });
+    }
+
+    // Minimize: collapse the panel to its header bar. The conversation (and
+    // any in-flight stream) is preserved — clicking — again, or the header
+    // title, restores it.
+    const minNav = document.getElementById('btn-nav-chat-minimize');
+    if (minNav) {
+      minNav.addEventListener('click', () => {
+        document.getElementById('nav-chat-panel')?.classList.toggle('nav-chat-min');
+      });
+    }
+    const headerNav = document.getElementById('nav-chat-header');
+    if (headerNav) {
+      headerNav.addEventListener('click', (e) => {
+        // Only the bar itself restores — buttons keep their own actions.
+        if (e.target.closest('button')) return;
+        const panel = document.getElementById('nav-chat-panel');
+        if (panel?.classList.contains('nav-chat-min')) panel.classList.remove('nav-chat-min');
       });
     }
 
@@ -4022,11 +5744,16 @@
 
     document.addEventListener('click', (e) => {
       const navPanel = document.getElementById('nav-chat-panel');
+      if (!navPanel || navPanel.classList.contains('hidden')) return;
+      if (navPanel.dataset.docked === 'true') {
+        // Docked on the dashboard: only the explicit ✕ dismisses it — a
+        // click-outside-to-close here would fight with clicking around
+        // inside the dashboard while reading a response.
+        return;
+      }
       const topBar = document.querySelector('.top-bar-inner');
-      if (navPanel && !navPanel.classList.contains('hidden')) {
-        if (!navPanel.contains(e.target) && topBar && !topBar.contains(e.target)) {
-          navPanel.classList.add('hidden');
-        }
+      if (!navPanel.contains(e.target) && topBar && !topBar.contains(e.target)) {
+        navPanel.classList.add('hidden');
       }
     });
 
@@ -4137,7 +5864,7 @@
       if (libOverlay) libOverlay.classList.remove('hidden');
     });
 
-    // 5. Left Dock auto-hide handle in web-mode
+    // 5. Left Dock auto-hide handle in web-mode and map full-view mode
     const leftDockTrigger = document.getElementById('left-dock-trigger');
     const leftDock = document.querySelector('.left-dock');
     if (leftDockTrigger && leftDock) {
@@ -4149,9 +5876,25 @@
         leftDock.classList.remove('expanded');
         leftDockTrigger.querySelector('svg').style.transform = 'rotate(0deg)';
       };
-      leftDockTrigger.addEventListener('mouseenter', showDock);
-      leftDockTrigger.addEventListener('click', showDock);
-      leftDock.addEventListener('mouseleave', hideDock);
+      leftDockTrigger.addEventListener('mouseenter', () => {
+        if (!document.body.classList.contains('dock-collapsed')) {
+          showDock();
+        }
+      });
+      leftDockTrigger.addEventListener('click', () => {
+        if (document.body.classList.contains('dock-collapsed')) {
+          document.body.classList.toggle('dock-expanded');
+        } else {
+          showDock();
+        }
+      });
+      leftDock.addEventListener('mouseleave', () => {
+        if (document.body.classList.contains('dock-collapsed')) {
+          document.body.classList.remove('dock-expanded');
+        } else {
+          hideDock();
+        }
+      });
     }
 
     // 6. FAB & Left Chat Panel sliding drawer toggles
@@ -4187,6 +5930,8 @@
     // 8. Wire dedicated Chat Tab + newtab nav cards
     try {
       wireChatTab();
+      // Load persisted chat history so past conversations survive reload.
+      loadChatThreadsFromBackend();
     } catch (e) {
       console.error('[Init] wireChatTab failed:', e);
     }
@@ -4230,14 +5975,79 @@
 
   /* ═══════════ CHAT TAB — Dedicated Multi-Turn Chat Experience ═══════════ */
 
-  const chatTabThreads = {}; // { threadId: { title, messages: [{role, text}] } }
+  const chatTabThreads = {}; // { threadId: { id, title, messages: [{role, text}], loaded } }
   let chatTabActiveThread = null;
   let chatTabBusy = false;
 
+  // ── Chat history persistence (SQLite via Soul Engine) ──
+  // All persistence is fire-and-forget: the UI never blocks on it, and if the
+  // engine is offline the chat still works in-memory (just won't survive reload).
+  function persistThreadCreate(id, title) {
+    fetch(`${SOUL_ENGINE}/chat/threads`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ thread_id: id, title }),
+    }).catch(() => {});
+  }
+  function persistMessage(id, role, text) {
+    fetch(`${SOUL_ENGINE}/chat/threads/${encodeURIComponent(id)}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, text }),
+    }).catch(() => {});
+  }
+  function persistRename(id, title) {
+    fetch(`${SOUL_ENGINE}/chat/threads/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    }).catch(() => {});
+  }
+  function persistDelete(id) {
+    fetch(`${SOUL_ENGINE}/chat/threads/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  // Load thread list (metadata only) from the backend at startup. Messages are
+  // fetched lazily when a thread is opened, to keep startup fast.
+  async function loadChatThreadsFromBackend() {
+    try {
+      const r = await fetch(`${SOUL_ENGINE}/chat/threads`, { signal: AbortSignal.timeout(3000) });
+      if (!r.ok) return;
+      const { threads } = await r.json();
+      (threads || []).forEach(t => {
+        if (!chatTabThreads[t.thread_id]) {
+          chatTabThreads[t.thread_id] = { id: t.thread_id, title: t.title, messages: [], loaded: (t.message_count === 0) };
+        }
+      });
+      renderChatTabHistory();
+    } catch (_) {}
+  }
+
+  async function openChatThread(id) {
+    chatTabActiveThread = id;
+    const thread = chatTabThreads[id];
+    if (thread && !thread.loaded) {
+      try {
+        const r = await fetch(`${SOUL_ENGINE}/chat/threads/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(4000) });
+        if (r.ok) {
+          const data = await r.json();
+          thread.messages = (data.messages || []).map(m => {
+            if (m.role === 'component') {
+              try { return { role: 'component', ui: JSON.parse(m.text) }; }
+              catch (_) { return { role: 'assistant', text: m.text }; }
+            }
+            return { role: m.role, text: m.text };
+          });
+        }
+      } catch (_) {}
+      thread.loaded = true;
+    }
+    renderChatTabHistory();
+    renderChatTabMessages();
+  }
+
   function createChatThread(title) {
     const id = 'thread-' + Date.now();
-    chatTabThreads[id] = { id, title: title || 'Chat ' + Object.keys(chatTabThreads).length, messages: [] };
+    chatTabThreads[id] = { id, title: title || 'New Chat', messages: [], loaded: true };
     chatTabActiveThread = id;
+    persistThreadCreate(id, chatTabThreads[id].title);
     renderChatTabHistory();
     renderChatTabMessages();
     return id;
@@ -4254,14 +6064,30 @@
     list.innerHTML = ids.map(id => {
       const t = chatTabThreads[id];
       const isActive = id === chatTabActiveThread;
-      return `<button data-thread="${id}" style="width:100%; text-align:left; padding:8px 10px; border-radius:9px; border:none; cursor:pointer; font-family:inherit; font-size:12.5px; color:${isActive ? '#fff' : 'rgba(255,255,255,0.6)'}; background:${isActive ? 'rgba(123,63,228,0.32)' : 'transparent'}; transition:background 0.15s; display:flex; align-items:center; gap:8px; overflow:hidden;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      return `<div class="chat-thread-row" data-thread="${id}" style="width:100%; padding:8px 10px; border-radius:9px; cursor:pointer; font-size:12.5px; color:${isActive ? '#fff' : 'rgba(255,255,255,0.6)'}; background:${isActive ? 'rgba(123,63,228,0.32)' : 'transparent'}; transition:background 0.15s; display:flex; align-items:center; gap:8px; overflow:hidden;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6" style="flex-shrink:0;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;">${escapeHtml(t.title)}</span>
-      </button>`;
+        <button class="chat-thread-del" data-del="${id}" title="Delete chat" style="flex-shrink:0; background:transparent; border:none; cursor:pointer; color:rgba(255,255,255,0.35); padding:2px; display:flex; opacity:0.7;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+        </button>
+      </div>`;
     }).join('');
-    list.querySelectorAll('[data-thread]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        chatTabActiveThread = btn.getAttribute('data-thread');
+    list.querySelectorAll('.chat-thread-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.chat-thread-del')) return;  // delete handled separately
+        openChatThread(row.getAttribute('data-thread'));
+      });
+    });
+    list.querySelectorAll('.chat-thread-del').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-del');
+        delete chatTabThreads[id];
+        persistDelete(id);
+        if (chatTabActiveThread === id) {
+          const remaining = Object.keys(chatTabThreads);
+          chatTabActiveThread = remaining.length ? remaining[remaining.length - 1] : null;
+        }
         renderChatTabHistory();
         renderChatTabMessages();
       });
@@ -4282,8 +6108,13 @@
       </div>`;
       return;
     }
-    container.innerHTML = thread.messages.map(msg => {
+    container.innerHTML = thread.messages.filter(msg =>
+      msg.role === 'component' || (msg.text && msg.text.trim())
+    ).map(msg => {
       const isUser = msg.role === 'user';
+      if (msg.role === 'component' && msg.ui) {
+        return renderComponent(msg.ui).outerHTML;
+      }
       if (isUser) {
         return `<div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; margin-bottom:12px;">
           <div style="max-width:85%; padding:10px 14px; border-radius:14px 14px 4px 14px; background:linear-gradient(135deg,#7b3fe4,#a978ff); font-size:14px; line-height:1.55; white-space:pre-wrap; color:#fff; box-shadow:0 2px 8px rgba(0,0,0,0.2);">${escapeHtml(msg.text)}</div>
@@ -4330,9 +6161,54 @@
     thread.messages.push({ role, text });
     if (thread.messages.length === 1 && role === 'user') {
       thread.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
+      persistRename(thread.id, thread.title);
       renderChatTabHistory();
     }
+    persistMessage(thread.id, role, text);
     renderChatTabMessages();
+  }
+
+  // A generative-UI component in the full-screen chat. Stored as a special
+  // 'component' message so it renders in place and survives reload (persisted
+  // with role 'component' and the spec JSON as text).
+  function appendChatTabComponent(ev) {
+    if (!chatTabActiveThread) createChatThread('New Chat');
+    const thread = chatTabThreads[chatTabActiveThread];
+    const spec = { component: ev.component, title: ev.title || '', data: ev.data || {} };
+    thread.messages.push({ role: 'component', ui: spec });
+    persistMessage(thread.id, 'component', JSON.stringify(spec));
+    renderChatTabMessages();
+  }
+
+  // Persist the assistant reply once, after streaming completes (the streaming
+  // path builds it up chunk-by-chunk in-memory via appendChatTabAssistantChunk;
+  // we don't want to POST every token).
+  function persistChatTabAssistantFinal() {
+    const thread = chatTabActiveThread ? chatTabThreads[chatTabActiveThread] : null;
+    if (!thread || !thread.messages.length) return;
+    const last = thread.messages[thread.messages.length - 1];
+    if (last && last.role === 'assistant' && last.text) {
+      persistMessage(thread.id, 'assistant', last.text);
+    }
+  }
+
+  // Transient one-line status shown while the agent works (thinking / tool
+  // activity). Lives outside the message thread so it is never persisted.
+  function setChatTabAgentStatus(text) {
+    const container = document.getElementById('chat-tab-messages');
+    if (!container) return;
+    let el = document.getElementById('chat-tab-agent-status');
+    if (!text) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'chat-tab-agent-status';
+      el.style.cssText = 'margin:6px 0 10px 4px;font-size:12.5px;color:rgba(255,255,255,0.55);font-style:italic;';
+      container.appendChild(el);
+    } else {
+      container.appendChild(el); // keep it pinned below the latest message
+    }
+    el.textContent = `⋯ ${text}`;
+    container.scrollTop = container.scrollHeight;
   }
 
   function appendChatTabAssistantChunk(chunk) {
@@ -4363,53 +6239,95 @@
   async function sendChatTab(query) {
     const q = (query || '').trim();
     if (!q || chatTabBusy) return;
+
+    // Intercept local view navigation slash commands
+    const lower = q.toLowerCase();
+    const isLocalNav = ['/wallet', '/ipfs', '/files', '/studio', '/history', '/bookmarks', '/settings'].some(cmd => lower.startsWith(cmd));
+    if (isLocalNav) {
+      const input = document.getElementById('chat-tab-input') || document.getElementById('nt-search-input');
+      if (input) { input.value = ''; if (input.tagName === 'TEXTAREA') input.style.height = 'auto'; }
+
+      if (lower.startsWith('/wallet')) {
+        if (window.bucksAPI.showWallet) {
+          showDashboardView('wallet');
+        } else {
+          showToast('Wallet is disabled', 'error');
+        }
+      }
+      else if (lower.startsWith('/ipfs')) showDashboardView('ipfs');
+      else if (lower.startsWith('/files')) showDashboardView('files');
+      else if (lower.startsWith('/studio')) showDashboardView('studio');
+      else if (lower.startsWith('/history')) showDashboardView('history');
+      else if (lower.startsWith('/bookmarks')) showDashboardView('bookmarks');
+      else if (lower.startsWith('/settings')) showDashboardView('settings');
+      return;
+    }
+
     chatTabBusy = true;
 
     if (!chatTabActiveThread) createChatThread('New Chat');
     appendChatTabMessage('user', q);
 
-    const input = document.getElementById('chat-tab-input');
-    if (input) { input.value = ''; input.style.height = 'auto'; }
+    const input = document.getElementById('chat-tab-input') || document.getElementById('nt-search-input');
+    if (input) { input.value = ''; if (input.tagName === 'TEXTAREA') input.style.height = 'auto'; }
 
     // Build context from thread history for multi-turn
     const thread = chatTabThreads[chatTabActiveThread];
     const history = thread.messages.slice(-10).map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n');
     let context = `Chat history:\n${history}`;
     try {
-      const tab = tabs.find(t => t.id === activeTabId);
-      if (tab && tab.url && !tab.url.startsWith('bucks://')) context += `\nActive page: ${tab.title || ''} (${tab.url})`;
+      const activeCtx = await captureActivePageContext();
+      if (activeCtx) context += `\n\n${activeCtx}`;
     } catch (_) {}
 
-    // Agentic browser mode: "/agent <task>" drives the live tab via local tools.
-    if (/^\/agent(ic)?\b/i.test(q)) {
-      const taskPrompt = q.replace(/^\/agent(ic)?\s*/i, '').trim();
+    // Agentic path: explicit "/agent <task>", a shopping query, or an agentic skillset slash command
+    const isAgent = /^\/agent(ic)?\b/i.test(q) || isShoppingQuery(q) ||
+                    isMediaOrResearchQuery(q) ||
+                    /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search)/i.test(q);
+    if (isAgent) {
+      const taskPrompt = translateSlashCommand(q).replace(/^\/agent(ic)?\s*/i, '').trim();
       if (!taskPrompt) {
         appendChatTabAssistantChunk('Usage: /agent <task> — e.g. "/agent find the pricing page and read me the cheapest plan"');
         chatTabBusy = false;
         return;
       }
-      appendChatTabAssistantChunk('');
       try {
         await runAgenticTask(taskPrompt, (ev) => {
           if (!ev) return;
-          if (ev.type === 'tool') {
-            appendChatTabAssistantChunk(`\n› ${ev.content}\n`);
-          } else if (ev.type === 'result') {
-            const p = String(ev.content || '').replace(/\s+/g, ' ').slice(0, 90);
-            appendChatTabAssistantChunk(`  ↳ ${p}\n`);
-          } else if (ev.type === 'error') {
-            appendChatTabAssistantChunk(`\n⚠️ ${ev.content}\n`);
-          } else if (typeof ev.content === 'string') {
-            appendChatTabAssistantChunk(ev.content);
-          } else if (typeof ev.token === 'string') {
-            appendChatTabAssistantChunk(ev.token);
+          // Only the model's final answer (token) and rendered components reach
+          // the message bubble. Tool traffic, thinking, and browser-tool errors
+          // are transient status — never dump their raw content into the answer.
+          switch (ev.type) {
+            case 'ui_component': appendChatTabComponent(ev); break;
+            case 'token': appendChatTabAssistantChunk(ev.content || ev.token || ''); break;
+            case 'thinking':
+            case 'tool_call':
+            case 'tool':
+              // Internal tool chatter: transient status line, never in the answer.
+              setChatTabAgentStatus(ev.type === 'thinking'
+                ? (ev.content || 'Reasoning…')
+                : (ev.label || ev.name || 'Working…'));
+              break;
+            case 'browser_action':
+              if (ev.needs_approval) appendChatTabAssistantChunk(`\n🌐 ${ev.label || ev.name}\n`);
+              else setChatTabAgentStatus(ev.label || ev.name || 'Browser action…');
+              break;
+            case 'error':
+              appendChatTabAssistantChunk(`\n⚠️ ${ev.content || 'error'}\n`);
+              break;
+            case 'done': setChatTabAgentStatus(''); break;
+            // tool_result / result / session → ignore (status only)
+            default: break;
           }
         }, context);
+        setChatTabAgentStatus('');
         if (agentStopped) appendChatTabAssistantChunk('\n\n■ Stopped by user.');
       } catch (err) {
-        appendChatTabAssistantChunk('\nSoul Engine is offline. Start it: cd agent && python -m uvicorn soul_engine:app --port 8765');
+        appendChatTabAssistantChunk('\nThe inbuilt AI engine is still starting up — give it a few seconds and try again.');
       } finally {
         chatTabBusy = false;
+        setChatTabAgentStatus('');
+        persistChatTabAssistantFinal();
       }
       return;
     }
@@ -4422,25 +6340,35 @@
         appendChatTabAssistantChunk('');
         await streamSSE(`${SOUL_ENGINE}/agent`, { message: q, context }, (ev) => {
           if (!ev) return;
-          if (ev.type === 'thinking') {
-            appendChatTabAssistantChunk(`\n🤔 Thinking: ${ev.content || 'Reasoning…'}\n`);
-          } else if (ev.type === 'tool_call') {
-            appendChatTabAssistantChunk(`\n🔧 Tool Call: ${ev.label || ev.name}\n`);
-          } else if (ev.type === 'tool_result') {
-            const contentSnippet = String(ev.content || '').replace(/\s+/g, ' ').slice(0, 100);
-            appendChatTabAssistantChunk(`  ↳ Result: ${contentSnippet}…\n`);
-          } else if (ev.type === 'browser_action') {
-            appendChatTabAssistantChunk(`\n🌐 Browser Action: ${ev.label || ev.name}\n`);
-          } else if (ev.type === 'error') {
-            appendChatTabAssistantChunk(`\n❌ Error: ${ev.content || 'Unknown error'}\n`);
-          } else if (typeof ev.content === 'string') {
-            answer += ev.content;
-            appendChatTabAssistantChunk(ev.content);
-          } else if (typeof ev.token === 'string') {
-            answer += ev.token;
-            appendChatTabAssistantChunk(ev.token);
+          // Only the model's final answer and rendered components become part of
+          // the message. Thinking/tool traffic is transient status shown in the
+          // steps box — never persisted into the answer bubble (see the /agent
+          // slash path above for the same rule).
+          switch (ev.type) {
+            case 'token':
+              answer += ev.content || ev.token || '';
+              appendChatTabAssistantChunk(ev.content || ev.token || '');
+              break;
+            case 'ui_component': appendChatTabComponent(ev); break;
+            case 'thinking':
+            case 'tool_call':
+            case 'tool_result':
+              setChatTabAgentStatus(ev.type === 'thinking'
+                ? (ev.content || 'Reasoning…')
+                : (ev.label || ev.name || 'Working…'));
+              break;
+            case 'browser_action':
+              if (ev.needs_approval) appendChatTabAssistantChunk(`\n🌐 ${ev.label || ev.name}\n`);
+              else setChatTabAgentStatus(ev.label || ev.name || 'Browser action…');
+              break;
+            case 'error':
+              appendChatTabAssistantChunk(`\n⚠️ ${ev.content || 'error'}\n`);
+              break;
+            case 'done': setChatTabAgentStatus(''); break;
+            default: break; // session / cancelled → status only
           }
         });
+        setChatTabAgentStatus('');
       } else {
         appendChatTabAssistantChunk('');
         await streamSSE(`${SOUL_ENGINE}/chat`, { message: q, system: context, stream: true }, (ev) => {
@@ -4450,9 +6378,11 @@
       }
       if (!answer) appendChatTabAssistantChunk('(No response — Soul Engine may be offline)');
     } catch (err) {
-      appendChatTabAssistantChunk('Soul Engine is offline.\nStart it: cd ~/Desktop/Bucks\\ Core/Bucks-browser/agent && ./start_soul_engine.sh');
+      appendChatTabAssistantChunk('The inbuilt AI engine is still starting up — give it a few seconds and try again.');
     } finally {
       chatTabBusy = false;
+      setChatTabAgentStatus('');
+      persistChatTabAssistantFinal();
     }
   }
 
@@ -4463,8 +6393,19 @@
     const newChatBtn = document.getElementById('btn-new-chat-thread');
 
     if (input) {
+      const inputRow = input.closest('div');
+      if (inputRow) {
+        inputRow.style.position = 'relative';
+        setupCommandSuggestions(input, inputRow, true);
+      }
+
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
+          // If suggestion dropdown is open, autocomplete Enter is handled in setupCommandSuggestions keydown listener.
+          // However, we check if suggestions dropdown exists in DOM to avoid submitting the query when selecting a command.
+          const hasSuggestions = inputRow.querySelector('.command-suggestions-dropdown');
+          if (hasSuggestions) return; // let suggestion listener handle Enter
+
           e.preventDefault();
           sendChatTab(input.value);
         }
@@ -4500,7 +6441,7 @@
           // On home/dashboard — show chat tab view
           if (!chatTabActiveThread) createChatThread('New Chat');
           showDashboardView('chat-tab');
-          setTimeout(() => document.getElementById('chat-tab-input')?.focus(), 100);
+          setTimeout(() => document.getElementById('nt-search-input')?.focus(), 100);
         } else {
           // On web page — open sliding left chat panel
           const leftChatPanel = document.getElementById('left-chat-panel');
@@ -4554,10 +6495,118 @@
     updateNewtabClock();
     setInterval(updateNewtabClock, 10000);
 
+    // Agentic search bar — same navigate/search/agent routing as the address bar omnibox
+    const ntSearchInput = document.getElementById('nt-search-input');
+    if (ntSearchInput) {
+      const searchWrap = ntSearchInput.closest('.nt-search-wrap');
+      if (searchWrap) {
+        setupCommandSuggestions(ntSearchInput, searchWrap, false);
+      }
+
+      ntSearchInput.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+
+        // Prevent premature submit if suggestions dropdown is open
+        const hasSuggestions = searchWrap?.querySelector('.command-suggestions-dropdown');
+        if (hasSuggestions) return;
+
+        const val = ntSearchInput.value.trim();
+        if (!val) return;
+
+        // Intercept local view navigation slash commands
+        const lower = val.toLowerCase();
+        if (lower.startsWith('/wallet')) {
+          if (window.bucksAPI.showWallet) {
+            showDashboardView('wallet');
+          } else {
+            showToast('Wallet is disabled', 'error');
+          }
+          ntSearchInput.value = '';
+          return;
+        }
+        if (lower.startsWith('/ipfs')) { showDashboardView('ipfs'); ntSearchInput.value = ''; return; }
+        if (lower.startsWith('/files')) { showDashboardView('files'); ntSearchInput.value = ''; return; }
+        if (lower.startsWith('/studio')) { showDashboardView('studio'); ntSearchInput.value = ''; return; }
+        if (lower.startsWith('/history')) { showDashboardView('history'); ntSearchInput.value = ''; return; }
+        if (lower.startsWith('/bookmarks')) { showDashboardView('bookmarks'); ntSearchInput.value = ''; return; }
+        if (lower.startsWith('/settings')) { showDashboardView('settings'); ntSearchInput.value = ''; return; }
+
+        if (isURL(val)) {
+          navigateTab(activeTabId, val);
+        } else {
+          const chatTab = document.getElementById('view-chat-tab');
+          if (chatTab && !chatTab.classList.contains('hidden')) {
+            sendChatTab(val);
+          } else {
+            dockChatPanel();
+            sendChat(val);
+          }
+        }
+        ntSearchInput.value = '';
+      });
+    }
+
     // Status card clicks
     document.getElementById('nt-card-wallet')?.addEventListener('click', () => showDashboardView('wallet'));
     document.getElementById('nt-card-ipfs')?.addEventListener('click', () => showDashboardView('ipfs'));
-    document.getElementById('nt-card-agent')?.addEventListener('click', () => showDashboardView('agent'));
+    document.getElementById('nt-card-agent')?.addEventListener('click', () => showDashboardView('chat-tab'));
+
+    // ── Model switcher (SOUL AGENT card) ──
+    async function renderModelPicker() {
+      const list = document.getElementById('nt-model-picker-list');
+      if (!list) return;
+      list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Loading…</div>';
+      try {
+        const r = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) });
+        const { models, current } = await r.json();
+        if (!models || !models.length) {
+          list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Model switching needs edge mode.</div>';
+          return;
+        }
+        list.innerHTML = models.map(m => {
+          const disabled = !m.fits_ram && !m.current;
+          const check = m.current
+            ? '<svg class="nt-model-row-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+            : '<span style="width:14px;flex-shrink:0;"></span>';
+          const dl = m.downloaded ? '' : '<span class="nt-model-row-dl">↓ download</span>';
+          return `<div class="nt-model-row ${disabled ? 'disabled' : ''}" data-model="${m.id}" data-disabled="${disabled}">
+            ${check}
+            <span class="nt-model-row-name">${escapeHtml(m.id)}${dl}</span>
+            <span class="nt-model-row-meta">${m.size_gb} GB</span>
+          </div>`;
+        }).join('');
+      } catch (_) {
+        list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Soul Engine offline.</div>';
+      }
+    }
+
+    const modelBtn = document.getElementById('nt-agent-model-btn');
+    const modelPicker = document.getElementById('nt-model-picker');
+    modelBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();  // don't trigger the card's "open chat" handler
+      const willShow = modelPicker.classList.contains('hidden');
+      modelPicker.classList.toggle('hidden');
+      if (willShow) renderModelPicker();
+    });
+    modelPicker?.addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('nt-model-picker-list')?.addEventListener('click', async (e) => {
+      const row = e.target.closest('.nt-model-row');
+      if (!row || row.dataset.disabled === 'true') return;
+      const model = row.dataset.model;
+      row.querySelector('.nt-model-row-name').insertAdjacentHTML('beforeend', ' <span style="color:rgba(255,255,255,0.4);font-size:10px;">switching…</span>');
+      try {
+        await fetch(`${SOUL_ENGINE}/models/select`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+      } catch (_) {}
+      await renderModelPicker();
+      updateNewtabStatus();  // refresh the card's model label
+    });
+    // Close picker on outside click
+    document.addEventListener('click', () => {
+      modelPicker?.classList.add('hidden');
+    });
 
     // Live status card data
     function updateNewtabStatus() {
@@ -4596,7 +6645,7 @@
       const agentDot = document.getElementById('nt-agent-dot');
       const agentModel = document.getElementById('nt-agent-model');
       const agentLbl = document.getElementById('nt-agent-label');
-      fetch('http://localhost:8765/health', { signal: AbortSignal.timeout(2000) })
+      fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(2000) })
         .then(r => r.ok ? r.json() : Promise.reject())
         .then(data => {
           if (agentDot) agentDot.className = 'nt-status-dot online';
@@ -4612,30 +6661,76 @@
     updateNewtabStatus();
     setInterval(updateNewtabStatus, 15000);
 
-    // Drawer arrow show/hide left dock in web mode
-    const leftDockTrigger = document.getElementById('left-dock-trigger');
-    const leftDock = document.querySelector('.left-dock');
-    if (leftDockTrigger && leftDock) {
-      const showDock = () => {
-        leftDock.classList.add('expanded');
-        const arrow = leftDockTrigger.querySelector('svg');
-        if (arrow) arrow.style.transform = 'rotate(180deg)';
-      };
-      const hideDock = () => {
-        leftDock.classList.remove('expanded');
-        const arrow = leftDockTrigger.querySelector('svg');
-        if (arrow) arrow.style.transform = 'rotate(0deg)';
-      };
-      leftDockTrigger.addEventListener('click', showDock);
-      leftDockTrigger.addEventListener('mouseenter', showDock);
-      leftDock.addEventListener('mouseleave', hideDock);
+    // ── Ephemeral UI use case: peer knowledge/adapter consent queue (Phase 4) ──
+    // Polls the real /agent/pending endpoint; each card is a live user-gated
+    // approve/deny decision, not a mock — nothing gets pinned or loaded into
+    // RAG until the user clicks Approve here.
+    async function updatePendingUpdates() {
+      const zone = document.getElementById('nt-pending-zone');
+      if (!zone) return;
+      try {
+        const r = await fetch(`${SOUL_ENGINE}/agent/pending?status=pending`, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) throw new Error('pending fetch failed');
+        const { updates } = await r.json();
+        if (!updates || !updates.length) {
+          zone.classList.add('hidden');
+          zone.innerHTML = '';
+          return;
+        }
+        zone.classList.remove('hidden');
+        zone.innerHTML = updates.map((u) => {
+          const peerLabel = u.peer ? `${u.peer.locality || 'peer'} · ${(u.peer.capabilities || []).join(', ')}` : u.peer_soul_id.slice(0, 12) + '…';
+          const kindLabel = u.kind === 'adapter' ? 'Skill/adapter update' : 'Knowledge fragment';
+          return `<div class="nt-pending-card" data-update-id="${u.update_id}">
+            <div class="nt-pending-card-body">
+              <div class="nt-pending-card-title">${escapeHtml(kindLabel)} proposed by ${escapeHtml(peerLabel)}</div>
+              <div class="nt-pending-card-sub">${escapeHtml(u.summary || u.cid)}</div>
+            </div>
+            <div class="nt-pending-card-actions">
+              <button class="nt-pending-btn nt-pending-btn--approve" data-action="approve" data-update-id="${u.update_id}">Approve</button>
+              <button class="nt-pending-btn nt-pending-btn--deny" data-action="deny" data-update-id="${u.update_id}">Deny</button>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (_) {
+        zone.classList.add('hidden');
+      }
     }
+
+    document.getElementById('nt-pending-zone')?.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.nt-pending-btn');
+      if (!btn) return;
+      const updateId = btn.getAttribute('data-update-id');
+      const action = btn.getAttribute('data-action');
+      btn.disabled = true;
+      try {
+        await fetch(`${SOUL_ENGINE}/agent/pending/${encodeURIComponent(updateId)}/${action}`, { method: 'POST' });
+      } catch (_) {}
+      updatePendingUpdates();
+    });
+
+    updatePendingUpdates();
+    setInterval(updatePendingUpdates, 15000);
+
+    // (dock trigger logic moved to the unified handler at ~L5106)
 
     // Initialize first thread if none
     renderChatTabHistory();
   }
 
   async function init() {
+    // Flag-gate the Wallet UI (hide by default unless BUCKS_SHOW_WALLET=1)
+    const showWallet = window.bucksAPI.showWallet;
+    if (!showWallet) {
+      const walletDockBtn = document.getElementById('nav-wallet-side');
+      if (walletDockBtn) walletDockBtn.style.setProperty('display', 'none', 'important');
+
+      const walletAppBtn = document.getElementById('newtab-btn-wallet');
+      if (walletAppBtn) walletAppBtn.style.setProperty('display', 'none', 'important');
+
+      const walletCard = document.getElementById('nt-card-wallet');
+      if (walletCard) walletCard.style.setProperty('display', 'none', 'important');
+    }
 
     const platform = await window.bucksAPI.getPlatform();
     document.body.classList.add(`platform-${platform}`);
@@ -4710,6 +6805,8 @@
       document.addEventListener('click', () => {
         $('#tab-context-menu')?.classList.add('hidden');
         $('#space-selector-dropdown')?.classList.add('hidden');
+        $('#tabs-slab-dropdown')?.classList.add('hidden');
+        $('#more-dropdown-menu')?.classList.add('hidden');
       });
 
       // New Space Creation Custom Modal Dialog

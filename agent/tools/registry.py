@@ -39,23 +39,71 @@ class Tool:
 
 # ── Web tools ─────────────────────────────────────────────────────────────────
 
-async def web_search(query: str, max_results: int = 6) -> str:
-    """DuckDuckGo search — no API key, no tracking."""
+async def _ddg_html_search(query: str, max_results: int = 6) -> list[dict]:
+    results = []
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            r = await client.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for div in soup.find_all("div", class_="result"):
+                    a_title = div.find("a", class_="result__a")
+                    snippet_elem = div.find(class_="result__snippet")
+                    if a_title:
+                        title = a_title.get_text().strip()
+                        href = a_title.get("href", "")
+                        body = snippet_elem.get_text().strip() if snippet_elem else ""
+                        if href.startswith("/l/?"):
+                            from urllib.parse import parse_qs, urlparse
+                            parsed = parse_qs(urlparse(href).query)
+                            if "uddg" in parsed:
+                                href = parsed["uddg"][0]
+                        results.append({"title": title, "href": href, "body": body})
+                        if len(results) >= max_results:
+                            break
+    except Exception:
+        pass
+    return results
+
+
+async def web_search(query: str, max_results: int = 6):
+    """Search the web with DuckDuckGo.
+
+    Returns {"text", "_ui"}: `text` is the summary the model reads; `_ui` is a
+    `list` component (clickable source cards) rendered for the user. See genui.py.
+    """
+    import asyncio
+    results = []
     try:
         try:
-            from ddgs import DDGS            # current package name
+            from ddgs import DDGS  # renamed successor of duckduckgo_search
         except ImportError:
-            from duckduckgo_search import DDGS  # legacy fallback
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
-        if not results:
-            return "No results found."
-        return "\n---\n".join(
-            f"**{r.get('title','')}**\n{r.get('href','')}\n{r.get('body','')}"
-            for r in results
-        )
-    except Exception as e:
-        return f"Search error: {e}"
+            from duckduckgo_search import DDGS
+        def _sync_ddgs():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results))
+        results = await asyncio.to_thread(_sync_ddgs)
+    except Exception:
+        results = []
+
+    if not results:
+        results = await _ddg_html_search(query, max_results=max_results)
+
+    if not results:
+        return "No results found."
+
+    text = "\n---\n".join(
+        f"**{r.get('title','')}**\n{r.get('href','')}\n{r.get('body','')}"
+        for r in results
+    )
+    try:
+        from genui import search_results_component
+        return {"text": text, "_ui": search_results_component(query, results)}
+    except Exception:
+        return text
 
 
 async def fetch_url(url: str, max_chars: int = 5000) -> str:
@@ -147,11 +195,15 @@ def execute_code(code: str, language: str = "python", timeout: int = 10) -> str:
 # ── File tools (scoped to BUCKS_ROOT) ────────────────────────────────────────
 
 def _safe_path(rel_or_abs: str) -> Path:
+    # Containment via is_relative_to (real path components), not a string prefix:
+    # a raw startswith lets sibling "/x/bucks core-evil" pass for root "/x/bucks core".
+    # resolve() collapses symlinks so out-of-root links are rejected, not followed.
     p = Path(rel_or_abs)
     if not p.is_absolute():
         p = BUCKS_ROOT / p
     p = p.resolve()
-    if not str(p).startswith(str(BUCKS_ROOT.resolve())):
+    root = BUCKS_ROOT.resolve()
+    if p != root and not p.is_relative_to(root):
         raise PermissionError(f"Path outside project root: {p}")
     return p
 
@@ -244,31 +296,87 @@ def track_order(order_id: str, carrier: str = "") -> str:
     })
 
 
-def product_search(query: str, max_results: int = 5) -> str:
-    return json.dumps({
-        "results": [
-            {"name": f"{query} - Premium", "price": "₹299", "stock": "In Stock"},
-            {"name": f"{query} - Standard", "price": "₹199", "stock": "Low Stock"},
-        ],
-        "note": "Set BUCKS_ECOMMERCE_API for live catalog."
-    })
+def product_search(query: str, max_results: int = 5):
+    """Returns {"text", "_ui"} — text for the model, a product_grid for the user.
+    Demo/sample catalog (mock). Each item still gets a real search URL (so
+    clicking opens results for it) and a placeholder image (so the card looks
+    complete). For genuinely real products, prefer product_lookup."""
+    from urllib.parse import quote_plus
+    def _demo(tier: str, price: str, stock: str, rating: float):
+        name = f"{query} — {tier}"
+        return {
+            "name": name, "price": price, "stock": stock, "rating": rating,
+            "url": f"https://duckduckgo.com/?q={quote_plus('buy ' + query + ' ' + tier)}",
+            "imageUrl": f"https://placehold.co/400x300/1e1e2e/a978ff?text={quote_plus(query)}",
+        }
+    products = [
+        _demo("Premium", "₹299", "In Stock", 4.6),
+        _demo("Standard", "₹199", "Low Stock", 4.1),
+        _demo("Essentials", "₹149", "In Stock", 3.9),
+    ][:max_results]
+    text = json.dumps({"results": products, "note": "Set BUCKS_ECOMMERCE_API for live catalog."})
+    try:
+        from genui import product_grid_component
+        return {"text": text, "_ui": product_grid_component(query, products)}
+    except Exception:
+        return text
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
+async def _wrap_product_lookup(query: str, max_results: int = 12):
+    from tools.shopping import product_lookup
+    return await product_lookup(query, max_results)
+
+async def wrap_ipfs_upload_text(text: str) -> str:
+    from tools.ipfs_tools import ipfs_upload_text as _upload
+    return await _upload(text)
+
+async def wrap_ipfs_cat_text(cid: str) -> str:
+    from tools.ipfs_tools import ipfs_cat_text as _cat
+    return await _cat(cid)
+
+async def wrap_ipfs_dynamic_load_tool(cid: str) -> str:
+    from tools.ipfs_tools import ipfs_dynamic_load_tool as _load
+    return await _load(cid)
+
+async def _wrap_image_search(query: str, max_results: int = 12):
+    from tools.media_tools import image_search
+    return await image_search(query, max_results)
+
+async def _wrap_youtube_search(query: str, max_results: int = 8):
+    from tools.media_tools import youtube_search
+    return await youtube_search(query, max_results)
+
+async def _wrap_deep_research(topic: str, max_sources: int = 4):
+    from tools.research import deep_research
+    return await deep_research(topic, max_sources)
+
+async def _wrap_weather_lookup(place: str, days: int = 5):
+    from tools.weather_tools import weather_lookup
+    return await weather_lookup(place, days)
+
 TOOLS: dict[str, Tool] = {
-    "web_search":       Tool("web_search",       "Search the web with DuckDuckGo",                       web_search),
-    "fetch_url":        Tool("fetch_url",         "Fetch and read a URL's text content",                  fetch_url),
-    "extract_links":    Tool("extract_links",     "Extract hyperlinks from a webpage",                    extract_links),
-    "execute_code":     Tool("execute_code",      "Run Python/JS/bash code in a sandbox",                 execute_code, safe=False),
-    "read_file":        Tool("read_file",         "Read a file in the Bucks project",                     read_file),
-    "write_file":       Tool("write_file",        "Write a file in the Bucks project",                    write_file, safe=False),
-    "list_directory":   Tool("list_directory",    "List files in a project directory",                    list_directory),
-    "git_status":       Tool("git_status",        "Show git status of the Bucks project",                 git_status),
-    "calendar_add":     Tool("calendar_add",      "Add an event to the user's calendar",                  calendar_add),
-    "calendar_list":    Tool("calendar_list",     "List calendar events, optionally filtered by date",    calendar_list),
-    "track_order":      Tool("track_order",       "Track a shipment order",                               track_order),
-    "product_search":   Tool("product_search",    "Search the product catalog",                           product_search),
+    "web_search":            Tool("web_search",            "Search the web with DuckDuckGo",                       web_search),
+    "fetch_url":             Tool("fetch_url",             "Fetch and read a URL's text content",                  fetch_url),
+    "extract_links":         Tool("extract_links",         "Extract hyperlinks from a webpage",                    extract_links),
+    "execute_code":          Tool("execute_code",          "Run Python/JS/bash code in a sandbox",                 execute_code, safe=False),
+    "read_file":             Tool("read_file",             "Read a file in the Bucks project",                     read_file),
+    "write_file":            Tool("write_file",            "Write a file in the Bucks project",                    write_file, safe=False),
+    "list_directory":        Tool("list_directory",        "List files in a project directory",                    list_directory),
+    "git_status":            Tool("git_status",            "Show git status of the Bucks project",                 git_status),
+    "calendar_add":          Tool("calendar_add",          "Add an event to the user's calendar",                  calendar_add),
+    "calendar_list":         Tool("calendar_list",         "List calendar events, optionally filtered by date",    calendar_list),
+    "track_order":           Tool("track_order",           "Track a shipment order",                               track_order),
+    "product_search":        Tool("product_search",        "Search the product catalog",                           product_search),
+    "product_lookup":        Tool("product_lookup",        "Fetch REAL products from trusted retailer pages",      _wrap_product_lookup),
+    "ipfs_upload_text":      Tool("ipfs_upload_text",      "Upload text content to IPFS, returning the CID",       wrap_ipfs_upload_text, safe=False),
+    "ipfs_cat_text":         Tool("ipfs_cat_text",         "Retrieve and read text content from an IPFS CID",      wrap_ipfs_cat_text),
+    "ipfs_dynamic_load_tool": Tool("ipfs_dynamic_load_tool", "Fetch and dynamically load a new agent tool from IPFS", wrap_ipfs_dynamic_load_tool, safe=False),
+    "image_search":          Tool("image_search",          "Search the web for images (renders an image gallery)", _wrap_image_search),
+    "youtube_search":        Tool("youtube_search",        "Search YouTube videos (renders an embedded player)",   _wrap_youtube_search),
+    "deep_research":         Tool("deep_research",         "Multi-source research with images (renders a dossier)", _wrap_deep_research),
+    "weather_lookup":        Tool("weather_lookup",        "Current weather + forecast (renders a weather card)",  _wrap_weather_lookup),
 }
 
 
@@ -278,14 +386,26 @@ def get_tool(name: str) -> Tool | None:
 def list_tools() -> list[dict]:
     return [t.to_dict() for t in TOOLS.values()]
 
+AGENT_TOOL_MAPPINGS = {
+    "browser":  ["web_search", "fetch_url", "extract_links", "image_search",
+                 "youtube_search", "deep_research", "weather_lookup"],
+    "code":     ["read_file", "write_file", "list_directory", "git_status", "execute_code"],
+    "commerce": ["track_order", "product_search", "web_search"],
+    "slm":      ["web_search", "calendar_list"],
+    "calendar": ["calendar_add", "calendar_list"],
+    "ipfs":     ["ipfs_upload_text", "ipfs_cat_text", "ipfs_dynamic_load_tool"],
+}
+
 def tools_for_agent(agent_type: str) -> list[Tool]:
     """Return relevant tools for each agent type."""
-    mapping = {
-        "browser":  ["web_search", "fetch_url", "extract_links"],
-        "code":     ["read_file", "write_file", "list_directory", "git_status", "execute_code"],
-        "commerce": ["track_order", "product_search", "web_search"],
-        "slm":      ["web_search", "calendar_list"],
-        "calendar": ["calendar_add", "calendar_list"],
-    }
-    names = mapping.get(agent_type, ["web_search"])
+    names = AGENT_TOOL_MAPPINGS.get(agent_type, ["web_search"])
     return [TOOLS[n] for n in names if n in TOOLS]
+
+def register_dynamic_tool(name: str, description: str, fn: Callable, safe: bool = True, agent_mapping: str = "code"):
+    """Register a custom dynamic tool fetched from IPFS into the agent registry."""
+    TOOLS[name] = Tool(name, description, fn, safe=safe)
+    if agent_mapping not in AGENT_TOOL_MAPPINGS:
+        AGENT_TOOL_MAPPINGS[agent_mapping] = []
+    if name not in AGENT_TOOL_MAPPINGS[agent_mapping]:
+        AGENT_TOOL_MAPPINGS[agent_mapping].append(name)
+

@@ -567,6 +567,9 @@
   async function togglePin(item) {
     try {
       if (item.pinned) {
+        const confirm = window.confirm("Are you sure you want to unpin this content? Removing this deletes your local copy. Copies other people pinned stay on their machines.");
+        if (!confirm) return;
+
         await window.bucksAPI.ipfsUnpin(item.cid);
         item.pinned = false;
         showToast('File unpinned successfully', 'success');

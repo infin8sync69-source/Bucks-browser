@@ -25,6 +25,7 @@ from evaluator          import evaluate, should_retry, build_retry_prompt
 from planner            import needs_planning, create_plan, execute_plan
 from knowledge          import kb
 from memory.session_store import sessions, preferences, interactions
+from genui import research_component, validate_component
 
 log = logging.getLogger("bucks-engine")
 
@@ -53,6 +54,25 @@ STYLE RULES:
 • For ambiguous requests, ask one clarifying question before acting
 """
 
+# Nexus-specific system prompt: instructs model to emit structured ephemeral UI JSON
+_NEXUS_SYSTEM = """
+You are Nexus, an ephemeral UI orchestrator. When asked to produce a UI panel,
+return a short human-friendly lead (1-2 sentences) followed by a single-line
+JSON object (as the final line) describing the UI action. The JSON MUST be
+the very last line of the response and must include a top-level "type" key.
+For ephemeral UI panels use this shape:
+
+    {"type":"ui_component","component": {"component":"research","title":"...","data":{...}}}
+
+The "component" value should follow the GenUI component contract (component, title, data).
+If you cannot produce a structured component, return:
+
+    {"type":"text","content":"<short explanation>"}
+
+Do NOT include any extra explanation after the JSON. Keep the JSON valid and
+compact. Keep output safe and avoid sensitive data.
+"""
+
 _TOOL_SYSTEM_ADDENDUM = """
 You have access to these tools (call them by including their output in your reasoning):
 {tool_list}
@@ -64,6 +84,7 @@ When a tool is needed, describe what you would use and what result it returned b
 _ROUTES = {
     "wallet":   {"wallet","balance","send money","transfer","payment","fund"},
     "ipfs":     {"ipfs","decentralized","upload","pin","cid","content hash","ipns"},
+        "nexus":    {"nexus","hermes","ephemeral","panel"},
     "code":     {"code","build","fix","debug","compile","error",".rs",".ts",".svelte","src/","execute","run script","execute:","exec "},
     "commerce": {"order","track","shop","product","shipping","inventory","buy","price","ecommerce"},
     "browser":  {"search","navigate","url","website","web","fetch","page","open","go to","browse","find",
@@ -72,7 +93,7 @@ _ROUTES = {
 }
 
 # Ordered priority list (first match wins)
-_ROUTE_ORDER = ["wallet", "ipfs", "code", "calendar", "commerce", "browser"]
+_ROUTE_ORDER = ["wallet", "ipfs", "code", "calendar", "commerce", "nexus", "browser"]
 
 def _route(prompt: str) -> str:
     p = prompt.lower()
@@ -100,7 +121,20 @@ def _pick_a2ui(text: str, agent: str, prompt: str) -> dict:
     url = re.search(r'https?://\S+', prompt)
     if url:
         return {"type": "navigate", "url": url.group()}
-    return {"type": "text", "content": text.strip()}
+    fallback = {"type": "text", "content": text.strip()}
+
+    # Nexus-specific post-processing: if model returned freeform text, build a
+    # deterministic GenUI `research` component so the frontend can render it.
+    try:
+        if agent == "nexus":
+            comp = research_component(prompt or "Nexus Panel", summary=fallback["content"], topic=(prompt[:60] if prompt else ""))
+            valid = validate_component(comp)
+            if valid:
+                return {"type": "ui_component", "component": valid}
+    except Exception:
+        pass
+
+    return fallback
 
 
 # ── Main inference ─────────────────────────────────────────────────────────────
@@ -168,8 +202,16 @@ async def run(
     # ── 9: Adaptive preference injection ──────────────────────────────────
     pref_context = preferences.build_preference_prompt()
 
+    # Determine routing early so system prompt can be adjusted per-agent
+    agent = _route(prompt)
+
     # ── 6: Build rich system prompt ───────────────────────────────────────
-    system_parts = [system_prompt if system_prompt else _BASE_SYSTEM]
+    # If this request routes to Nexus, prefer the Nexus system that enforces
+    # final-line JSON A2UI output.
+    system_parts = []
+    if agent == "nexus":
+        system_parts.append(_NEXUS_SYSTEM)
+    system_parts.append(system_prompt if system_prompt else _BASE_SYSTEM)
     if pref_context:
         system_parts.append(f"[User Preferences]\n{pref_context}")
     if kb_context:
@@ -198,9 +240,9 @@ async def run(
             if plan_summary:
                 full_prompt += f"\n\n[Plan execution results]\n{plan_summary[:2000]}"
 
-    # ── Tool pre-execution (browser/code agents) ──────────────────────────
+    # ── Tool pre-execution (browser/code/ipfs agents) ─────────────────────
     tool_output = ""
-    if agent in ("browser", "code", "commerce", "calendar") and not plan_summary:
+    if agent in ("browser", "code", "commerce", "calendar", "ipfs") and not plan_summary:
         tool_output = await _run_top_tool(agent, prompt)
         if tool_output:
             full_prompt += f"\n\n[Tool result]\n{tool_output[:1500]}"
@@ -242,46 +284,99 @@ async def run(
     # ── 9: Update user preferences from interaction signals ───────────────
     _infer_preferences(prompt)
 
+    # If Nexus returned plain text, coerce into a deterministic GenUI research
+    # component so the renderer receives a structured UI payload.
+    final_a2ui = a2ui
+    try:
+        if agent == "nexus" and isinstance(a2ui, dict) and a2ui.get("type") == "text":
+            comp = research_component(prompt or "Nexus Panel", summary=a2ui.get("content", ""), topic=(prompt[:60] if prompt else ""))
+            valid = validate_component(comp)
+            if valid:
+                final_a2ui = {"type": "ui_component", "component": valid}
+    except Exception:
+        pass
+
     return {
         "status":     "success",
         "evaluation": clean,
         "agent_used": agent,
         "task_id":    task_id,
-        "a2ui":       a2ui,
+        "a2ui":       final_a2ui,
         "eval_score": round(eval_result.score, 2) if eval_result else 1.0,
         "plan_used":  bool(plan_summary),
     }
 
 
+
 def _split_response(text: str, agent: str, prompt: str) -> tuple[str, dict]:
-    matches = list(re.finditer(r'\{[^{}]+\}', text, re.DOTALL))
-    if matches:
-        try:
-            a2ui = json.loads(matches[-1].group())
-            if "type" in a2ui:
-                clean = text[:matches[-1].start()].strip()
-                return clean, a2ui
-        except json.JSONDecodeError:
-            pass
-    return text.strip(), _pick_a2ui(text, agent, prompt)
+    # Robust JSON extraction: scan for balanced-brace substrings and attempt
+    # to parse them as JSON. Return the first parsable object that contains
+    # a top-level "type" key. Otherwise fall back to _pick_a2ui.
+    s = text or ""
+    n = len(s)
+    for i, ch in enumerate(s):
+        if ch != "{":
+            continue
+        depth = 0
+        for j in range(i, n):
+            if s[j] == "{":
+                depth += 1
+            elif s[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = s[i:j+1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and "type" in obj:
+                            clean = (s[:i] + s[j+1:]).strip()
+                            # If there is significant text before the JSON,
+                            # keep it as the evaluation; otherwise empty string.
+                            return clean.strip(), obj
+                    except json.JSONDecodeError:
+                        pass
+                    break
+    # No parsable JSON found — synthesize or fallback
+    return s.strip(), _pick_a2ui(s, agent, prompt)
 
 
 async def _run_top_tool(agent: str, prompt: str) -> str:
     """Run the most relevant single tool for a given agent type."""
-    from tools.registry import tools_for_agent
+    from tools.registry import tools_for_agent, get_tool
     tools = tools_for_agent(agent)
     if not tools:
         return ""
-    tool = tools[0]
     try:
         if agent in ("browser", "commerce"):
+            tool = tools[0]
             cleaned = re.sub(r'^(search|find|look\s+up|what\s+is|tell\s+me\s+about)\s+', '',
                              prompt, flags=re.IGNORECASE).strip()
             return await tool.run(query=cleaned)
         elif agent == "code":
+            tool = tools[0]
             return await tool.run(path=".")
         elif agent == "calendar":
+            tool = tools[0]
             return await tool.run(date="")
+        elif agent == "ipfs":
+            cid_match = re.search(r'(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z0-9]{55})', prompt)
+            cid = cid_match.group(1) if cid_match else ""
+            
+            if any(k in prompt.lower() for k in ("load", "inject", "install")):
+                if cid:
+                    tool = get_tool("ipfs_dynamic_load_tool")
+                    return await tool.run(cid=cid)
+                return "Error: No IPFS CID found in prompt to load tool."
+            elif any(k in prompt.lower() for k in ("upload", "pin", "publish")):
+                text_match = re.search(r'["\'](.*?)["\']', prompt)
+                text = text_match.group(1) if text_match else prompt
+                tool = get_tool("ipfs_upload_text")
+                return await tool.run(text=text)
+            else:
+                if cid:
+                    tool = get_tool("ipfs_cat_text")
+                    return await tool.run(cid=cid)
+                  
+                return "Error: No IPFS CID found in prompt to fetch."
     except Exception as e:
         return f"Tool error: {e}"
     return ""

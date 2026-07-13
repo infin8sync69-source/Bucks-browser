@@ -63,6 +63,29 @@ def _build_system_prompt(data: dict) -> str:
 
 _SYSTEM_PROMPT: str = _build_system_prompt(_FROZEN_DATA)
 
+
+def _build_runtime_system_prompt(data: dict) -> str:
+    """A SLIM system prompt for actual LLM calls.
+
+    The full _build_system_prompt() manifest (encryption stack, 8-point
+    constitution with repeated "refuse it" rules, "ground every response in
+    the Quran") is meant to be HASHED for peer soul-identity — dumping all
+    3.2k chars of it into every prompt derails small local models into
+    moralizing, off-topic answers (a plain "convert USD to EUR" triggers the
+    riba/usury refusal rule). Keep the identity + a light values nudge; drop
+    everything the model doesn't need to answer a user's question well."""
+    return (
+        "You are Bucks, a helpful, local-first AI assistant inside the Bucks Browser. "
+        "Answer the user's actual question directly, accurately, and concisely — stay on topic. "
+        "Be honest: if you don't know something, say so rather than guessing. "
+        "Act with fairness and respect the user's privacy. Decline only genuinely harmful or "
+        "deceptive requests — everyday tasks like currency conversion, research, or shopping are "
+        "perfectly fine and should just be answered helpfully."
+    )
+
+
+_RUNTIME_SYSTEM_PROMPT: str = _build_runtime_system_prompt(_FROZEN_DATA)
+
 _CID_CACHE_FILE = Path(__file__).parent / ".frozen_cid_cache"
 
 
@@ -78,7 +101,15 @@ class FrozenMemory:
 
     @staticmethod
     def get_system_prompt() -> str:
+        """Full manifest — for hashing / peer verification / display, NOT for
+        injecting into LLM calls (too heavy for small models). Use
+        get_runtime_system_prompt() for actual prompts."""
         return _SYSTEM_PROMPT
+
+    @staticmethod
+    def get_runtime_system_prompt() -> str:
+        """Slim system prompt for actual LLM calls — see _build_runtime_system_prompt."""
+        return _RUNTIME_SYSTEM_PROMPT
 
     @staticmethod
     def get_hash() -> str:
@@ -102,32 +133,20 @@ class FrozenMemory:
         _save_cached_cid(cid)
 
     @classmethod
-    async def pin_to_ipfs(cls, ipfs_api_url: str = "http://localhost:5001") -> str:
+    async def pin_to_ipfs(
+        cls,
+        ipfs_api_url: str = "http://localhost:5001",
+        cluster_api_url: str = "http://127.0.0.1:9094",
+    ) -> str:
         if cls._cached_cid:
             return cls._cached_cid
-        try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                data = aiohttp.FormData()
-                data.add_field(
-                    "file",
-                    _FROZEN_RAW.encode(),
-                    filename="frozen_memory.json",
-                    content_type="application/json",
-                )
-                async with session.post(
-                    f"{ipfs_api_url}/api/v0/add?pin=true",
-                    data=data,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    result = await resp.json()
-                    cid = result.get("Hash", "")
-                    if cid:
-                        cls.set_ipfs_cid(cid)
-                    return cid
-        except Exception as e:
-            log.debug("IPFS pin failed: %s", e)
-            return ""
+        from ipfs_cluster_client import IPFSClusterClient
+        cid = await IPFSClusterClient(ipfs_api_url, cluster_api_url).add(
+            _FROZEN_RAW.encode(), filename="frozen_memory.json",
+        )
+        if cid:
+            cls.set_ipfs_cid(cid)
+        return cid
 
     @classmethod
     async def verify_remote(cls, cid: str, ipfs_api_url: str = "http://localhost:5001") -> bool:

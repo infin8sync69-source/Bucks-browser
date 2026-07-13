@@ -84,7 +84,10 @@ class MemoryItem:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def _cosine(a: List[float], b: List[float]) -> float:
-    if not a or not b or len(a) != len(b):
+    # ChromaDB returns embeddings as numpy arrays, where `not a` raises
+    # ValueError (ambiguous truth value) instead of testing emptiness —
+    # use explicit length checks so this works for both lists and ndarrays.
+    if a is None or b is None or len(a) == 0 or len(b) == 0 or len(a) != len(b):
         return 0.0
     dot   = sum(x * y for x, y in zip(a, b))
     mag_a = math.sqrt(sum(x * x for x in a))

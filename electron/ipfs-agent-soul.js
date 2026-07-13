@@ -17,7 +17,10 @@
 const http = require("http");
 const { advertiseAgentSoul, pinSoul, onPeerSoul } = require("./ipfs-node");
 
-const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || "http://localhost:3000";
+// The Soul Engine (soul_engine.py) is the live agent server at :8765 — it now
+// exposes GET/POST /api/v1/soul* (see soul_engine.py's "Soul identity + P2P
+// discovery" section). The old :3000 Tauri-era server this pointed at is dead.
+const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || "http://localhost:8765";
 const SOUL_ADVERTISE_INTERVAL_MS = 30_000; // 30 seconds
 
 let _ownSoul = null;

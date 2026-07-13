@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bucks Earth Map — test harness (mirrors real chrome)</title>
+  <link rel="stylesheet" href="node_modules/leaflet/dist/leaflet.css">
+  <style>
+    /* replicate the REAL app's layout chain so layout bugs reproduce here */
+    body { margin: 0; background: #05070d; overflow: hidden; color: #99a; font: 13px sans-serif; }
+    .dashboard-view { height: 100%; }
+    #view-newtab {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 32px; padding: 0 32px 48px; height: 100%;
+    }
+    #umap-surface {
+      position: absolute; inset: 10px 14px 0 14px; z-index: 1; border-radius: 18px;
+      overflow: hidden; display: none; background: #0a0d14;
+      border: 1px solid rgba(140,180,255,0.18); box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+    }
+    #umap-surface.open { display: block; }
+    #open-btn { position: fixed; bottom: 18px; right: 20px; z-index: 2000; padding: 10px 16px; }
+  </style>
+</head>
+<body>
+  <div id="main-content-wrapper" style="position:relative; z-index:5; min-height:100vh; padding:22px 24px 168px 116px; display:flex; flex-direction:column; height:100vh; box-sizing:border-box;">
+    <main id="browser-content" style="flex:1; position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; width:100%; background:transparent;">
+      <div id="dashboard-window" style="width:100%; max-width:880px; z-index:10; display:flex; flex-direction:column;">
+        <div id="view-newtab" class="dashboard-view">
+          <div class="nt-hero">ZONE 1 hero (hidden when map opens)</div>
+          <div class="nt-dock-wrap">ZONE 2 dock (hidden when map opens)</div>
+          <div class="nt-status-row">ZONE 3 status (hidden when map opens)</div>
+          <div id="umap-surface"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <button id="open-btn">simulate globe handoff → openAt(12.97, 77.59, 5)</button>
+  <script src="node_modules/leaflet/dist/leaflet.js"></script>
+  <script src="earth-maps.js"></script>
+  <script>
+    document.getElementById('open-btn').addEventListener('click', () =>
+      window.BucksEarthMap.openAt(12.9716, 77.5946, 5)); // Bengaluru
+  </script>
+</body>
+</html>

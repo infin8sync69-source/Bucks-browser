@@ -1,3 +1,19 @@
+// Prevent EPIPE errors from crashing the process when stdout/stderr are closed
+if (process.stdout && typeof process.stdout.on === 'function') {
+  process.stdout.on('error', (err) => {
+    if (err.code === 'EPIPE') {
+      // Ignore EPIPE error
+    }
+  });
+}
+if (process.stderr && typeof process.stderr.on === 'function') {
+  process.stderr.on('error', (err) => {
+    if (err.code === 'EPIPE') {
+      // Ignore EPIPE error
+    }
+  });
+}
+
 // IPFS Cluster File Manager — zero-dependency Node server.
 // Proxies the cluster REST API (9094) and kubo gateway (8080) and serves the UI.
 const http = require('http');

@@ -3,6 +3,10 @@ IPFSKnowledgeStore — stores and retrieves knowledge fragments on IPFS.
 
 Peer agents publish their KB fragments here. When a peer soul is registered,
 we pull their KB CIDs and embed them into local floating memory.
+
+Publishing goes through IPFSClusterClient, which prefers a local IPFS Cluster
+(replicates the fragment to every peer in that cluster) and falls back to a
+single Kubo node when no cluster is running — see ipfs_cluster_client.py.
 """
 import json
 import logging
@@ -10,42 +14,32 @@ from typing import List, Optional
 
 import aiohttp
 
+from ipfs_cluster_client import IPFSClusterClient
+
 log = logging.getLogger("bucks.rag.ipfs_store")
 
 
 class IPFSKnowledgeStore:
-    def __init__(self, ipfs_api_url: str = "http://localhost:5001"):
+    def __init__(
+        self,
+        ipfs_api_url: str = "http://localhost:5001",
+        cluster_api_url: str = "http://127.0.0.1:9094",
+    ):
         self._url = ipfs_api_url.rstrip("/")
+        self._cluster = IPFSClusterClient(ipfs_api_url, cluster_api_url)
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
     async def publish_fragment(self, text: str, metadata: Optional[dict] = None) -> str:
         """
-        Publish a knowledge fragment to IPFS.
+        Publish a knowledge fragment (cluster-replicated when available).
         Returns the CID string, or "" on failure.
         """
-        payload = json.dumps({"text": text, "metadata": metadata or {}})
-        try:
-            async with aiohttp.ClientSession() as session:
-                data = aiohttp.FormData()
-                data.add_field(
-                    "file",
-                    payload.encode(),
-                    filename="fragment.json",
-                    content_type="application/json",
-                )
-                async with session.post(
-                    f"{self._url}/api/v0/add?pin=true",
-                    data=data,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    result = await resp.json()
-                    cid = result.get("Hash", "")
-                    log.debug("Published fragment to IPFS: %s", cid)
-                    return cid
-        except Exception as e:
-            log.warning("IPFS publish failed: %s", e)
-            return ""
+        payload = json.dumps({"text": text, "metadata": metadata or {}}).encode()
+        cid = await self._cluster.add(payload, filename="fragment.json")
+        if cid:
+            log.debug("Published fragment: %s", cid)
+        return cid
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +61,30 @@ class IPFSKnowledgeStore:
         except Exception as e:
             log.warning("IPFS fetch failed for %s: %s", cid, e)
             return None
+
+    async def fetch_raw(self, cid: str) -> Optional[str]:
+        """
+        Fetch raw text content by CID (fallback for non-JSON documents).
+        """
+        if not cid:
+            return None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self._url}/api/v0/cat?arg={cid}",
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    raw = await resp.read()
+                    return raw.decode("utf-8", errors="ignore")
+        except Exception as e:
+            log.warning("IPFS raw fetch failed for %s: %s", cid, e)
+            return None
+
+    async def pin_remote_cid(self, cid: str) -> bool:
+        """Pin a CID this node has already fetched, replicating it further
+        (cluster-wide if a local cluster is running) instead of depending on
+        the original publisher staying online."""
+        return await self._cluster.pin_existing(cid)
 
     async def index_peer_fragments(self, peer_soul: dict) -> List[dict]:
         """

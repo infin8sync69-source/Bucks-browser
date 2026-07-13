@@ -35,3 +35,11 @@ Thumbs.db
 .env
 .env.local
 
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Test/runtime scratch profiles
+test-userData*/

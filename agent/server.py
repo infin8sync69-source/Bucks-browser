@@ -150,6 +150,7 @@ async def list_agents():
             {"id": "code",     "model": "deepseek-coder-v2",     "description": "Reads/modifies Bucks source code, runs builds"},
             {"id": "browser",  "model": "llama3.1",              "description": "Web navigation, search, page scraping"},
             {"id": "commerce", "model": "llama3.1",              "description": "Logistics, ecommerce, order tracking, inventory"},
+            {"id": "nexus",    "model": "hermes3:latest",       "description": "Orchestrates Hermes-driven ephemeral UI panels and agentic coordination"},
         ]
     }
 

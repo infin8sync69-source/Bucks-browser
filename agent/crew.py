@@ -13,6 +13,8 @@ from agents.code_agent import make_code_agent
 from agents.browser_agent import make_browser_agent
 from agents.commerce_agent import make_commerce_agent
 from agents.slm_agent import make_slm_agent
+from agents.nexus_agent import make_nexus_agent
+from genui import research_component, validate_component
 
 # Keywords that require a bigger model
 _CODE_KW     = {"code", "build", "fix", "modify", "src/", ".rs", ".ts", ".svelte", "debug", "error", "compile"}
@@ -30,6 +32,7 @@ class BucksAgentCrew:
         self.code_agent     = make_code_agent()
         self.browser_agent  = make_browser_agent()
         self.commerce_agent = make_commerce_agent()
+        self.nexus_agent    = make_nexus_agent()
 
     def _route_agent(self, prompt: str) -> str:
         p = prompt.lower()
@@ -40,6 +43,10 @@ class BucksAgentCrew:
             return "commerce"
         if any(kw in p for kw in _BROWSER_KW):
             return "browser"
+
+        # Nexus-specific triggers: explicit 'nexus', 'hermes', or ephemeral UI requests
+        if any(x in p for x in ("nexus", "hermes", "ephemeral", "panel")):
+            return "nexus"
 
         # Short, conversational queries → SLM (fast + private)
         if len(prompt.split()) <= _SLM_MAX_WORDS:
@@ -62,6 +69,7 @@ class BucksAgentCrew:
                 "code":     (self.code_agent,      f"Complete this code task: {prompt}"),
                 "commerce": (self.commerce_agent,  f"Handle this commerce task: {prompt}"),
                 "browser":  (self.browser_agent,   f"Navigate and help with this web task: {prompt}"),
+                "nexus":    (self.nexus_agent,    f"Create an ephemeral UI or orchestrate via Hermes: {prompt}"),
             }
             agent, task_goal = agent_map[agent_name]
 
@@ -80,12 +88,27 @@ class BucksAgentCrew:
 
             result = await crew.kickoff_async()
 
+            # Post-process Nexus outputs: if Nexus returned plain text, try to
+            # synthesize a structured GenUI `research` component so the
+            # frontend can render an ephemeral panel.
+            a2ui = {"type": "text", "content": str(result)}
+            try:
+                if agent_name == "nexus":
+                    # result may be a Crew result object; coerce to string
+                    summary = str(result)
+                    comp = research_component(prompt or "Nexus Panel", summary=summary, topic=(prompt[:60] if prompt else ""))
+                    valid = validate_component(comp)
+                    if valid:
+                        a2ui = {"type": "ui_component", "component": valid}
+            except Exception:
+                pass
+
             return {
                 "status": "success",
                 "evaluation": str(result),
                 "agent_used": agent_name,
                 "task_id": task_id,
-                "a2ui": {"type": "text", "content": str(result)},
+                "a2ui": a2ui,
             }
 
         except Exception as e:

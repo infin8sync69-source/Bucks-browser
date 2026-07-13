@@ -201,38 +201,26 @@ class WorldSoul:
 
     # ── IPFS ──────────────────────────────────────────────────────────────────
 
-    async def pin_to_ipfs(self, ipfs_api_url: str = "http://localhost:5001") -> str:
+    async def pin_to_ipfs(
+        self,
+        ipfs_api_url: str = "http://localhost:5001",
+        cluster_api_url: str = "http://127.0.0.1:9094",
+    ) -> str:
         """Pin the ENCRYPTED world soul to IPFS. Returns CID or ''."""
         if not _LOCKED_FILE.exists():
             return ""
         existing = self.get_ipfs_cid()
         if existing:
             return existing
-        try:
-            import aiohttp as _aiohttp
-            async with _aiohttp.ClientSession() as session:
-                data = _aiohttp.FormData()
-                data.add_field(
-                    "file",
-                    _LOCKED_FILE.read_bytes(),
-                    filename="world_soul.locked",
-                    content_type="application/octet-stream",
-                )
-                async with session.post(
-                    f"{ipfs_api_url}/api/v0/add?pin=true",
-                    data=data,
-                    timeout=_aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    result = await resp.json()
-                    cid = result.get("Hash", "")
-                    if cid:
-                        meta = self.get_meta()
-                        meta["ipfs_cid"] = cid
-                        _META_FILE.write_text(json.dumps(meta, indent=2))
-                    return cid
-        except Exception as e:
-            log.warning("WorldSoul IPFS pin failed: %s", e)
-            return ""
+        from ipfs_cluster_client import IPFSClusterClient
+        cid = await IPFSClusterClient(ipfs_api_url, cluster_api_url).add(
+            _LOCKED_FILE.read_bytes(), filename="world_soul.locked",
+        )
+        if cid:
+            meta = self.get_meta()
+            meta["ipfs_cid"] = cid
+            _META_FILE.write_text(json.dumps(meta, indent=2))
+        return cid
 
     # ── Flat verse iterator (for RAG embedding) ───────────────────────────────
 

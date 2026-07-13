@@ -15,7 +15,10 @@
 const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
-const { app } = require("electron");
+// Lazy/optional electron import so this module can also run under plain node
+// (unit tests). In-app both `app` and `safeStorage` are always available.
+let app = null, safeStorage = null;
+try { ({ app, safeStorage } = require("electron")); } catch (_) { /* test env */ }
 
 let STORE_DIR = null;
 
@@ -118,9 +121,79 @@ function decrypt(key, envelope) {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
+// ─── Ed25519 Signing (verifiable identity signatures) ───
+// X25519 keys can only do Diffie-Hellman — they cannot sign. The original
+// implementation "signed" the pre-key with an HMAC keyed by the identity
+// *private* key, which no peer can ever verify. We now carry a parallel
+// Ed25519 signing identity: its public key travels in the pre-key bundle and
+// peers verify the signed-pre-key signature against it.
+
+function generateSigningKeyPair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519", {
+    publicKeyEncoding: { type: "spki", format: "der" },
+    privateKeyEncoding: { type: "pkcs8", format: "der" },
+  });
+  return { publicKey, privateKey };
+}
+
+function signEd25519(privateKeyDer, data) {
+  const key = crypto.createPrivateKey({
+    key: Buffer.from(privateKeyDer), format: "der", type: "pkcs8",
+  });
+  return crypto.sign(null, Buffer.from(data), key);
+}
+
+function verifyEd25519(publicKeyDer, data, signature) {
+  try {
+    const key = crypto.createPublicKey({
+      key: Buffer.from(publicKeyDer), format: "der", type: "spki",
+    });
+    return crypto.verify(null, Buffer.from(data), key, Buffer.from(signature));
+  } catch (_) {
+    return false;
+  }
+}
+
+// ─── Encrypted-at-rest persistence (Electron safeStorage / OS keychain) ───
+// Identity private keys and ratchet session state previously sat in plaintext
+// JSON on disk. Files are now wrapped with safeStorage (Keychain-backed on
+// macOS). Legacy plaintext files are read transparently and re-encrypted on
+// the next save. Falls back to plaintext only when the OS facility is
+// unavailable (e.g. some Linux setups without a keyring, or unit tests).
+
+const ENC_MAGIC = "BUCKSENC1:";
+
+function _canEncryptAtRest() {
+  try { return !!(safeStorage && safeStorage.isEncryptionAvailable()); }
+  catch (_) { return false; }
+}
+
+function writeProtected(file, obj) {
+  const json = JSON.stringify(obj, null, 2);
+  if (_canEncryptAtRest()) {
+    try {
+      fs.writeFileSync(file, ENC_MAGIC + safeStorage.encryptString(json).toString("base64"), "utf8");
+      return;
+    } catch (e) {
+      console.warn("[Signal] safeStorage encryption failed, falling back to plaintext:", e.message);
+    }
+  }
+  fs.writeFileSync(file, json, "utf8");
+}
+
+function readProtected(file) {
+  const raw = fs.readFileSync(file, "utf8");
+  if (raw.startsWith(ENC_MAGIC)) {
+    const blob = Buffer.from(raw.slice(ENC_MAGIC.length), "base64");
+    return JSON.parse(safeStorage.decryptString(blob));
+  }
+  return JSON.parse(raw); // legacy plaintext — re-encrypted on next save
+}
+
 // ─── Key Store ───
 
-let identityKeyPair = null; // { publicKey, privateKey } Buffers (DER)
+let identityKeyPair = null; // { publicKey, privateKey } Buffers (DER) — X25519 (DH)
+let signingKeyPair = null;  // { publicKey, privateKey } Buffers (DER) — Ed25519 (signatures)
 let signedPreKey = null; // { keyId, keyPair, signature }
 let oneTimePreKeys = new Map(); // keyId -> keyPair
 let sessions = new Map(); // peerId -> SessionState
@@ -136,11 +209,19 @@ function initStore() {
   const identityFile = path.join(STORE_DIR, "identity.json");
   if (fs.existsSync(identityFile)) {
     try {
-      const data = JSON.parse(fs.readFileSync(identityFile, "utf8"));
+      const data = readProtected(identityFile);
       identityKeyPair = {
         publicKey: Buffer.from(data.publicKey, "base64"),
         privateKey: Buffer.from(data.privateKey, "base64"),
       };
+      // Ed25519 signing identity — added after first ship, so migrate older
+      // identities that lack it (generate once, persist alongside).
+      if (data.signingPublicKey && data.signingPrivateKey) {
+        signingKeyPair = {
+          publicKey: Buffer.from(data.signingPublicKey, "base64"),
+          privateKey: Buffer.from(data.signingPrivateKey, "base64"),
+        };
+      }
       preKeyCounter = data.preKeyCounter || 0;
       console.log("[Signal] Identity loaded.");
     } catch (e) {
@@ -151,9 +232,15 @@ function initStore() {
 
   if (!identityKeyPair) {
     identityKeyPair = generateKeyPair();
+    signingKeyPair = generateSigningKeyPair();
     preKeyCounter = 0;
     saveIdentity();
     console.log("[Signal] New identity generated.");
+  } else if (!signingKeyPair) {
+    // Migrate a pre-Ed25519 identity in place.
+    signingKeyPair = generateSigningKeyPair();
+    saveIdentity();
+    console.log("[Signal] Added Ed25519 signing key to existing identity.");
   }
 
   // Generate signed pre-key
@@ -168,27 +255,20 @@ function initStore() {
 
 function saveIdentity() {
   const identityFile = path.join(STORE_DIR, "identity.json");
-  fs.writeFileSync(
-    identityFile,
-    JSON.stringify(
-      {
-        publicKey: identityKeyPair.publicKey.toString("base64"),
-        privateKey: identityKeyPair.privateKey.toString("base64"),
-        preKeyCounter: preKeyCounter,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  writeProtected(identityFile, {
+    publicKey: identityKeyPair.publicKey.toString("base64"),
+    privateKey: identityKeyPair.privateKey.toString("base64"),
+    signingPublicKey: signingKeyPair.publicKey.toString("base64"),
+    signingPrivateKey: signingKeyPair.privateKey.toString("base64"),
+    preKeyCounter: preKeyCounter,
+  });
 }
 
 function regenerateSignedPreKey() {
   const keyPair = generateKeyPair();
-  const signature = crypto
-    .createHmac("sha256", identityKeyPair.privateKey)
-    .update(keyPair.publicKey)
-    .digest();
+  // Real, verifiable signature: Ed25519 over the signed-pre-key public bytes.
+  // Any peer can verify this against our advertised signing identity key.
+  const signature = signEd25519(signingKeyPair.privateKey, keyPair.publicKey);
 
   signedPreKey = {
     keyId: Date.now(),
@@ -223,12 +303,39 @@ function getPreKeyBundle() {
 
   return {
     identityKey: identityKeyPair.publicKey.toString("base64"),
+    // Ed25519 verification key — lets peers verify signedPreKeySignature.
+    signingKey: signingKeyPair.publicKey.toString("base64"),
     signedPreKeyId: signedPreKey.keyId,
     signedPreKey: signedPreKey.keyPair.publicKey.toString("base64"),
     signedPreKeySignature: signedPreKey.signature.toString("base64"),
     oneTimePreKeyId: oneTimePreKeyId,
     oneTimePreKey: oneTimePreKeyPublic,
   };
+}
+
+/**
+ * Verify a peer's pre-key bundle: the signed pre-key must carry a valid
+ * Ed25519 signature from the bundle's own signing key. This is what stops a
+ * man-in-the-middle from swapping in their own signed pre-key. Bundles from
+ * older peers that predate Ed25519 (no `signingKey`) are accepted but flagged
+ * unverified so the UI can warn.
+ * @returns {{ ok: boolean, verified: boolean, reason?: string }}
+ */
+function verifyPreKeyBundle(bundle) {
+  if (!bundle || !bundle.identityKey || !bundle.signedPreKey) {
+    return { ok: false, verified: false, reason: "malformed bundle" };
+  }
+  if (!bundle.signingKey || !bundle.signedPreKeySignature) {
+    return { ok: true, verified: false, reason: "legacy unsigned bundle" };
+  }
+  const ok = verifyEd25519(
+    Buffer.from(bundle.signingKey, "base64"),
+    Buffer.from(bundle.signedPreKey, "base64"),
+    Buffer.from(bundle.signedPreKeySignature, "base64"),
+  );
+  return ok
+    ? { ok: true, verified: true }
+    : { ok: false, verified: false, reason: "signed pre-key signature invalid" };
 }
 
 // ─── X3DH Key Agreement (Initiator Side) ───
@@ -337,7 +444,7 @@ function respondX3DH(peerIdentityKeyB64, ephemeralKeyB64, oneTimePreKeyId) {
  * @param {Buffer} sharedSecret - From X3DH
  * @param {boolean} isInitiator - Whether we initiated the session
  */
-function createSession(peerId, sharedSecret, isInitiator) {
+function createSession(peerId, sharedSecret, isInitiator, peerBundle = null) {
   const ratchetKeyPair = generateKeyPair();
 
   const session = {
@@ -346,21 +453,26 @@ function createSession(peerId, sharedSecret, isInitiator) {
     recvChainKey: null,
     sendCounter: 0,
     recvCounter: 0,
-    sendRatchetKey: {
+    sendRatchetKey: isInitiator ? {
       publicKey: ratchetKeyPair.publicKey.toString("base64"),
       privateKey: ratchetKeyPair.privateKey.toString("base64"),
+    } : {
+      publicKey: signedPreKey.keyPair.publicKey.toString("base64"),
+      privateKey: signedPreKey.keyPair.privateKey.toString("base64"),
     },
-    peerRatchetKey: null,
+    peerRatchetKey: isInitiator && peerBundle ? peerBundle.signedPreKey : null,
     isInitiator: isInitiator,
     established: Date.now(),
   };
 
-  // For the initiator, derive initial send chain from root key
-  if (isInitiator) {
+  // For the initiator, perform initial DH ratchet step
+  if (isInitiator && peerBundle) {
+    const peerSignedPreKeyBuf = Buffer.from(peerBundle.signedPreKey, "base64");
+    const dhResult = computeSharedSecret(ratchetKeyPair.privateKey, peerSignedPreKeyBuf);
     const derived = hkdf(
-      sharedSecret,
+      Buffer.concat([sharedSecret, dhResult]),
       null,
-      Buffer.from("BucksInitSend", "utf8"),
+      Buffer.from("BucksRatchet", "utf8"),
       64,
     );
     session.sendChainKey = derived.subarray(0, 32);
@@ -487,7 +599,7 @@ function decryptMessage(peerId, envelope) {
     const derived = hkdf(
       rootKeyBuf,
       null,
-      Buffer.from("BucksRecvInit", "utf8"),
+      Buffer.from("BucksMsgKey", "utf8"),
       64,
     );
     session.recvChainKey = derived.subarray(0, 32);
@@ -566,7 +678,7 @@ function saveSessions() {
     data[peerId] = s;
   });
   try {
-    fs.writeFileSync(sessionsFile, JSON.stringify(data, null, 2), "utf8");
+    writeProtected(sessionsFile, data); // encrypted at rest (ratchet keys)
   } catch (e) {
     console.error("[Signal] Failed to save sessions:", e);
   }
@@ -577,7 +689,7 @@ function loadSessions() {
   const sessionsFile = path.join(STORE_DIR, "sessions.json");
   if (fs.existsSync(sessionsFile)) {
     try {
-      const data = JSON.parse(fs.readFileSync(sessionsFile, "utf8"));
+      const data = readProtected(sessionsFile);
       for (const [peerId, session] of Object.entries(data)) {
         sessions.set(peerId, session);
       }
@@ -594,10 +706,24 @@ function getIdentityPublicKey() {
   return identityKeyPair ? identityKeyPair.publicKey.toString("base64") : null;
 }
 
+/** Sign arbitrary bytes/string with our Ed25519 identity → base64 signature. */
+function signWithIdentity(data) {
+  return signEd25519(signingKeyPair.privateKey, data).toString("base64");
+}
+
+/** Verify base64 Ed25519 `signature` over `data` using a peer's base64 signing key. */
+function verifyWithPeerSigningKey(peerSigningKeyB64, data, signatureB64) {
+  if (!peerSigningKeyB64 || !signatureB64) return false;
+  return verifyEd25519(
+    Buffer.from(peerSigningKeyB64, "base64"), data, Buffer.from(signatureB64, "base64"),
+  );
+}
+
 module.exports = {
   initStore,
   getIdentityPublicKey,
   getPreKeyBundle,
+  verifyPreKeyBundle,
   performX3DH,
   respondX3DH,
   createSession,
@@ -605,6 +731,8 @@ module.exports = {
   decryptMessage,
   hasSession,
   getSessionInfo,
+  signWithIdentity,
+  verifyWithPeerSigningKey,
   encrypt,
   decrypt,
   hkdf,

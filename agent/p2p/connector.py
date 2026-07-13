@@ -19,6 +19,7 @@ import aiohttp
 
 from soul.registry import SoulRegistry
 from soul.generator import sign_payload
+from ipfs_cluster_client import IPFSClusterClient
 
 log = logging.getLogger("bucks.p2p.connector")
 
@@ -77,9 +78,12 @@ class AgentConnector:
         peer_soul_id: str,
         task: dict,
         ipfs_api_url: str = "http://localhost:5001",
+        cluster_api_url: str = "http://127.0.0.1:9094",
     ) -> str:
         """
-        Queue a task in IPFS for offline peer pickup.
+        Queue a task in IPFS for offline peer pickup — cluster-replicated when
+        a local IPFS Cluster is running, so the message survives even if this
+        node goes offline before the peer picks it up.
         Returns the CID of the queued message, or "".
         """
         envelope = {
@@ -89,22 +93,14 @@ class AgentConnector:
             "task":      self._sign_task(task),
         }
         payload = json.dumps(envelope).encode()
-        try:
-            async with aiohttp.ClientSession() as session:
-                data = aiohttp.FormData()
-                data.add_field("file", payload, filename="msg.json", content_type="application/json")
-                async with session.post(
-                    f"{ipfs_api_url}/api/v0/add?pin=true",
-                    data=data,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    result = await resp.json()
-                    cid = result.get("Hash", "")
-                    log.info("Queued task for %s → IPFS %s", peer_soul_id[:16], cid)
-                    return cid
-        except Exception as e:
-            log.error("IPFS queue failed for peer %s: %s", peer_soul_id[:16], e)
-            return ""
+        cid = await IPFSClusterClient(ipfs_api_url, cluster_api_url).add(
+            payload, filename="msg.json",
+        )
+        if cid:
+            log.info("Queued task for %s → IPFS %s", peer_soul_id[:16], cid)
+        else:
+            log.error("IPFS queue failed for peer %s", peer_soul_id[:16])
+        return cid
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

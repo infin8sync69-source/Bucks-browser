@@ -738,6 +738,7 @@ async def list_agents():
         {"id": "code",     "model": config.SLM_MODEL, "description": "Code assistance + sandboxed execution"},
         {"id": "commerce", "model": config.SLM_MODEL, "description": "Orders, logistics, product search"},
         {"id": "calendar", "model": config.SLM_MODEL, "description": "Schedule events & reminders"},
+        {"id": "nexus",    "model": "hermes3:latest",  "description": "Orchestrates Hermes-driven ephemeral UI panels and agentic coordination"},
     ]}
 
 @app.post("/api/v1/models/switch")

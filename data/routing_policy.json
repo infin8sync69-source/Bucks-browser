@@ -1,9 +1,19 @@
 {
   "slm": 0.424,
   "browser": 0.424,
-  "wallet": 0.453,
-  "ipfs": 0.433,
-  "code": 0.433,
-  "commerce": 0.46,
-  "calendar": 0.46
+  "wallet": 0.4177,
+  "ipfs": 0.3997,
+  "code": 0.3997,
+  "commerce": 0.424,
+  "calendar": 0.424,
+  "direct_answer": 0.0403,
+  "web_search": 0.0894,
+  "product_search": 0.1416,
+  "render_component": 0.2577,
+  "product_lookup": 0.2015,
+  "ipfs_upload_text": 0.434,
+  "youtube_search": 0.337,
+  "image_search": 0.3459,
+  "deep_research": 0.2913,
+  "weather_lookup": 0.4181
 }

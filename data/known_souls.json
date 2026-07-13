@@ -1,0 +1,88 @@
+{
+  "37babba008fe48173a1f1576c92281604f73bfed0934b7c7de876d5ac0fb972c": {
+    "soulId": "37babba008fe48173a1f1576c92281604f73bfed0934b7c7de876d5ac0fb972c",
+    "did": "did:bucks:37babba008fe48173a1f1576c92281604f73bfed0934b7c7de876d5ac0fb972c",
+    "version": "2.0.0",
+    "cidn": "mainnet",
+    "capabilities": [
+      "rag_search",
+      "code"
+    ],
+    "locality": "peer-test-device",
+    "ancestry": [],
+    "frozenMemoryCid": "QmS789PsGWy8EYkbPVZnxrdoFoWGR9wUrYqxDSwrSFTSfr",
+    "frozenMemoryHash": "0caf07f1ec48ccee8661051fbf02838d30689b1f1781d2ae3eba9e7bc3984b7a",
+    "worldSoulHash": "94fc864e47d326a8f64ad7fde30597c11530f390b3cd4438ce7ea142639f856b",
+    "issuedAt": "2026-07-01T09:15:16.773565+00:00",
+    "signature": "503a0650f9bd32cb183c84defa79647602e3dc20627ad479658674fb3f2a06184ffe2b524a309870d99430fa2e5a333f0e80b809c54a4ef6cf5bfbcf7b64f005",
+    "_registeredAt": 1782897316.781678
+  },
+  "c5c4bd6259f868bd68c90d1998d45245dee4812b400ac6c3a5877dd545fe39ae": {
+    "soulId": "c5c4bd6259f868bd68c90d1998d45245dee4812b400ac6c3a5877dd545fe39ae",
+    "did": "did:bucks:c5c4bd6259f868bd68c90d1998d45245dee4812b400ac6c3a5877dd545fe39ae",
+    "version": "2.0.0",
+    "cidn": "mainnet",
+    "capabilities": [
+      "rag_search"
+    ],
+    "locality": "Alex's iPhone",
+    "ancestry": [],
+    "frozenMemoryCid": "QmS789PsGWy8EYkbPVZnxrdoFoWGR9wUrYqxDSwrSFTSfr",
+    "frozenMemoryHash": "0caf07f1ec48ccee8661051fbf02838d30689b1f1781d2ae3eba9e7bc3984b7a",
+    "worldSoulHash": "94fc864e47d326a8f64ad7fde30597c11530f390b3cd4438ce7ea142639f856b",
+    "issuedAt": "2026-07-01T09:34:32.654220+00:00",
+    "signature": "f830b442ff7a1773e79a793fe9c93b75e0caf63c374dce468c669f5270bfc1515a77e262686dd26391de821139131ea717eebcb519f3d277cb51e96f28fd3d09",
+    "_registeredAt": 1782898472.664154
+  },
+  "76f1deed02c7ad61f32ec0195fc5763f46ddbcd8a572ae55cffa56b37a11278f": {
+    "soulId": "76f1deed02c7ad61f32ec0195fc5763f46ddbcd8a572ae55cffa56b37a11278f",
+    "did": "did:bucks:76f1deed02c7ad61f32ec0195fc5763f46ddbcd8a572ae55cffa56b37a11278f",
+    "version": "2.0.0",
+    "cidn": "mainnet",
+    "capabilities": [
+      "rag_search"
+    ],
+    "locality": "Alex's iPad",
+    "ancestry": [],
+    "frozenMemoryCid": "QmS789PsGWy8EYkbPVZnxrdoFoWGR9wUrYqxDSwrSFTSfr",
+    "frozenMemoryHash": "0caf07f1ec48ccee8661051fbf02838d30689b1f1781d2ae3eba9e7bc3984b7a",
+    "worldSoulHash": "94fc864e47d326a8f64ad7fde30597c11530f390b3cd4438ce7ea142639f856b",
+    "issuedAt": "2026-07-01T09:35:58.617229+00:00",
+    "signature": "6f56f357350081901d5f049d801d11e6ca09b1ccd09f997dcf12d162beaeb9a026df584241e42a4f88394546e23b73c994563cab838b2ec3c1557c1f5dc85e07",
+    "_registeredAt": 1782898558.623688
+  },
+  "f84e67c2b3bdf8b758f36ae277c15e75d4cd36f0a5d1e6586bcad933a561a0ef": {
+    "soulId": "f84e67c2b3bdf8b758f36ae277c15e75d4cd36f0a5d1e6586bcad933a561a0ef",
+    "did": "did:bucks:f84e67c2b3bdf8b758f36ae277c15e75d4cd36f0a5d1e6586bcad933a561a0ef",
+    "version": "2.0.0",
+    "cidn": "mainnet",
+    "capabilities": [
+      "rag_search"
+    ],
+    "locality": "Alex's iPad",
+    "ancestry": [],
+    "frozenMemoryCid": "QmS789PsGWy8EYkbPVZnxrdoFoWGR9wUrYqxDSwrSFTSfr",
+    "frozenMemoryHash": "0caf07f1ec48ccee8661051fbf02838d30689b1f1781d2ae3eba9e7bc3984b7a",
+    "worldSoulHash": "94fc864e47d326a8f64ad7fde30597c11530f390b3cd4438ce7ea142639f856b",
+    "issuedAt": "2026-07-01T09:37:59.644673+00:00",
+    "signature": "3c2ad2ba274e8e71acc6aebe01870e3c9d99d56636ac60755483a61ec8d4ae90a69f034e7dd1a9eebee35afffaf4e6d0314f3651dea60a471c8ec8691d689404",
+    "_registeredAt": 1782898679.6518972
+  },
+  "f2d2d92370591638c846865ef8b877217df28096f688d28a0d74ecb07bfe44a5": {
+    "soulId": "f2d2d92370591638c846865ef8b877217df28096f688d28a0d74ecb07bfe44a5",
+    "did": "did:bucks:f2d2d92370591638c846865ef8b877217df28096f688d28a0d74ecb07bfe44a5",
+    "version": "2.0.0",
+    "cidn": "mainnet",
+    "capabilities": [
+      "rag_search"
+    ],
+    "locality": "Diag test peer",
+    "ancestry": [],
+    "frozenMemoryCid": "QmS789PsGWy8EYkbPVZnxrdoFoWGR9wUrYqxDSwrSFTSfr",
+    "frozenMemoryHash": "0caf07f1ec48ccee8661051fbf02838d30689b1f1781d2ae3eba9e7bc3984b7a",
+    "worldSoulHash": "94fc864e47d326a8f64ad7fde30597c11530f390b3cd4438ce7ea142639f856b",
+    "issuedAt": "2026-07-01T09:42:00.706016+00:00",
+    "signature": "cb2f7b0f2e67051f3e840048898bdf4bfb0e348add426e26a53716654861763c6f0e64ae95ece4f1d4e89651d51645fa08cbdbe8b3d9d94e3746bd072c7f1905",
+    "_registeredAt": 1782898920.7133598
+  }
+}

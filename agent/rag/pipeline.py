@@ -136,38 +136,44 @@ class RAGPipeline:
 
     # ── Prompt building ───────────────────────────────────────────────────────
 
+    # Only inject a retrieved fragment when its cosine relevance to the query
+    # clears this floor. In edge mode (no Ollama) embeddings fall back to hash
+    # vectors, so most retrievals are weak — injecting them as "relevant
+    # context" actively derails the answer. A floor keeps RAG additive, not
+    # noisy: genuinely-matching memory still gets in, random matches don't.
+    _MIN_RELEVANCE = 0.35
+
     async def build_prompt(
         self, user_query: str, k: int = 5
     ) -> Tuple[str, str]:
         """
         Returns (system_prompt, user_prompt).
 
-        system_prompt = frozen_memory (immutable) + floating_context (top-k)
+        system_prompt = slim Bucks identity + only genuinely-relevant floating
+                        context. The heavy frozen manifest is NOT injected here
+                        (it's for hashing/peer-verification; dumping it into the
+                        prompt derails small local models — see frozen.py).
         user_prompt   = original query, unchanged.
         """
         items = await self.retrieve(user_query, k=k)
 
-        parts = [self._frozen.get_system_prompt(), ""]
+        parts = [self._frozen.get_runtime_system_prompt()]
 
-        if items:
-            quran_items  = [i for i in items if i.source.startswith("soul_of_the_world")]
-            other_items  = [i for i in items if not i.source.startswith("soul_of_the_world")]
+        # Filter to items that are actually about this query. The "soul of the
+        # world" verse items are dropped from the runtime prompt — the slim
+        # identity prompt already carries the values essence.
+        query_emb = await embed(user_query)
+        relevant = [
+            i for i in items
+            if not i.source.startswith("soul_of_the_world")
+            and i.priority_score(query_emb) >= self._MIN_RELEVANCE
+        ][:3]
 
-            if quran_items:
-                parts.append("=== SOUL OF THE WORLD — ethical grounding ===")
-                for item in quran_items:
-                    parts.append(item.text.strip())
-                    parts.append("")
-                parts.append("=== END SOUL OF THE WORLD ===")
-                parts.append("")
-
-            if other_items:
-                parts.append("=== RELEVANT CONTEXT (floating memory) ===")
-                for i, item in enumerate(other_items, 1):
-                    parts.append(f"[{i}] Source: {item.source}")
-                    parts.append(item.text.strip())
-                    parts.append("")
-                parts.append("=== END CONTEXT — use above to inform your response ===")
+        if relevant:
+            parts.append("")
+            parts.append("Relevant context from memory (use only if it helps answer the question):")
+            for idx, item in enumerate(relevant, 1):
+                parts.append(f"[{idx}] {item.text.strip()}")
 
         return "\n".join(parts), user_query
 
@@ -219,6 +225,25 @@ class RAGPipeline:
             col.upsert(ids=[item.item_id], documents=[text], embeddings=[emb], metadatas=[meta])
         except Exception as e:
             log.error("Failed to store IPFS fragment: %s", e)
+
+    async def adopt_ipfs_fragment(self, cid: str, source_peer: str) -> bool:
+        """
+        Adopt a peer's knowledge fragment by CID: fetch it, index it into the
+        IPFS collection, and pin it locally (cluster-wide when available) so
+        it doesn't depend on the original publisher staying online.
+
+        Callers MUST only invoke this after explicit user approval — this is
+        the write side of the pending-update consent queue, not something to
+        call automatically on peer discovery.
+        """
+        if not self._ipfs:
+            return False
+        frag = await self._ipfs.fetch_fragment(cid)
+        if not frag or not frag.get("text"):
+            return False
+        await self.store_ipfs_fragment(frag["text"], source_peer, cid)
+        await self._ipfs.pin_remote_cid(cid)
+        return True
 
     # ── Feedback ──────────────────────────────────────────────────────────────
 

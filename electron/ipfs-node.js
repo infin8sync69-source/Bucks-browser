@@ -25,6 +25,8 @@ let feed = [];
 let following = new Set();
 let pinnedFiles = new Map();
 let IPFS_DATA_DIR = null;
+let forageInterval = null;
+let advertiseInterval = null;
 
 let dwebIndex = [];
 let dwebIndexFile = null;
@@ -89,18 +91,53 @@ async function startNode() {
     const { noise } = await import("@chainsafe/libp2p-noise");
     const { yamux } = await import("@chainsafe/libp2p-yamux");
     const { mplex } = await import("@libp2p/mplex");
+    const { mdns } = await import("@libp2p/mdns");
+    const { bootstrap } = await import("@libp2p/bootstrap");
 
-    const libp2pNode = await createLibp2p({
-      addresses: {
-        listen: ["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/tcp/0/ws"],
-      },
-      transports: [tcp(), webSockets()],
-      connectionEncryption: [noise()],
-      streamMuxers: [yamux(), mplex()],
-      services: {
-        identify: identify(),
-        pubsub: gossipsub({ allowPublishToZeroPeers: true }),
-      },
+    // Peer discovery: mDNS finds Bucks nodes on the same LAN automatically;
+    // BUCKS_BOOTSTRAP_PEERS (comma-separated multiaddrs, e.g. over Tailscale)
+    // connects machines across networks.
+    const peerDiscovery = [mdns({ interval: 10000 })];
+    const bootstrapList = (process.env.BUCKS_BOOTSTRAP_PEERS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (bootstrapList.length > 0) {
+      peerDiscovery.push(bootstrap({ list: bootstrapList }));
+      console.log(`[Swarm] Bootstrap peers configured: ${bootstrapList.length}`);
+    }
+
+    // Stable ports so other machines can bootstrap-dial this node; fall back
+    // to OS-assigned ports if another instance already holds them.
+    async function createNode(listen) {
+      return createLibp2p({
+        addresses: { listen },
+        transports: [tcp(), webSockets()],
+        connectionEncryption: [noise()],
+        streamMuxers: [yamux(), mplex()],
+        peerDiscovery,
+        services: {
+          identify: identify(),
+          pubsub: gossipsub({ allowPublishToZeroPeers: true }),
+        },
+      });
+    }
+
+    let libp2pNode;
+    try {
+      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/4020", "/ip4/0.0.0.0/tcp/4021/ws"]);
+    } catch (portErr) {
+      console.warn(`[Swarm] Ports 4020/4021 unavailable (${portErr.message}) — using random ports.`);
+      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/tcp/0/ws"]);
+    }
+
+    libp2pNode.addEventListener("peer:discovery", (evt) => {
+      const peer = evt.detail;
+      console.log(`[Swarm] Discovered peer: ${peer.id.toString()}`);
+      libp2pNode.dial(peer.id).catch(() => {});
+    });
+    libp2pNode.addEventListener("peer:connect", (evt) => {
+      console.log(`[Swarm] Connected to peer: ${evt.detail.toString()}`);
     });
 
     heliaNode = await createHelia({
@@ -131,10 +168,10 @@ async function startNode() {
     gossip.subscribe(DWEB_TOPIC);
 
     // --- Swarm Survival: Foraging ---
-    setInterval(forageForScarcity, 60000); // Forage every minute
+    forageInterval = setInterval(forageForScarcity, 60000); // Forage every minute
 
     // Start periodic identity advertisement (Heartbeat)
-    setInterval(advertiseIdentity, 10000);
+    advertiseInterval = setInterval(advertiseIdentity, 10000);
 
     console.log(
       `[Swarm] Cluster Node Active. PeerID: ${heliaNode.libp2p.peerId.toString()}`,
@@ -213,9 +250,16 @@ async function advertiseIdentity() {
 function handleClusterMessage(msg) {
   try {
     const data = JSON.parse(new TextDecoder().decode(msg.data));
+    const fromPeerId = msg.from.toString();
 
     // Ignore self-messages
-    if (data.peerId === heliaNode.libp2p.peerId.toString()) return;
+    if (fromPeerId === heliaNode.libp2p.peerId.toString()) return;
+
+    // Enforce transport-layer sender validation
+    if (data.peerId !== fromPeerId) {
+      console.warn(`[Swarm] Dropped spoofed identity message: payload peerId ${data.peerId} does not match publisher ${fromPeerId}`);
+      return;
+    }
 
     if (data.type === "identity") {
       const peerId = data.peerId;
@@ -254,7 +298,13 @@ function handleClusterMessage(msg) {
 function handleFeedMessage(msg) {
   try {
     const data = JSON.parse(new TextDecoder().decode(msg.data));
+    const fromPeerId = msg.from.toString();
     if (data.type === "post") {
+      // Enforce transport-layer sender validation
+      if (data.post && data.post.peerId !== fromPeerId) {
+        console.warn(`[Swarm] Dropped spoofed feed post: payload peerId ${data.post.peerId} does not match publisher ${fromPeerId}`);
+        return;
+      }
       // Check if already in feed
       if (!feed.some((p) => p.cid === data.post.cid)) {
         feed.unshift(data.post);
@@ -325,6 +375,14 @@ async function disseminatePost(post) {
  * Gracefully stop the IPFS node.
  */
 async function stopNode() {
+  if (forageInterval) {
+    clearInterval(forageInterval);
+    forageInterval = null;
+  }
+  if (advertiseInterval) {
+    clearInterval(advertiseInterval);
+    advertiseInterval = null;
+  }
   if (heliaNode) {
     // Persist feed and following before shutdown
     const fs = require("fs");
@@ -604,6 +662,7 @@ function getNodeInfo() {
   return {
     status: "online",
     peerId: heliaNode.libp2p.peerId.toString(),
+    addresses: heliaNode.libp2p.getMultiaddrs().map((a) => a.toString()),
     peers: heliaNode.libp2p.getPeers().length,
     following: [...following],
     feedCount: feed.length,
@@ -634,6 +693,10 @@ function handleSoulMessage(msg) {
   try {
     const soul = JSON.parse(new TextDecoder().decode(msg.data));
     if (!soul || !soul.soulId) return;
+    const fromPeerId = msg.from.toString();
+    // Bind it directly to the verified publisher PeerID
+    soul.nodeId = fromPeerId;
+
     // Ignore our own broadcasts
     if (localSoul && soul.soulId === localSoul.soulId) return;
     console.log(`[Soul] Peer soul received: ${soul.soulId.slice(0, 16)}... locality=${soul.locality}`);
@@ -714,7 +777,13 @@ function getFsModule() {
 function handleDwebMessage(msg) {
   try {
     const data = JSON.parse(new TextDecoder().decode(msg.data));
+    const fromPeerId = msg.from.toString();
     if (data.type === "publish") {
+      // Enforce transport-layer sender validation
+      if (data.publisher !== fromPeerId) {
+        console.warn(`[Swarm] Dropped spoofed dWeb publication: publisher ${data.publisher} does not match transport publisher ${fromPeerId}`);
+        return;
+      }
       if (!dwebIndex.some((item) => item.cid === data.cid)) {
         dwebIndex.unshift({
           cid: data.cid,
@@ -756,7 +825,8 @@ async function publishDweb(name, cid, title, desc) {
     name,
     title,
     desc,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    publisher: heliaNode.libp2p.peerId.toString()
   };
 
   if (!dwebIndex.some((item) => item.cid === cid)) {
@@ -794,6 +864,23 @@ function searchDweb(query) {
   );
 }
 
+/**
+ * Manually dial and connect to a peer by their multiaddress.
+ */
+async function connectPeer(multiaddr) {
+  if (!heliaNode) throw new Error("IPFS node not running");
+  try {
+    const { multiaddr: parseMultiaddr } = await import("@multiformats/multiaddr");
+    const ma = parseMultiaddr(multiaddr);
+    await heliaNode.libp2p.dial(ma);
+    console.log(`[Swarm] Manually connected to peer: ${multiaddr}`);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Swarm] Failed to connect to peer ${multiaddr}:`, err);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   startNode,
   stopNode,
@@ -817,4 +904,5 @@ module.exports = {
   publishDweb,
   getDwebIndex,
   searchDweb,
+  connectPeer,
 };

@@ -11,12 +11,20 @@ BUCKS_ROOT = Path(os.environ.get("BUCKS_PROJECT_ROOT", Path.home() / "Desktop" /
 
 
 def _safe_path(rel_or_abs: str) -> Path:
-    """Resolve path, keeping it inside BUCKS_ROOT."""
+    """Resolve path, keeping it inside BUCKS_ROOT.
+
+    Containment is checked with ``is_relative_to`` (real path components), not a
+    string prefix — a raw ``startswith`` lets a sibling like
+    ``/x/bucks core-evil`` slip past the guard for root ``/x/bucks core``.
+    ``resolve()`` collapses symlinks, so a link pointing out of root is rejected
+    here rather than followed.
+    """
     p = Path(rel_or_abs)
     if not p.is_absolute():
         p = BUCKS_ROOT / p
     p = p.resolve()
-    if not str(p).startswith(str(BUCKS_ROOT.resolve())):
+    root = BUCKS_ROOT.resolve()
+    if p != root and not p.is_relative_to(root):
         raise PermissionError(f"Path outside project root: {p}")
     return p
 
