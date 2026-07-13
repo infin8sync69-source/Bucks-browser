@@ -1,3 +1,10 @@
+// Chromium's network location service (behind navigator.geolocation) needs a
+// Google API key to resolve Wi-Fi/cell-based positions. Optional: without it
+// pages fall back to coarse methods (the built-in map uses an IP fallback).
+if (process.env.BUCKS_GOOGLE_GEO_KEY && !process.env.GOOGLE_API_KEY) {
+  process.env.GOOGLE_API_KEY = process.env.BUCKS_GOOGLE_GEO_KEY;
+}
+
 // Prevent EPIPE errors from crashing the Electron main process (common when stdout/stderr are redirected/closed)
 if (process.stdout && typeof process.stdout.on === 'function') {
   process.stdout.on('error', (err) => {
@@ -1085,6 +1092,8 @@ app.whenReady().then(async () => {
   setupIPC();
   // Tab hosting: WebContentsView-backed tabs (see tab-manager.js).
   require('./tab-manager').setupTabIPC();
+  // Web permissions (geolocation, camera/mic, notifications, …) + Bluetooth.
+  require('./permission-manager').setupPermissions();
   setupIPFS();
   startIpfsServer();
   createWindow(settings);

@@ -1310,8 +1310,8 @@ async def agent(req: Request) -> StreamingResponse:
                 # Tokens BEFORE the component: the full-screen chat re-renders
                 # its thread on every appended chunk, and tokens arriving after
                 # an <iframe> exists would reload (restart) the video.
-                intro = (f"▶ Now playing the top result for “{media_q}” — tap any "
-                         f"thumbnail in the rail to switch videos.") if ui_spec else result
+                intro = (f"▶ Videos for “{media_q}” — tap the player or any thumbnail "
+                         f"to watch it in a new tab.") if ui_spec else result
                 for piece in _chunk(intro):
                     yield sse({"type": "token", "content": piece})
                 if ui_spec:

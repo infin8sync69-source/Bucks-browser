@@ -3772,34 +3772,23 @@
 
   // Play the clicked rail item's video in the global mini-player and move the
   // active highlight within this component.
+  // Videos open on the real YouTube watch page in a NEW TAB (tabs are native
+  // Chromium WebContentsViews now — full player, no embed restrictions, no
+  // error 150/152/153). The embedded mini player kept mis-playing restricted
+  // uploads, so tab playback is the primary path; __bucksMiniPlayer remains
+  // for anything that still wants docked playback.
   window.__bucksPlayVideoFromEl = function (playerId, el) {
     if (!el) return;
     const vid = el.getAttribute('data-vid') || '';
     if (!/^[A-Za-z0-9_-]{6,20}$/.test(vid)) return;
     const title = el.getAttribute('data-title') || '';
     const channel = el.getAttribute('data-channel') || '';
+    window.__bucksGenUIAction('navigate', `https://www.youtube.com/watch?v=${vid}`);
     const comp = el.closest('.gu-video');
-    // Feed the component's full result list to the mini player so an
-    // embed-restricted video can auto-advance to the next result.
-    if (comp) {
-      const queue = [];
-      comp.querySelectorAll('[data-vid]').forEach((it) => {
-        const v = it.getAttribute('data-vid');
-        if (v && !queue.some((q) => q.vid === v)) {
-          queue.push({ vid: v, title: it.getAttribute('data-title') || '', channel: it.getAttribute('data-channel') || '' });
-        }
-      });
-      window.__bucksMiniPlayer._queue = queue;
-      window.__bucksMiniPlayer._queuePos = queue.findIndex((q) => q.vid === vid);
-    } else {
-      window.__bucksMiniPlayer._queue = [];
-      window.__bucksMiniPlayer._queuePos = -1;
-    }
-    window.__bucksMiniPlayer.play(vid, channel ? `${title} · ${channel}` : title);
     if (comp) {
       comp.querySelectorAll('.gu-video-item').forEach(it => it.classList.toggle('active', it === el));
       const now = comp.querySelector('.gu-video-now');
-      if (now) now.textContent = `▶ ${title}${channel ? ' · ' + channel : ''}`;
+      if (now) now.textContent = `▶ ${title}${channel ? ' · ' + channel : ''} — playing in tab`;
     }
   };
 
@@ -4330,10 +4319,9 @@
             <div class="gu-video-sub">${_gu_esc(v.channel || '')}${v.views ? ' · ' + _gu_esc(v.views) : ''}</div>
           </div>
         </div>`).join('');
-      // Playback happens in the GLOBAL mini-player dock (window.__bucksMiniPlayer,
-      // a body-level <webview> — survives chat re-renders/minimize/close =
-      // background play). The hero area is a play button for the top result;
-      // the ↗ chip opens the real YouTube page in a browser tab.
+      // Playback opens the real YouTube watch page in a NEW TAB (native
+      // WebContentsView — no embed restrictions). The hero is the top result;
+      // rail thumbnails open their own tabs.
       const query = d.query || '';
       return `<div class="gu-video gu-more-scope">
         <div class="gu-video-player gu-video-hero"
@@ -4341,7 +4329,7 @@
              data-title="${_gu_attr(first.title)}"
              data-channel="${_gu_attr(first.channel || '')}"
              onclick="window.__bucksPlayVideoFromEl('${pid}', this)"
-             title="Play here (mini-player)">
+             title="Play in a new tab">
           <img src="${_gu_attr(first.thumbnail)}" referrerpolicy="no-referrer"/>
           <div class="gu-video-playbtn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
@@ -5002,6 +4990,12 @@
       }
     }
   }
+
+  /* ═══════════ NETWORK STATUS ═══════════ */
+  // Surface connectivity changes; failed tab loads get an in-view error page
+  // from tab-manager.js — this covers the shell-level signal.
+  window.addEventListener('offline', () => showToast('You’re offline — pages may not load', 'error'));
+  window.addEventListener('online', () => showToast('Back online', 'success'));
 
   /* ═══════════ AGENTIC BROWSER (Phase 1 slice) ═══════════ */
   // Bind the renderer actuation layer to whatever tab is active.

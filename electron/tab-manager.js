@@ -15,6 +15,7 @@
 'use strict';
 
 const { WebContentsView, BrowserWindow, Menu, clipboard, ipcMain } = require('electron');
+const { attachBluetoothChooser } = require('./permission-manager');
 
 /** tabId -> { view, winId, lastBounds, visible } */
 const tabsById = new Map();
@@ -54,6 +55,8 @@ function _wireEvents(tabId, winId, view) {
   wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 /* ERR_ABORTED: benign */) {
       send('did-fail-load', { errorCode: code, errorDescription: desc, validatedURL: url });
+      // Show a friendly in-tab error page (a blank void is not a browser).
+      wc.loadURL(_errorPageURL(code, desc, url)).catch(() => {});
     }
   });
   wc.on('found-in-page', (_e, result) => send('found-in-page', { result }));
@@ -116,6 +119,38 @@ function _wireEvents(tabId, winId, view) {
   });
 }
 
+function _errorPageURL(code, desc, url) {
+  const offline = code === -106; // ERR_INTERNET_DISCONNECTED
+  const dns = code === -105;     // ERR_NAME_NOT_RESOLVED
+  const heading = offline ? 'You’re offline' : dns ? 'Site not found' : 'This page didn’t load';
+  const hint = offline
+    ? 'Check your Wi-Fi or network connection, then retry.'
+    : dns
+      ? 'The address couldn’t be resolved — check the spelling of the domain.'
+      : `${desc || 'Unknown error'} (${code})`;
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(heading)}</title><style>
+    body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+         background:linear-gradient(160deg,#131316,#0b0b0e);color:#eee;
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    .card{max-width:420px;text-align:center;padding:40px}
+    .icon{font-size:44px;margin-bottom:14px}
+    h1{font-size:20px;margin:0 0 8px;font-weight:650}
+    p{font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.62);margin:0 0 6px;word-break:break-all}
+    .url{font-size:12px;color:rgba(255,255,255,.4)}
+    button{margin-top:20px;padding:10px 26px;border-radius:99px;border:1px solid rgba(123,63,228,.55);
+           background:rgba(123,63,228,.18);color:#c9a6ff;font-size:13.5px;font-weight:600;cursor:pointer}
+    button:hover{background:rgba(123,63,228,.32)}
+  </style></head><body><div class="card">
+    <div class="icon">${offline ? '📡' : dns ? '🧭' : '⚠️'}</div>
+    <h1>${esc(heading)}</h1>
+    <p>${esc(hint)}</p>
+    <p class="url">${esc(url)}</p>
+    <button onclick="location.replace(${JSON.stringify(url)})">Retry</button>
+  </div></body></html>`;
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+
 function _get(tabId) {
   const rec = tabsById.get(tabId);
   if (!rec || rec.view.webContents.isDestroyed()) return null;
@@ -147,6 +182,7 @@ function setupTabIPC() {
     win.contentView.addChildView(view);
     tabsById.set(tabId, { view, winId: win.id, lastBounds: null, visible: false });
     _wireEvents(tabId, win.id, view);
+    attachBluetoothChooser(view.webContents);
     if (url) view.webContents.loadURL(url).catch(() => {});
     return true;
   });

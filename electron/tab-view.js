@@ -30,7 +30,9 @@
   // otherwise paint above them, so their footprint is subtracted from the
   // view bounds ("push" behavior) — and full-screen overlays hide the view.
   const SIDE_OVERLAYS = ['#wallet-sidebar', '#ipfs-sidebar', '#settings-panel'];
-  const TOP_OVERLAYS = ['#find-bar'];
+  // Dropdowns from the top bar (agent panel, omnibox suggestions) push the
+  // page down to stay visible — native views always paint above shell DOM.
+  const TOP_OVERLAYS = ['#find-bar', '#nav-chat-panel', '#omnibox-dropdown'];
   const FULLSCREEN_OVERLAYS = ['#store-overlay'];
 
   function overlayVisible(el) {

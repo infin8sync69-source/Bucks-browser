@@ -864,19 +864,48 @@
   }
 
   // ════════════════════════ GEOLOCATION ════════════════════════
+  function _showLocation(lat, lon, accuracy, approx) {
+    if (locateMarker) map.removeLayer(locateMarker);
+    if (locateRing) map.removeLayer(locateRing);
+    locateMarker = L.marker([lat, lon], {
+      icon: L.divIcon({ className: '', iconSize: [13, 13], iconAnchor: [6, 6], html: '<div class="em-locate-dot"></div>' }),
+    }).addTo(map);
+    locateRing = L.circle([lat, lon], { radius: accuracy, color: '#fff', weight: 1, opacity: 0.4, fillOpacity: 0.06 }).addTo(map);
+    map.flyTo([lat, lon], approx ? 11 : 16, { duration: 1.2 });
+    if (approx) toast('Approximate location (network-based)');
+  }
+
+  // IP-based fallback: GPS-grade geolocation needs an OS location service that
+  // unpackaged Electron rarely has, so "Could not get your location" was the
+  // norm. City-level IP lookup keeps the Locate button useful everywhere.
+  async function _ipLocate() {
+    const providers = [
+      { url: 'https://ipapi.co/json/', lat: 'latitude', lon: 'longitude' },
+      { url: 'https://ipwho.is/', lat: 'latitude', lon: 'longitude' },
+    ];
+    for (const p of providers) {
+      try {
+        const r = await fetch(p.url, { signal: AbortSignal.timeout(5000) });
+        const d = await r.json();
+        const lat = Number(d[p.lat]), lon = Number(d[p.lon]);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
+      } catch (_) { /* try next provider */ }
+    }
+    return null;
+  }
+
   function locateMe() {
-    if (!navigator.geolocation) { toast('Geolocation not available'); return; }
     toast('Locating…');
+    const fallback = async () => {
+      const ip = await _ipLocate();
+      if (ip) _showLocation(ip.lat, ip.lon, 3000, true);
+      else toast('Could not get your location');
+    };
+    if (!navigator.geolocation) { fallback(); return; }
     navigator.geolocation.getCurrentPosition((p) => {
       const { latitude: lat, longitude: lon, accuracy } = p.coords;
-      if (locateMarker) map.removeLayer(locateMarker);
-      if (locateRing) map.removeLayer(locateRing);
-      locateMarker = L.marker([lat, lon], {
-        icon: L.divIcon({ className: '', iconSize: [13, 13], iconAnchor: [6, 6], html: '<div class="em-locate-dot"></div>' }),
-      }).addTo(map);
-      locateRing = L.circle([lat, lon], { radius: accuracy, color: '#fff', weight: 1, opacity: 0.4, fillOpacity: 0.06 }).addTo(map);
-      map.flyTo([lat, lon], 16, { duration: 1.2 });
-    }, () => toast('Could not get your location'), { enableHighAccuracy: true, timeout: 10000 });
+      _showLocation(lat, lon, accuracy, false);
+    }, fallback, { enableHighAccuracy: true, timeout: 8000 });
   }
 
   // ════════════════════════ OPEN / CLOSE ════════════════════════
