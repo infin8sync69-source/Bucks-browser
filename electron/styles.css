@@ -190,6 +190,29 @@ webview.active {
   display: flex;
 }
 
+/* WebContentsView placeholder: same layout contract as the legacy <webview>.
+   The real page is a native child view whose bounds mirror this element
+   (tab-view.js); the dark backdrop shows while a page is loading. */
+.webview-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: none;
+  border-radius: 32px;
+  background: #1a1a1c;
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.42);
+}
+.webview-host.active {
+  display: flex;
+}
+body.web-mode .webview-host {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
 /* ─── Newtab container visibility ─── */
 .newtab-container {
   display: none !important;

@@ -705,12 +705,12 @@
   }
 
   function createWebview(tab) {
-    const wv = document.createElement('webview');
+    // WebContentsView-backed tab (tab-view.js shim): real Chromium view in the
+    // main process, placeholder div in this DOM. Same API surface as <webview>.
     // Private windows isolate browsing in a non-persistent (in-memory) partition.
-    if (IS_PRIVATE) wv.setAttribute('partition', 'bucks-private');
+    const wv = new window.BucksTabView({ partition: IS_PRIVATE ? 'bucks-private' : undefined });
     wv.setAttribute('src', tab.url);
     wv.dataset.tabId = tab.id;
-    wv.setAttribute('allowpopups', '');
 
     // Listen for events
     wv.addEventListener('did-start-loading', () => {
@@ -759,7 +759,7 @@
       }
     });
 
-    browserContent.insertBefore(wv, walletSidebar);
+    browserContent.insertBefore(wv.el, walletSidebar);
     tab.webview = wv;
   }
 
@@ -812,7 +812,7 @@
     activeTabId = tabId;
 
     // Hide all webviews and newtab pages
-    browserContent.querySelectorAll('webview').forEach((wv) => wv.classList.remove('active'));
+    browserContent.querySelectorAll('webview, .webview-host').forEach((wv) => wv.classList.remove('active'));
     browserContent.querySelectorAll('.newtab-container').forEach((el) => el.classList.remove('active'));
 
     const tab = tabs.find((t) => t.id === tabId);
@@ -1186,7 +1186,7 @@
     activeSpaceId = spaceId;
     
     // Hide all webviews first
-    browserContent.querySelectorAll('webview').forEach(wv => wv.classList.remove('active'));
+    browserContent.querySelectorAll('webview, .webview-host').forEach(wv => wv.classList.remove('active'));
     
     // Get visible tabs in the target space
     const visibleTabs = tabs.filter(t => (t.spaceId || 'default') === activeSpaceId);

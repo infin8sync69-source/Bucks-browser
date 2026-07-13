@@ -179,6 +179,13 @@ function createWindow(settings, opts = {}) {
   // The main (non-private) window is the canonical reference used by IPC handlers.
   if (!isPrivate) mainWindow = win;
 
+  // Release this window's WebContentsView tabs with it. (Capture the id now —
+  // the BrowserWindow is already destroyed inside its 'closed' handler.)
+  const tabWinId = win.id;
+  win.on('closed', () => {
+    try { require('./tab-manager').destroyTabsForWindow(tabWinId); } catch (_) {}
+  });
+
   const fallbackDevUrl = 'http://localhost:3000';
   const homepage = settings?.homepage || 'bucks://newtab';
   const isInternalHomepage = /^(bucks|ipfs|ipns|file):\/\//.test(homepage) || /^https?:\/\/(localhost|127\.0\.0\.1)/.test(homepage);
@@ -1076,6 +1083,8 @@ app.whenReady().then(async () => {
   setupProtocols();
 
   setupIPC();
+  // Tab hosting: WebContentsView-backed tabs (see tab-manager.js).
+  require('./tab-manager').setupTabIPC();
   setupIPFS();
   startIpfsServer();
   createWindow(settings);

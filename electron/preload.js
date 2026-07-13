@@ -146,9 +146,40 @@ const nexusAPI = {
   },
 };
 
+/* ─── Tab hosting (WebContentsView) ───
+   Renderer-side tab placeholders (tab-view.js) drive real Chromium views in
+   the main process (tab-manager.js) through this narrow surface. */
+const bucksTabs = {
+  create: (tabId, url, partition) => ipcRenderer.invoke('tabs:create', { tabId, url, partition }),
+  close: (tabId) => ipcRenderer.invoke('tabs:close', { tabId }),
+  navigate: (tabId, url) => ipcRenderer.invoke('tabs:navigate', { tabId, url }),
+  setBounds: (tabId, bounds) => ipcRenderer.invoke('tabs:setBounds', { tabId, bounds }),
+  setVisible: (tabId, visible) => ipcRenderer.invoke('tabs:setVisible', { tabId, visible }),
+  setBorderRadius: (tabId, radius) => ipcRenderer.invoke('tabs:setBorderRadius', { tabId, radius }),
+  goBack: (tabId) => ipcRenderer.invoke('tabs:goBack', { tabId }),
+  goForward: (tabId) => ipcRenderer.invoke('tabs:goForward', { tabId }),
+  reload: (tabId) => ipcRenderer.invoke('tabs:reload', { tabId }),
+  stop: (tabId) => ipcRenderer.invoke('tabs:stop', { tabId }),
+  setZoom: (tabId, factor) => ipcRenderer.invoke('tabs:setZoom', { tabId, factor }),
+  print: (tabId) => ipcRenderer.invoke('tabs:print', { tabId }),
+  openDevTools: (tabId) => ipcRenderer.invoke('tabs:openDevTools', { tabId }),
+  find: (tabId, text, options) => ipcRenderer.invoke('tabs:find', { tabId, text, options }),
+  stopFind: (tabId, action) => ipcRenderer.invoke('tabs:stopFind', { tabId, action }),
+  execJS: (tabId, code, userGesture) => ipcRenderer.invoke('tabs:execJS', { tabId, code, userGesture }),
+  capture: (tabId) => ipcRenderer.invoke('tabs:capture', { tabId }),
+  getURL: (tabId) => ipcRenderer.invoke('tabs:getURL', { tabId }),
+  onEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('tabs:event', handler);
+    return () => ipcRenderer.removeListener('tabs:event', handler);
+  },
+};
+
 // STRIDE: Tampering Mitigation - Freeze the APIs to prevent prototype pollution
 Object.freeze(bucksAPI);
 Object.freeze(nexusAPI);
+Object.freeze(bucksTabs);
 
 contextBridge.exposeInMainWorld('bucksAPI', bucksAPI);
 contextBridge.exposeInMainWorld('nexusAPI', nexusAPI);
+contextBridge.exposeInMainWorld('bucksTabs', bucksTabs);

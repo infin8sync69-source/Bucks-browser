@@ -118,6 +118,10 @@
   }
 
   async function screenshot(wv) {
+    // WebContentsView shim path (tab-view.js): capture happens in main.
+    if (wv && typeof wv.capturePageBase64 === 'function') {
+      return wv.capturePageBase64();
+    }
     if (!wv || typeof wv.capturePage !== 'function') {
       throw new Error('Screenshot not available for this tab.');
     }
