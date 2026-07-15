@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Bucks Web3 Browser - Root dependencies",
   "private": true,
+  "scripts": {
+    "start": "npm --prefix electron start",
+    "test": "npm --prefix electron test"
+  },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@chainsafe/libp2p-noise": "^17.0.0",

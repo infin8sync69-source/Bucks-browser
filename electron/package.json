@@ -6,8 +6,7 @@
   "author": "Bucks Developer",
   "scripts": {
     "start": "npx electron .",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build:shell": "cd next-shell && npm run build",
+    "test": "playwright test tests/",
     "dist": "electron-builder",
     "pack": "electron-builder --dir",
     "preview": "electron-builder --dir"
@@ -46,7 +45,7 @@
       {
         "provider": "github",
         "owner": "infin8sync69-source",
-        "repo": "Bucks-browser"
+        "repo": "buckscore"
       }
     ],
     "win": {

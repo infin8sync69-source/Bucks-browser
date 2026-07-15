@@ -1,3 +1,7 @@
+> ⚠️ **SUPERSEDED (2026-07-15).** This guide predates the embedded edge model and still
+> mandates Ollama and references removed components (tauri, Next.js shell). Follow the
+> root [README](../README.md) instead. Kept only as a historical reference.
+
 # Unified Setup & Run Guide — Bucks Browser
 
 This guide explains how to set up, build, and run the entire unified **Bucks Browser** project on a fresh machine. The repository contains the desktop shell, the AI agent backend, and the decentralized IPFS file manager.
