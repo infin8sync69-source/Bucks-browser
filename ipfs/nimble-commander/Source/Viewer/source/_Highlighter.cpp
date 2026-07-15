@@ -1,5 +1,0 @@
-#include "Highlighting/Document.cpp"
-#include "Highlighting/Highlighter.cpp"
-#include "Highlighting/LexerSettings.cpp"
-#include "Highlighting/Service.cpp"
-#include "Highlighting/Style.cpp"

@@ -1,3 +1,0 @@
-OTHER_LDFLAGS = $(inherited) -lUtility -lBase -lCatch2
-EXECUTABLE_PREFIX=
-ONLY_ACTIVE_ARCH=YES

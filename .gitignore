@@ -43,3 +43,13 @@ __pycache__/
 
 # Test/runtime scratch profiles
 test-userData*/
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Cluster secrets (use cluster-config.env.example)
+ipfs/cluster-config.env
+
+# Runtime caches
+agent/soul/.frozen_cid_cache
