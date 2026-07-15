@@ -47,6 +47,34 @@ test.describe('Bucks E2E & Visual Regression Suite', () => {
     });
   });
 
+  test('Spatial layout: page renders in the stage, clear of the agent dock', async () => {
+    // Navigate via the global agent bar (URL input → tab navigation).
+    await page.fill('#nt-search-input', 'https://example.com');
+    await page.press('#nt-search-input', 'Enter');
+    await page.waitForTimeout(3500);
+
+    const shell = await page.evaluate(() => {
+      const bar = document.getElementById('agentic-search-bar');
+      return {
+        webMode: document.body.classList.contains('web-mode'),
+        barTop: bar ? bar.getBoundingClientRect().top : null,
+        inner: [innerWidth, innerHeight],
+      };
+    });
+    expect(shell.webMode).toBe(true);
+    expect(shell.barTop).not.toBeNull();
+
+    // The native WebContentsView must stop above the agent dock band — the
+    // dock is shell DOM and a native view would otherwise paint over it.
+    const views = await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('index.html'));
+      return win.contentView.children.map((v) => ({ bounds: v.getBounds(), visible: v.getVisible() }));
+    });
+    const active = views.find((v) => v.visible);
+    expect(active).toBeTruthy();
+    expect(active.bounds.y + active.bounds.height).toBeLessThanOrEqual(shell.barTop);
+  });
+
   test('Performance Benchmarks: Memory Limits', async () => {
     // Pull main process memory usage statistics via the bucksAPI preload bridge
     const memory = await page.evaluate(async () => {

@@ -111,81 +111,6 @@
             </button>
             <div id="omnibox-dropdown" class="hidden"></div>
 
-            <!-- NEW NAV AI CHAT DROPDOWN -->
-            <div id="nav-chat-panel" class="hidden" style="position:absolute; top:100%; left:50%; transform:translateX(-50%); width:600px; height:500px; margin-top:14px; z-index:200; background:linear-gradient(155deg,rgba(70,70,74,0.85),rgba(30,30,34,0.75)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.2); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3); border-radius:24px; padding:18px; display:flex; flex-direction:column; gap:12px;">
-              
-              <!-- Chat Header -->
-              <div id="nav-chat-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
-                <span style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.8); letter-spacing:0.02em;">✦ Bucks Agent</span>
-                <div style="display:flex; gap:6px;">
-                  <button id="btn-nav-chat-expand" class="nav-chat-hbtn nav-chat-hbtn--primary" title="Open in New Tab">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg> Open in New Tab
-                  </button>
-                  <button id="btn-nav-chat-history" class="nav-chat-hbtn" title="Navigate to Chat History">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M3 20h.01M9 20h.01M3 12h18M3 4h18"/></svg> History
-                  </button>
-                  <button id="btn-nav-chat-new" class="nav-chat-hbtn" title="Start a new chat">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> New
-                  </button>
-                  <button id="btn-nav-chat-refresh" class="nav-chat-hbtn" title="Clear this conversation">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg> Clear
-                  </button>
-                  <button id="btn-nav-chat-minimize" class="nav-chat-hbtn nav-chat-hbtn--icon" title="Minimize chat">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
-                  </button>
-                  <button id="btn-nav-chat-dismiss" class="nav-chat-hbtn nav-chat-hbtn--icon" title="Close conversation">✕</button>
-                </div>
-              </div>
-
-              <!-- Agent Settings Control Bar -->
-              <div id="nav-chat-controls" style="display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid rgba(255,255,255,0.06); padding:4px 0 8px; flex-wrap:wrap; flex-shrink:0;">
-                <!-- Consent Checklist -->
-                <div style="display:flex; gap:8px; align-items:center; font-size:10.5px; color:rgba(255,255,255,0.5); flex-wrap:wrap;">
-                  <span style="font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:0.03em;">Consent:</span>
-                  
-                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
-                    <input type="checkbox" id="nav-consent-page" checked style="accent-color:#a978ff; cursor:pointer;" />
-                    <span>📄 Page</span>
-                  </label>
-                  
-                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
-                    <input type="checkbox" id="nav-consent-selection" checked style="accent-color:#a978ff; cursor:pointer;" />
-                    <span>🔍 Selection</span>
-                  </label>
-                  
-                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
-                    <input type="checkbox" id="nav-consent-tabs" style="accent-color:#a978ff; cursor:pointer;" />
-                    <span>🗂 Tabs</span>
-                  </label>
-                  
-                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
-                    <input type="checkbox" id="nav-consent-files" style="accent-color:#a978ff; cursor:pointer;" />
-                    <span>📎 Files (RAG)</span>
-                  </label>
-                </div>
-                
-                <!-- Model Selector -->
-                <div style="display:flex; align-items:center; gap:5px;">
-                  <span style="font-size:10.5px; color:rgba(255,255,255,0.3); font-weight:700; text-transform:uppercase; letter-spacing:0.03em;">Model:</span>
-                  <select id="nav-chat-model-select" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:11px; padding:3px 6px; outline:none; cursor:pointer; font-family:inherit;">
-                    <option value="">Loading...</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Chat Messages Container -->
-              <div id="nav-chat-messages-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:14px; padding-right:6px;" class="scrollbar-thin">
-                <!-- Messages will be appended here dynamically -->
-              </div>
-
-              <!-- Default Chat Chips -->
-              <div id="nav-chat-chips-container" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:4px;">
-                <button class="nav-chat-chip" data-query="Find flights to Lisbon" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Flights to Lisbon ✈️</button>
-                <button class="nav-chat-chip" data-query="Compare MacBook Air M4 vs Pro M4" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Compare MacBooks 💻</button>
-                <button class="nav-chat-chip" data-query="Summarize active page" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Summarize Page 📄</button>
-              </div>
-
-            </div>
           </div>
 
           <!-- SPACE SELECTOR -->
@@ -383,9 +308,85 @@
         </div>
 
         <!-- AGENTIC SEARCH BAR (STATIC PER TAB) -->
-        <div id="global-agent-dock" style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 100; width: 600px;">
+        <div id="global-agent-dock" style="position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 100; width: min(720px, calc(100% - 48px));">
           <!-- Ephemeral response zone / chat inference -->
-          <div id="nt-ephemeral-zone" class="nt-ephemeral-zone hidden"></div>
+          <div id="nt-ephemeral-zone" class="nt-ephemeral-zone hidden">
+            <!-- NEW NAV AI CHAT DROPDOWN -->
+            <div id="nav-chat-panel" class="hidden" style="width:100%; height:500px; z-index:200; background:linear-gradient(155deg,rgba(70,70,74,0.85),rgba(30,30,34,0.75)); backdrop-filter:blur(46px) brightness(1.06); -webkit-backdrop-filter:blur(46px) brightness(1.06); border:1px solid rgba(255,255,255,0.2); box-shadow:0 40px 100px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3); border-radius:24px; padding:18px; display:flex; flex-direction:column; gap:12px; transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), padding 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;">
+              
+              <!-- Chat Header -->
+              <div id="nav-chat-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">
+                <span style="font-size:13px; font-weight:600; color:rgba(255,255,255,0.8); letter-spacing:0.02em;">✦ Bucks Agent</span>
+                <div style="display:flex; gap:6px;">
+                  <button id="btn-nav-chat-expand" class="nav-chat-hbtn nav-chat-hbtn--primary" title="Open in New Tab">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg> Open in New Tab
+                  </button>
+                  <button id="btn-nav-chat-history" class="nav-chat-hbtn" title="Navigate to Chat History">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M3 20h.01M9 20h.01M3 12h18M3 4h18"/></svg> History
+                  </button>
+                  <button id="btn-nav-chat-new" class="nav-chat-hbtn" title="Start a new chat">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> New
+                  </button>
+                  <button id="btn-nav-chat-refresh" class="nav-chat-hbtn" title="Clear this conversation">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/></svg> Clear
+                  </button>
+                  <button id="btn-nav-chat-minimize" class="nav-chat-hbtn nav-chat-hbtn--icon" title="Minimize chat">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
+                  </button>
+                  <button id="btn-nav-chat-dismiss" class="nav-chat-hbtn nav-chat-hbtn--icon" title="Close conversation">✕</button>
+                </div>
+              </div>
+
+              <!-- Agent Settings Control Bar -->
+              <div id="nav-chat-controls" style="display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid rgba(255,255,255,0.06); padding:4px 0 8px; flex-wrap:wrap; flex-shrink:0;">
+                <!-- Consent Checklist -->
+                <div style="display:flex; gap:8px; align-items:center; font-size:10.5px; color:rgba(255,255,255,0.5); flex-wrap:wrap;">
+                  <span style="font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:0.03em;">Consent:</span>
+                  
+                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
+                    <input type="checkbox" id="nav-consent-page" checked style="accent-color:#a978ff; cursor:pointer;" />
+                    <span>📄 Page</span>
+                  </label>
+                  
+                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
+                    <input type="checkbox" id="nav-consent-selection" checked style="accent-color:#a978ff; cursor:pointer;" />
+                    <span>🔍 Selection</span>
+                  </label>
+                  
+                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
+                    <input type="checkbox" id="nav-consent-tabs" style="accent-color:#a978ff; cursor:pointer;" />
+                    <span>🗂 Tabs</span>
+                  </label>
+                  
+                  <label class="nav-chat-checkbox-label" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none;">
+                    <input type="checkbox" id="nav-consent-files" style="accent-color:#a978ff; cursor:pointer;" />
+                    <span>📎 Files (RAG)</span>
+                  </label>
+                </div>
+                
+                <!-- Model Selector -->
+                <div style="display:flex; align-items:center; gap:5px;">
+                  <span style="font-size:10.5px; color:rgba(255,255,255,0.3); font-weight:700; text-transform:uppercase; letter-spacing:0.03em;">Model:</span>
+                  <select id="nav-chat-model-select" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:6px; color:#fff; font-size:11px; padding:3px 6px; outline:none; cursor:pointer; font-family:inherit;">
+                    <option value="">Loading...</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Chat Messages Container -->
+              <div id="nav-chat-messages-container" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:14px; padding-right:6px;" class="scrollbar-thin">
+                <!-- Messages will be appended here dynamically -->
+              </div>
+
+              <!-- Default Chat Chips -->
+              <div id="nav-chat-chips-container" style="display:flex; flex-direction:row; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:4px;">
+                <button class="nav-chat-chip" data-query="Find flights to Lisbon" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Flights to Lisbon ✈️</button>
+                <button class="nav-chat-chip" data-query="Compare MacBook Air M4 vs Pro M4" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Compare MacBooks 💻</button>
+                <button class="nav-chat-chip" data-query="Summarize active page" style="padding:8px 12px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#fff; cursor:pointer; font-size:12.5px; font-family:inherit; transition:background 0.2s;">Summarize Page 📄</button>
+              </div>
+
+            </div>
+</div>
 
           <!-- Agentic search bar -->
           <div id="agentic-search-bar" class="nt-search-wrap" style="position:relative; width:100%; height:50px; background:linear-gradient(150deg, rgba(50,50,56,0.95), rgba(28,28,32,0.95)); backdrop-filter:blur(40px) brightness(1.1); -webkit-backdrop-filter:blur(40px) brightness(1.1); border-radius:12px; border:1px solid rgba(255, 255, 255, 0.12); display:flex; align-items:center; padding:0 20px; box-shadow:0 12px 32px rgba(0,0,0,0.4); transition: transform 0.2s, box-shadow 0.2s; box-sizing: border-box;">

@@ -5,6 +5,9 @@
 
 /* ─── Design Tokens (DTCG) ─── */
 :root {
+  /* Bottom band reserved for the global agent dock: 50px bar + 24px bottom
+     offset + 22px breathing room. The web-mode spatial stage stops here. */
+  --agent-dock-clearance: 96px;
   --bucks-bg-base: #121212;
   --bucks-glass-bg: rgba(255, 255, 255, 0.08); /* Adjusted for 30-50% overall feel based on context */
   --bucks-glass-hover: rgba(255, 255, 255, 0.12);
@@ -251,9 +254,20 @@ webview.active {
 .webview-host.active {
   display: flex;
 }
+/* Spatial stage: in web mode the page renders inside an inset, rounded box
+   that leaves a permanent bottom band free for the global agent dock. The
+   native WebContentsView mirrors this rect (tab-view.js), so the dock and
+   its response zone are never painted over by the page. */
 body.web-mode .webview-host {
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  top: 10px;
+  left: 14px;
+  right: 14px;
+  bottom: var(--agent-dock-clearance, 96px);
+  width: auto;
+  height: auto;
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  outline: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Media-component pagination: items beyond the first page stay in the DOM

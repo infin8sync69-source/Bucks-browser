@@ -30,9 +30,14 @@
   // otherwise paint above them, so their footprint is subtracted from the
   // view bounds ("push" behavior) — and full-screen overlays hide the view.
   const SIDE_OVERLAYS = ['#wallet-sidebar', '#ipfs-sidebar', '#settings-panel'];
-  // Dropdowns from the top bar (agent panel, omnibox suggestions) push the
+  // Dropdowns from the top bar (omnibox suggestions, find bar) push the
   // page down to stay visible — native views always paint above shell DOM.
-  const TOP_OVERLAYS = ['#find-bar', '#nav-chat-panel', '#omnibox-dropdown'];
+  const TOP_OVERLAYS = ['#find-bar', '#omnibox-dropdown'];
+  // The global agent dock lives in the bottom band: its response zone
+  // (#nt-ephemeral-zone, home of #nav-chat-panel) and the omnibar suggestion
+  // dropdown rise upward over the stage, so their footprint is subtracted
+  // from the view's BOTTOM edge instead.
+  const BOTTOM_OVERLAYS = ['#nt-ephemeral-zone', '.command-suggestions-dropdown'];
   const FULLSCREEN_OVERLAYS = ['#store-overlay'];
 
   function overlayVisible(el) {
@@ -168,6 +173,12 @@
         const o = el.getBoundingClientRect();
         if (o.bottom > top && o.top < bottom) top = Math.max(top, o.bottom + 8);
       }
+      for (const sel of BOTTOM_OVERLAYS) {
+        const el = document.querySelector(sel);
+        if (!overlayVisible(el)) continue;
+        const o = el.getBoundingClientRect();
+        if (o.height > 0 && o.top < bottom && o.bottom > top) bottom = Math.min(bottom, o.top - 8);
+      }
 
       const bounds = {
         x: left, y: top,
@@ -179,9 +190,10 @@
         this._lastSig = sig;
         window.bucksTabs.setBounds(this.tabViewId, bounds).catch(() => {});
         window.bucksTabs.setVisible(this.tabViewId, true).catch(() => {});
-        // web-mode pages are square-cornered; the dashboard look is rounded.
+        // Match the spatial-stage CSS: 18px inset box in web mode, 32px
+        // rounded dashboard look otherwise.
         window.bucksTabs.setBorderRadius(
-          this.tabViewId, document.body.classList.contains('web-mode') ? 0 : 32
+          this.tabViewId, document.body.classList.contains('web-mode') ? 18 : 32
         ).catch(() => {});
       }
     }

@@ -3450,8 +3450,17 @@
     // Shopping → route to the agent (deterministic product_lookup)
     if (isShoppingQuery(lower)) return 'shopping';
 
-    // Location / directions intent (on map page only)
-    const isMapPage = (() => { const v = document.getElementById('view-newtab'); return v && !v.classList.contains('hidden'); })();
+    // Location / directions intent (on map page only). The dashboard hides by
+    // toggling #dashboard-window, so checking #view-newtab alone stays truthy
+    // on web pages — require dashboard mode (not web-mode) as well, or every
+    // short query typed over a website becomes a place search.
+    const isMapPage = (() => {
+      if (document.body.classList.contains('web-mode')) return false;
+      const dw = document.getElementById('dashboard-window');
+      if (dw && dw.classList.contains('hidden')) return false;
+      const v = document.getElementById('view-newtab');
+      return v && !v.classList.contains('hidden');
+    })();
     if (isMapPage) {
       // "X to Y" routing pattern
       if (/^.+\s+to\s+.+$/i.test(lower)) return 'location';
@@ -5172,9 +5181,10 @@
     chatBusy = true;
     const startTime = Date.now();
 
-    // Ensure nav chat panel is opened
-    const navPanel = document.getElementById('nav-chat-panel');
-    if (navPanel) navPanel.classList.remove('hidden');
+    // Ensure the agent dock's response zone is open — the panel lives inside
+    // #nt-ephemeral-zone now, so un-hiding the panel alone leaves it clipped
+    // by the zone's zero height.
+    dockChatPanel();
 
     /* ── NEXUS AGENTIC PATH ──
      * Triggered by: /agent <goal>  OR  keywords like "search and open", "book", etc.
@@ -5621,11 +5631,12 @@
     const navPanel = document.getElementById('nav-chat-panel');
     const zone = document.getElementById('nt-ephemeral-zone');
     const view = document.getElementById('view-newtab');
-    if (!navPanel || !zone || navPanel.dataset.docked === 'true') return;
-    navPanel.dataset.docked = 'true';
-    zone.appendChild(navPanel);
+    if (!navPanel || !zone) return;
+    
+    // It is permanently docked now. Just show it.
     zone.classList.remove('hidden');
     navPanel.classList.remove('hidden');
+    navPanel.classList.remove('nav-chat-min'); // Ensure it's not minimized
     // Force reflow
     zone.offsetHeight;
     zone.classList.add('active');
@@ -5636,25 +5647,16 @@
   function undockChatPanel() {
     const navPanel = document.getElementById('nav-chat-panel');
     const zone = document.getElementById('nt-ephemeral-zone');
-    const originalParent = document.getElementById('url-search-wrap');
     const view = document.getElementById('view-newtab');
     
     if (zone) {
       zone.classList.remove('active');
       setTimeout(() => {
         navPanel?.classList.add('hidden');
-        if (navPanel && navPanel.dataset.docked === 'true' && originalParent) {
-          originalParent.appendChild(navPanel);
-          navPanel.dataset.docked = 'false';
-        }
         zone.classList.add('hidden');
       }, 300);
     } else {
       navPanel?.classList.add('hidden');
-      if (navPanel && navPanel.dataset.docked === 'true' && originalParent) {
-        originalParent.appendChild(navPanel);
-        navPanel.dataset.docked = 'false';
-      }
     }
     if (view) view.classList.remove('nt-ephemeral-active');
   }
@@ -5822,24 +5824,16 @@
       });
     }
 
-    // Minimize: collapse the panel to its header bar. The conversation (and
-    // any in-flight stream) is preserved — clicking — again, or the header
-    // title, restores it.
+    // Minimize: completely hide the chat panel, leaving only the persistent
+    // search bar at the bottom, matching the Claude UI concept.
     const minNav = document.getElementById('btn-nav-chat-minimize');
     if (minNav) {
       minNav.addEventListener('click', () => {
-        document.getElementById('nav-chat-panel')?.classList.toggle('nav-chat-min');
+        undockChatPanel();
       });
     }
-    const headerNav = document.getElementById('nav-chat-header');
-    if (headerNav) {
-      headerNav.addEventListener('click', (e) => {
-        // Only the bar itself restores — buttons keep their own actions.
-        if (e.target.closest('button')) return;
-        const panel = document.getElementById('nav-chat-panel');
-        if (panel?.classList.contains('nav-chat-min')) panel.classList.remove('nav-chat-min');
-      });
-    }
+    
+    // (dismiss button is wired above: undock + resetChat)
 
     document.querySelectorAll('.nav-chat-chip').forEach((chip) => {
       chip.addEventListener('click', () => {
