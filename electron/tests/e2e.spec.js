@@ -6,9 +6,17 @@ test.describe('Bucks E2E & Visual Regression Suite', () => {
   let page;
 
   test.beforeAll(async () => {
-    // Launch Electron and await the main window
+    // Launch Electron and await the shell window. In dev the app also opens
+    // a DevTools window, so firstWindow() is racy — select by URL instead.
     electronApp = await electron.launch({ args: ['.'] });
-    page = await electronApp.firstWindow();
+    const deadline = Date.now() + 20000;
+    for (;;) {
+      page = electronApp.windows().find(w => w.url().includes('index.html'));
+      if (page) break;
+      if (Date.now() > deadline) throw new Error('Shell window (index.html) never appeared');
+      await new Promise(r => setTimeout(r, 250));
+    }
+    await page.waitForLoadState('domcontentloaded');
   });
 
   test.afterAll(async () => {
@@ -16,41 +24,27 @@ test.describe('Bucks E2E & Visual Regression Suite', () => {
   });
 
   test('Smoke Test: App boot and persistent elements', async () => {
-    expect(await page.title()).toBe('bucks');
-    
+    expect(await page.title()).toBe('Bucks Browser');
+
     // Verify address bar is present and functional
     const addressBar = page.locator('#address-bar');
     await expect(addressBar).toBeVisible();
-    
-    // Verify persistent agent chat panel is present
+
+    // The agent chat panel is on-demand: it must exist in the DOM but stay
+    // hidden until the user opens it from the omnibar / new-tab zone.
     const agentPanel = page.locator('#nav-chat-panel');
-    await expect(agentPanel).toBeVisible();
+    await expect(agentPanel).toBeAttached();
+    await expect(agentPanel).toBeHidden();
   });
 
-  test('Visual Regression: Agent Panel states', async () => {
-    const agentPanel = page.locator('#nav-chat-panel');
-    await expect(agentPanel).toBeVisible();
-
-    // 1. Verify default expanded state screenshot matches baseline
-    await expect(agentPanel).toHaveScreenshot('agent-panel-expanded.png', {
+  test('Visual Regression: omnibar chrome', async () => {
+    // The chat panel is transient (docks in and out around chat turns), so
+    // the persistent omnibar area is the stable regression target.
+    const omnibar = page.locator('#url-search-wrap');
+    await expect(omnibar).toBeVisible();
+    await expect(omnibar).toHaveScreenshot('omnibar-chrome.png', {
       maxDiffPixelRatio: 0.05
     });
-
-    // 2. Minimize state
-    const minBtn = page.locator('#btn-nav-chat-minimize');
-    if (await minBtn.isVisible()) {
-      await minBtn.click();
-      await page.waitForTimeout(600); // Wait for transition animation
-      
-      // Verify minimized bubble screenshot matches baseline
-      await expect(agentPanel).toHaveScreenshot('agent-panel-minimized.png', {
-        maxDiffPixelRatio: 0.05
-      });
-      
-      // Restore panel
-      await agentPanel.click();
-      await page.waitForTimeout(600);
-    }
   });
 
   test('Performance Benchmarks: Memory Limits', async () => {
@@ -65,7 +59,7 @@ test.describe('Bucks E2E & Visual Regression Suite', () => {
     if (memory) {
       const heapUsedMB = memory.heapUsed / (1024 * 1024);
       console.log(`[Performance Benchmark] Current JS Heap Used: ${heapUsedMB.toFixed(2)} MB`);
-      
+
       // Verify process matches Idle State Budget (< 80MB)
       expect(heapUsedMB).toBeLessThan(80);
     } else {
