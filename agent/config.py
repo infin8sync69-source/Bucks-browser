@@ -157,6 +157,9 @@ QURAN_RAG_EMBED_BATCH   = int(os.getenv("QURAN_RAG_EMBED_BATCH", "50"))
 # ── RAG / Floating Memory ──────────────────────────────────────────────────────
 RAG_EMBED_MODEL = os.getenv("RAG_EMBED_MODEL", "nomic-embed-text")
 RAG_TOP_K       = int(os.getenv("RAG_TOP_K",   "5"))
+# Preferred IPFS API only — actual calls resolve through ipfs_endpoints.py,
+# which also tries the Bucks browser's Helia bridge (~/.bucks/ipfs.json,
+# :5006) and falls back to HTTP gateways for reads.
 IPFS_API_URL    = os.getenv("IPFS_API_URL",    "http://localhost:5001")
 # IPFS Cluster REST API (ipfs-cluster-service) — used when reachable so
 # knowledge fragments/adapters replicate across every peer in the cluster

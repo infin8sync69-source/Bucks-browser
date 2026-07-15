@@ -98,6 +98,12 @@ async function initChat(helia, gossipSub, unixfs) {
 
   gossip.subscribe(BUNDLE_TOPIC);
 
+  // Exchange key bundles immediately upon peer connection
+  heliaNode.libp2p.addEventListener("peer:connect", (evt) => {
+    console.log(`[Chat] Swarm connection established with peer: ${evt.detail.toString()}. Triggering bundle exchange.`);
+    publishPreKeyBundle();
+  });
+
   // Register direct stream handler for E2E chat messages
   heliaNode.libp2p.handle('/bucks/chat/1.0.0', async ({ stream }) => {
     try {

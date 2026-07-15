@@ -14,6 +14,7 @@ from typing import List, Optional
 
 import aiohttp
 
+import ipfs_endpoints
 from ipfs_cluster_client import IPFSClusterClient
 
 log = logging.getLogger("bucks.rag.ipfs_store")
@@ -43,6 +44,36 @@ class IPFSKnowledgeStore:
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
+    async def _cat_bytes(self, cid: str) -> Optional[bytes]:
+        """
+        Fetch raw bytes for a CID with maximum compatibility: try every
+        local Kubo-compatible API (real Kubo, Bucks browser bridge), then
+        fall back through HTTP gateways (local first, public last) so reads
+        work even when no local IPFS node is running.
+        """
+        async with aiohttp.ClientSession() as session:
+            for api in ipfs_endpoints.candidate_api_urls(self._url):
+                try:
+                    async with session.post(
+                        f"{api}/api/v0/cat?arg={cid}",
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status == 200:
+                            return await resp.read()
+                except Exception:
+                    continue
+            for gw in ipfs_endpoints.gateway_urls():
+                try:
+                    async with session.get(
+                        f"{gw}{cid}",
+                        timeout=aiohttp.ClientTimeout(total=20),
+                    ) as resp:
+                        if resp.status == 200:
+                            return await resp.read()
+                except Exception:
+                    continue
+        return None
+
     async def fetch_fragment(self, cid: str) -> Optional[dict]:
         """
         Fetch a knowledge fragment by CID.
@@ -50,16 +81,14 @@ class IPFSKnowledgeStore:
         """
         if not cid:
             return None
+        raw = await self._cat_bytes(cid)
+        if raw is None:
+            log.warning("IPFS fetch failed for %s: no endpoint could serve it", cid)
+            return None
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self._url}/api/v0/cat?arg={cid}",
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    raw = await resp.read()
-                    return json.loads(raw)
+            return json.loads(raw)
         except Exception as e:
-            log.warning("IPFS fetch failed for %s: %s", cid, e)
+            log.warning("IPFS fragment %s is not JSON: %s", cid, e)
             return None
 
     async def fetch_raw(self, cid: str) -> Optional[str]:
@@ -68,17 +97,11 @@ class IPFSKnowledgeStore:
         """
         if not cid:
             return None
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self._url}/api/v0/cat?arg={cid}",
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    raw = await resp.read()
-                    return raw.decode("utf-8", errors="ignore")
-        except Exception as e:
-            log.warning("IPFS raw fetch failed for %s: %s", cid, e)
+        raw = await self._cat_bytes(cid)
+        if raw is None:
+            log.warning("IPFS raw fetch failed for %s: no endpoint could serve it", cid)
             return None
+        return raw.decode("utf-8", errors="ignore")
 
     async def pin_remote_cid(self, cid: str) -> bool:
         """Pin a CID this node has already fetched, replicating it further

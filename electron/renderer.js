@@ -850,6 +850,10 @@
       document.body.classList.remove('web-mode');
     }
 
+    if (window.canvasManager) {
+      window.canvasManager.onTabChanged(tabId, !!tab.webview);
+    }
+
     renderTabBar();
   }
 

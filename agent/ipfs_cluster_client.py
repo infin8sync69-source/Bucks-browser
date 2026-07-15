@@ -23,6 +23,8 @@ import logging
 
 import aiohttp
 
+import ipfs_endpoints
+
 log = logging.getLogger("bucks.ipfs_cluster_client")
 
 
@@ -70,16 +72,19 @@ class IPFSClusterClient:
                             return True
             except Exception as e:
                 log.warning("Cluster pin_existing failed for %s: %s", cid[:16], e)
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self._ipfs_url}/api/v0/pin/add?arg={cid}",
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    return resp.status == 200
-        except Exception as e:
-            log.warning("Kubo pin_existing failed for %s: %s", cid[:16], e)
-            return False
+        for api in ipfs_endpoints.candidate_api_urls(self._ipfs_url):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{api}/api/v0/pin/add?arg={cid}",
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        if resp.status == 200:
+                            return True
+            except Exception as e:
+                log.debug("pin_existing via %s failed for %s: %s", api, cid[:16], e)
+        log.warning("pin_existing failed for %s: no reachable IPFS API", cid[:16])
+        return False
 
     async def _cluster_add(self, payload: bytes, filename: str) -> str:
         try:
@@ -101,18 +106,26 @@ class IPFSClusterClient:
             return ""
 
     async def _kubo_add(self, payload: bytes, filename: str) -> str:
-        try:
-            async with aiohttp.ClientSession() as session:
-                data = aiohttp.FormData()
-                data.add_field("file", payload, filename=filename, content_type="application/json")
-                async with session.post(
-                    f"{self._ipfs_url}/api/v0/add?pin=true", data=data,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    result = await resp.json()
-                    cid = result.get("Hash", "")
-                    log.debug("Published to single-node IPFS: %s", cid)
-                    return cid
-        except Exception as e:
-            log.warning("IPFS publish failed: %s", e)
-            return ""
+        # Try every Kubo-compatible API on the machine: a real Kubo daemon
+        # and/or the Bucks browser's Helia bridge (electron/ipfs-bridge.js)
+        # answer the same protocol, so whichever is up gets the content.
+        for api in ipfs_endpoints.candidate_api_urls(self._ipfs_url):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    data = aiohttp.FormData()
+                    data.add_field("file", payload, filename=filename, content_type="application/json")
+                    async with session.post(
+                        f"{api}/api/v0/add?pin=true", data=data,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        if resp.status != 200:
+                            continue
+                        result = await resp.json()
+                        cid = result.get("Hash", "")
+                        if cid:
+                            log.debug("Published to IPFS via %s: %s", api, cid)
+                            return cid
+            except Exception as e:
+                log.debug("IPFS add via %s failed: %s", api, e)
+        log.warning("IPFS publish failed: no reachable IPFS API")
+        return ""

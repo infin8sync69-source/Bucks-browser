@@ -34,8 +34,10 @@
     "node-llama-cpp": "^3.19.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "electron": "^42.4.1",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "playwright": "^1.61.1"
   },
   "build": {
     "appId": "com.bucks.browser",

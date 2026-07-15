@@ -4,6 +4,7 @@
 // a peer must be online (or reachable through the mesh) to receive.
 (function () {
   let ownPeerId = null;
+  let ownAddresses = [];
   let activePeer = null;
   let conversations = []; // { peer_id, last_message, timestamp, unread_count, hasSession }
   // Contacts added manually before any message exists (so they show in the list)
@@ -152,9 +153,13 @@
     addPeerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addContact(); });
 
     ownPeerEl.addEventListener('click', () => {
-      if (ownPeerId) {
+      if (ownAddresses && ownAddresses.length > 0) {
+        const bestAddr = ownAddresses.find(addr => !addr.includes('127.0.0.1') && !addr.includes('::1')) || ownAddresses[0];
+        navigator.clipboard.writeText(bestAddr);
+        toast('Your Swarm Address copied — share it with a friend');
+      } else if (ownPeerId) {
         navigator.clipboard.writeText(ownPeerId);
-        toast('Your PeerID copied — share it with a friend');
+        toast('Your PeerID copied (no swarm address available)');
       }
     });
   }
@@ -195,8 +200,9 @@
       const info = await window.bucksAPI.ipfsInfo();
       if (info && info.peerId) {
         ownPeerId = info.peerId;
+        ownAddresses = info.addresses || [];
         const myName = localStorage.getItem('bucks-profile-name') || 'You';
-        ownPeerEl.innerHTML = `<strong>${escapeHtml(myName)}</strong> · <span style="opacity:0.7">${shortId(ownPeerId)}</span> <span style="opacity:0.5">(click to copy)</span>`;
+        ownPeerEl.innerHTML = `<strong>${escapeHtml(myName)}</strong> · <span style="opacity:0.7">${shortId(ownPeerId)}</span> <span style="opacity:0.5">(click to copy swarm address)</span>`;
       }
     } catch (_) {}
   }

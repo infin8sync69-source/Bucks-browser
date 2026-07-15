@@ -66,6 +66,8 @@ const bucksAPI = {
   webSearch: (query, maxResults) => ipcRenderer.invoke('web-search', { query, maxResults: maxResults || 5 }),
   webFetch: (url, maxChars) => ipcRenderer.invoke('web-fetch', { url, maxChars: maxChars || 4000 }),
   webFetchSummary: (url) => ipcRenderer.invoke('web-fetch-summary', { url }),
+  getMemoryUsage: () => ipcRenderer.invoke('get-memory-usage'),
+  sendTelemetry: (event, data) => ipcRenderer.send('send-telemetry', { event, data }),
   showWallet: process.env.BUCKS_SHOW_WALLET === '1',
 };
 
@@ -172,6 +174,11 @@ const bucksTabs = {
     const handler = (_e, evt) => cb(evt);
     ipcRenderer.on('tabs:event', handler);
     return () => ipcRenderer.removeListener('tabs:event', handler);
+  },
+  onEphemeralQuery: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('agent:ephemeral-query', handler);
+    return () => ipcRenderer.removeListener('agent:ephemeral-query', handler);
   },
 };
 

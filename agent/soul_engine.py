@@ -470,6 +470,31 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         }, "required": ["cid"]},
     }},
     {"type": "function", "function": {
+        "name": "dweb_publish",
+        "description": ("Publish a PAGE (HTML or text) to the Bucks dWeb: stores it on the "
+                        "browser's IPFS node AND announces it on the swarm's discovery index "
+                        "so other Bucks browsers can find it. Use when the user wants to "
+                        "publish a page/site to the dweb, share something discoverably, or "
+                        "put content 'on the Bucks network'. For a plain note that only needs "
+                        "a CID, prefer ipfs_upload_text."),
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "Short page name (shown in the dWeb index)"},
+            "content": {"type": "string", "description": "The page content (HTML or plain text)"},
+            "title": {"type": "string", "description": "Human-readable title"},
+            "desc": {"type": "string", "description": "One-line description for the index"},
+        }, "required": ["name", "content"]},
+    }},
+    {"type": "function", "function": {
+        "name": "dweb_search",
+        "description": ("Search the Bucks dWeb discovery index — pages other Bucks browsers "
+                        "have published to the swarm. Use when the user asks what's on the "
+                        "dweb, wants to find a dweb page, or mentions searching the Bucks "
+                        "network."),
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Search text (matches name/title/description/CID)"},
+        }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
         "name": "image_search",
         "description": ("Search the web for IMAGES and show them to the user as a gallery. "
                         "Use when the user asks to see pictures, photos, images, or wallpapers "
@@ -1273,6 +1298,8 @@ async def agent(req: Request) -> StreamingResponse:
                 result, ui_spec = await run_tool(
                     "product_lookup", {"query": shop_q, "max_results": 24 if is_more else 12})
                 if ui_spec:
+                    if is_more and "data" in ui_spec and "items" in ui_spec["data"]:
+                        ui_spec["data"]["items"] = ui_spec["data"]["items"][8:]
                     yield sse({"type": "ui_component", **ui_spec})
                     emitted_ui = True
                     intro = (f"Here are real products for “{shop_q}” — tap any card to view & buy."
@@ -1307,6 +1334,8 @@ async def agent(req: Request) -> StreamingResponse:
                 first_action = "youtube_search"
                 result, ui_spec = await run_tool(
                     "youtube_search", {"query": media_q, "max_results": 24 if is_more else 12})
+                if ui_spec and is_more and "data" in ui_spec and "videos" in ui_spec["data"]:
+                    ui_spec["data"]["videos"] = ui_spec["data"]["videos"][8:]
                 # Tokens BEFORE the component: the full-screen chat re-renders
                 # its thread on every appended chunk, and tokens arriving after
                 # an <iframe> exists would reload (restart) the video.
@@ -1331,6 +1360,8 @@ async def agent(req: Request) -> StreamingResponse:
                 first_action = "image_search"
                 result, ui_spec = await run_tool("image_search", {"query": media_q, "max_results": max_img})
                 if ui_spec:
+                    if is_more and "data" in ui_spec and "items" in ui_spec["data"]:
+                        ui_spec["data"]["items"] = ui_spec["data"]["items"][12:]
                     yield sse({"type": "ui_component", **ui_spec})
                     emitted_ui = True
                     intro = f"Here's a gallery for “{media_q}” — tap any image to view it full-size."

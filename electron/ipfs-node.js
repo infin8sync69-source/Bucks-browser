@@ -113,7 +113,10 @@ async function startNode() {
       return createLibp2p({
         addresses: { listen },
         transports: [tcp(), webSockets()],
-        connectionEncryption: [noise()],
+        // libp2p v3 renamed connectionEncryption → connectionEncrypters; the
+        // old key is silently ignored, which left the node with NO encrypters
+        // and made every inter-node dial fail (EncryptionFailedError).
+        connectionEncrypters: [noise()],
         streamMuxers: [yamux(), mplex()],
         peerDiscovery,
         services: {
@@ -140,10 +143,15 @@ async function startNode() {
       console.log(`[Swarm] Connected to peer: ${evt.detail.toString()}`);
     });
 
+    const { bitswap } = await import("@helia/block-brokers");
+
     heliaNode = await createHelia({
       blockstore,
       datastore,
       libp2p: libp2pNode,
+      blockBrokers: [
+        bitswap()
+      ]
     });
 
     fsModule = unixfs(heliaNode);
@@ -422,8 +430,18 @@ async function stopNode() {
 async function publishContent(content, metadata = {}) {
   if (!heliaNode || !fsModule) throw new Error("IPFS node not initialized");
 
-  const data =
-    typeof content === "string" ? new TextEncoder().encode(content) : content;
+  let data;
+  if (typeof content === "string") {
+    data = new TextEncoder().encode(content);
+  } else if (Array.isArray(content)) {
+    data = new Uint8Array(content);
+  } else if (content instanceof Uint8Array) {
+    data = content;
+  } else if (content && typeof content === "object") {
+    data = new Uint8Array(Object.values(content));
+  } else {
+    data = content;
+  }
   const cid = await fsModule.addBytes(data);
   const cidStr = cid.toString();
 

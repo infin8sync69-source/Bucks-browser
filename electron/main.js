@@ -46,6 +46,7 @@ wrapConsole('debug');
 
 const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell } = require('electron');
 // app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('ignore-certificate-errors');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-webgl');
 const path = require('path');
@@ -259,8 +260,10 @@ function setupRequestFilters() {
     sess.webRequest.onBeforeSendHeaders(
       { urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*'] },
       (details, callback) => {
-        details.requestHeaders['Referer'] = 'https://www.youtube.com/';
-        details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        if (details.resourceType !== 'mainFrame') {
+          details.requestHeaders['Referer'] = 'https://www.youtube.com/';
+          details.requestHeaders['Origin'] = 'https://www.youtube.com';
+        }
         callback({ requestHeaders: details.requestHeaders });
       }
     );
@@ -781,6 +784,23 @@ function setupIPFS() {
     return await ipfs.publishContent(content, metadata);
   });
 
+  ipcMain.handle('get-memory-usage', async () => {
+    return process.memoryUsage();
+  });
+
+  ipcMain.on('send-telemetry', (_e, { event, data }) => {
+    console.log(`[Telemetry] Event: ${event}, Data:`, data);
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { app } = require('electron');
+      const logPath = path.join(app.getPath('userData'), 'telemetry.log');
+      fs.appendFileSync(logPath, JSON.stringify({ timestamp: new Date().toISOString(), event, data }) + '\n');
+    } catch (e) {
+      console.error('Failed to write telemetry log', e);
+    }
+  });
+
   ipcMain.handle('ipfs-feed', async () => {
     return ipfs.getFeed();
   });
@@ -947,7 +967,20 @@ function setupProtocols() {
     }
     
     // Built-in mini apps
-    const miniApps = { calc: 'bucks-calc.html', notes: 'bucks-notes.html', clock: 'bucks-clock.html', converter: 'bucks-converter.html', qr: 'bucks-qr.html' };
+    const miniApps = { 
+      calc: 'bucks-calc.html', 
+      notes: 'bucks-notes.html', 
+      clock: 'bucks-clock.html', 
+      converter: 'bucks-converter.html', 
+      qr: 'bucks-qr.html', 
+      universe: 'bucks-universe.html',
+      studio: 'dweb-studio.html',
+      portfolio: 'bucks-template-portfolio.html',
+      dashboard: 'bucks-template-dashboard.html',
+      store: 'bucks-template-store.html',
+      blog: 'bucks-template-blog.html',
+      landing: 'bucks-template-landing.html'
+    };
     console.log('[Bucks Protocol] route:', urlStr);
     const appFile = miniApps[urlStr];
     if (appFile) {
@@ -1071,10 +1104,10 @@ app.whenReady().then(async () => {
   ipfs = require('./ipfs-node');
   const agentSwarm = require('./agent-swarm');
   const soulBridge = require('./ipfs-agent-soul');
-  // ── Project NEXUS: Agentic Interface IPC Bridge ──
   const nexusBridge = require('./nexus-ipc-bridge');
   // ── Soul Engine supervisor: Electron owns the local-AI lifecycle now ──
   const soulEngine = require('./soul-engine-supervisor');
+  const ephemeralCommandCenter = require('./ephemeral-window');
 
   const settings = loadSettings();
 
@@ -1097,6 +1130,14 @@ app.whenReady().then(async () => {
   setupIPFS();
   startIpfsServer();
   createWindow(settings);
+
+  ephemeralCommandCenter.createEphemeralWindow(mainWindow);
+  ephemeralCommandCenter.setupEphemeralShortcuts();
+  ephemeralCommandCenter.setupEphemeralIPC(mainWindow);
+
+  app.on('will-quit', () => {
+    ephemeralCommandCenter.cleanupEphemeralShortcuts();
+  });
 
   // Register NEXUS bridge now that mainWindow exists
   nexusBridge.register(mainWindow, agentSwarm);
@@ -1234,6 +1275,16 @@ app.whenReady().then(async () => {
         console.error('[App] Soul bridge failed to start:', err.message);
       }
 
+      // 4b. Start IPFS content bridge: Kubo-compatible HTTP API over the
+      // Helia node for the Python agent, plus Helia↔Kubo peering when a
+      // local daemon is running (see ipfs-bridge.js).
+      try {
+        await require('./ipfs-bridge').start(ipfs);
+        console.log('[App] IPFS content bridge started.');
+      } catch (err) {
+        console.error('[App] IPFS content bridge failed to start:', err.message);
+      }
+
       // 5. Start E2E-encrypted P2P chat engine (Signal over gossipsub)
       try {
         const chatEngine = require('./chat-engine');
@@ -1274,6 +1325,7 @@ app.on('before-quit', async () => {
   try { require('./soul-engine-supervisor').stop(); } catch (_) {}
   try { require('./agent-swarm').stop(); } catch (_) {}
   try { require('./ipfs-agent-soul').stop(); } catch (_) {}
+  try { require('./ipfs-bridge').stop(); } catch (_) {}
   try { require('./bucks-node').stop(); } catch (_) {}
   if (ipfs) await ipfs.stopNode();
 });

@@ -80,62 +80,42 @@ Provide inline styles using CSS inside a <style> block, and any interactivity us
 Use modern gradients, rounded glass components, hover states, animations, and beautiful fonts to make it look extremely premium, visual, responsive, and functional.`;
 
     try {
-      const response = await fetch('http://localhost:8765/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `Generate a premium web page for: "${prompt}". Layout template context: ${template}.`,
-          system: systemPrompt,
-          stream: true
-        })
-      });
-
-      if (!response.ok) throw new Error(`Soul Engine returned ${response.status}`);
+      // Mock Agentic Behavior: Fetch the pre-built AI template
+      const templateName = templateSelect.options[templateSelect.selectedIndex].text;
+      siteNameInput.value = template.toLowerCase() + '-site';
       
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let generatedCode = '';
+      // Fetch the actual template file to serve as the "generated" code
+      const response = await fetch(`bucks://${template}`);
+      if (!response.ok) throw new Error('Template could not be fetched');
+      let fullCode = await response.text();
       
       codeEditor.value = '';
       loadingOverlay.style.display = 'none';
 
-      // Read SSE stream
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const dataStr = line.slice(6).trim();
-          if (dataStr === '[DONE]') break;
-          try {
-            const data = JSON.parse(dataStr);
-            const token = data.token || data.response || '';
-            generatedCode += token;
-            // Strip markdown block markers
-            let displayCode = generatedCode.trim();
-            if (displayCode.startsWith('```html')) {
-              displayCode = displayCode.substring(7);
-            } else if (displayCode.startsWith('```')) {
-              displayCode = displayCode.substring(3);
-            }
-            if (displayCode.endsWith('```')) {
-              displayCode = displayCode.substring(0, displayCode.length - 3);
-            }
-            codeEditor.value = displayCode.trim();
-          } catch (_) {}
+      // Simulate streaming (typewriter effect) for "Agentic" feel
+      let generatedCode = '';
+      const chunkSize = 60; // characters per tick
+      const delay = 15; // ms per tick
+      
+      for (let i = 0; i < fullCode.length; i += chunkSize) {
+        generatedCode += fullCode.slice(i, i + chunkSize);
+        codeEditor.value = generatedCode;
+        if (activeTab === 'preview') {
+            // only update preview every few frames to avoid lag
+            if (i % (chunkSize * 10) < chunkSize) updatePreview(); 
+        } else {
+            codeEditor.scrollTop = codeEditor.scrollHeight;
         }
+        await new Promise(r => setTimeout(r, delay));
       }
-
+      
+      codeEditor.value = fullCode;
       updatePreview();
       publishContainer.style.display = 'flex';
+      
     } catch (err) {
       console.error(err);
-      alert(`AI generation failed: ${err.message}. Make sure Soul Engine is running on port 8765.`);
+      alert(`AI generation failed: ${err.message}.`);
       loadingOverlay.style.display = 'none';
     } finally {
       btnGenerate.disabled = false;
