@@ -13,8 +13,14 @@ from typing import Callable, Any
 import httpx
 from bs4 import BeautifulSoup
 
-BUCKS_ROOT = Path(os.environ.get("BUCKS_PROJECT_ROOT",
-                                  Path.home() / "Desktop" / "bucks core"))
+# Anchored to this file's location (<repo>/agent/tools/registry.py → <repo>)
+# rather than a hardcoded "~/Desktop/bucks core", which does not exist on the
+# machine this ships from and made every file/shell tool fail. Must stay in
+# sync with the identical default in file_tools.py and shell_tools.py.
+BUCKS_ROOT = Path(
+    os.environ.get("BUCKS_PROJECT_ROOT")
+    or Path(__file__).resolve().parents[2]
+)
 
 # ── Tool descriptor ───────────────────────────────────────────────────────────
 
@@ -194,54 +200,19 @@ def execute_code(code: str, language: str = "python", timeout: int = 10) -> str:
 
 # ── File tools (scoped to BUCKS_ROOT) ────────────────────────────────────────
 
-def _safe_path(rel_or_abs: str) -> Path:
-    # Containment via is_relative_to (real path components), not a string prefix:
-    # a raw startswith lets sibling "/x/bucks core-evil" pass for root "/x/bucks core".
-    # resolve() collapses symlinks so out-of-root links are rejected, not followed.
-    p = Path(rel_or_abs)
-    if not p.is_absolute():
-        p = BUCKS_ROOT / p
-    p = p.resolve()
-    root = BUCKS_ROOT.resolve()
-    if p != root and not p.is_relative_to(root):
-        raise PermissionError(f"Path outside project root: {p}")
-    return p
-
-
-def read_file(path: str) -> str:
-    try:
-        return _safe_path(path).read_text(encoding="utf-8")[:8000]
-    except Exception as e:
-        return f"Read error: {e}"
-
-
-def write_file(path: str, content: str) -> str:
-    try:
-        p = _safe_path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-        return f"✓ Written: {p.relative_to(BUCKS_ROOT)}"
-    except Exception as e:
-        return f"Write error: {e}"
-
-
-def list_directory(path: str = ".") -> str:
-    try:
-        p = _safe_path(path)
-        entries = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name))
-        lines = [("📁 " if e.is_dir() else "📄 ") + e.name for e in entries[:60]]
-        return "\n".join(lines) or "(empty)"
-    except Exception as e:
-        return f"List error: {e}"
-
-
-def git_status() -> str:
-    try:
-        r = subprocess.run(["git","status","--short"], cwd=str(BUCKS_ROOT),
-                           capture_output=True, text=True, timeout=8)
-        return r.stdout or "Clean."
-    except Exception as e:
-        return f"git status error: {e}"
+# ── Filesystem / git tools ────────────────────────────────────────────────────
+# Single source of truth lives in tools/fs_impl.py. These used to be
+# re-implemented here AND in tools/file_tools.py; only this copy was ever
+# dispatched by the agent, so fixes applied to the other file silently did
+# nothing. Import, don't duplicate.
+from tools.fs_impl import (  # noqa: E402
+    safe_path as _safe_path,
+    read_file,
+    write_file,
+    list_directory,
+    git_status,
+    git_diff,
+)
 
 
 # ── Calendar (file-backed) ────────────────────────────────────────────────────
@@ -348,6 +319,38 @@ async def wrap_dweb_search(query: str) -> str:
     from tools.ipfs_tools import dweb_search as _search
     return await _search(query)
 
+async def wrap_cluster_list_members() -> str:
+    from tools.cluster_tools import cluster_list_members as _fn
+    return await _fn()
+
+async def wrap_cluster_list_discovered() -> str:
+    from tools.cluster_tools import cluster_list_discovered as _fn
+    return await _fn()
+
+async def wrap_cluster_get_my_identity() -> str:
+    from tools.cluster_tools import cluster_get_my_identity as _fn
+    return await _fn()
+
+async def wrap_cluster_list_files(scope: str = "cluster") -> str:
+    from tools.cluster_tools import cluster_list_files as _fn
+    return await _fn(scope)
+
+async def wrap_cluster_recommend(cid: str) -> str:
+    from tools.cluster_tools import cluster_recommend as _fn
+    return await _fn(cid)
+
+async def wrap_cluster_unrecommend(cid: str) -> str:
+    from tools.cluster_tools import cluster_unrecommend as _fn
+    return await _fn(cid)
+
+async def wrap_cluster_pin(cid: str) -> str:
+    from tools.cluster_tools import cluster_pin as _fn
+    return await _fn(cid)
+
+async def wrap_cluster_unpin(cid: str) -> str:
+    from tools.cluster_tools import cluster_unpin as _fn
+    return await _fn(cid)
+
 async def _wrap_image_search(query: str, max_results: int = 12):
     from tools.media_tools import image_search
     return await image_search(query, max_results)
@@ -387,6 +390,14 @@ TOOLS: dict[str, Tool] = {
     "youtube_search":        Tool("youtube_search",        "Search YouTube videos (renders an embedded player)",   _wrap_youtube_search),
     "deep_research":         Tool("deep_research",         "Multi-source research with images (renders a dossier)", _wrap_deep_research),
     "weather_lookup":        Tool("weather_lookup",        "Current weather + forecast (renders a weather card)",  _wrap_weather_lookup),
+    "cluster_list_members":    Tool("cluster_list_members",    "List members admitted into the user's Bucks cluster",     wrap_cluster_list_members),
+    "cluster_list_discovered": Tool("cluster_list_discovered", "List nearby peers not yet admitted into the cluster",     wrap_cluster_list_discovered),
+    "cluster_get_my_identity": Tool("cluster_get_my_identity", "Get this node's own shareable cluster invite ID",         wrap_cluster_get_my_identity),
+    "cluster_list_files":      Tool("cluster_list_files",      "List files pinned locally or visible across the cluster", wrap_cluster_list_files),
+    "cluster_recommend":       Tool("cluster_recommend",       "Recommend a file to the cluster (a vote; does not pin)",  wrap_cluster_recommend, safe=False),
+    "cluster_unrecommend":     Tool("cluster_unrecommend",     "Mark a file as not recommended (a vote; does not unpin)", wrap_cluster_unrecommend, safe=False),
+    "cluster_pin":             Tool("cluster_pin",             "Pin/host a file locally (standalone; no vote)",          wrap_cluster_pin, safe=False),
+    "cluster_unpin":           Tool("cluster_unpin",           "Unpin a file, stop hosting it (standalone; no vote)",    wrap_cluster_unpin, safe=False),
 }
 
 
@@ -405,6 +416,9 @@ AGENT_TOOL_MAPPINGS = {
     "calendar": ["calendar_add", "calendar_list"],
     "ipfs":     ["ipfs_upload_text", "ipfs_cat_text", "ipfs_dynamic_load_tool",
                  "dweb_publish", "dweb_search"],
+    "cluster":  ["cluster_list_members", "cluster_list_discovered", "cluster_get_my_identity",
+                 "cluster_list_files", "cluster_recommend", "cluster_unrecommend",
+                 "cluster_pin", "cluster_unpin"],
 }
 
 def tools_for_agent(agent_type: str) -> list[Tool]:

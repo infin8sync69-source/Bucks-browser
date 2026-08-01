@@ -6,7 +6,6 @@ const { app } = require("electron");
 const CLUSTER_SECRET =
   process.env.BUCKS_CLUSTER_SECRET || "BUCKS_DEFAULT_CLUSTER";
 const CLUSTER_CIDN = process.env.BUCKS_CLUSTER_CIDN || "mainnet";
-const BROWSER_VERSION = "1.2.0"; // Modern versioning for sync
 const CLUSTER_TOPIC = `bucks-swarm-${crypto.createHash("sha256").update(CLUSTER_SECRET).digest("hex").slice(0, 16)}`;
 
 const FEED_TOPIC = `bucks-feed-${crypto.createHash("sha256").update(CLUSTER_SECRET).digest("hex").slice(0, 16)}`;
@@ -30,6 +29,14 @@ let advertiseInterval = null;
 
 let dwebIndex = [];
 let dwebIndexFile = null;
+
+// Recommend/not-recommend votes: cid -> Map(soulId -> { direction, timestamp }).
+// Merged with pin/unpin by design (product decision) — recommending a CID
+// pins+seeds it, un-recommending unpins it. "Active" below is a recency
+// proxy (recent vote timestamp), not a live peer-presence check, to keep
+// this module independent of cluster-membership.js's soul-presence table.
+let contentVotes = new Map();
+const VOTE_ACTIVE_WINDOW_MS = 5 * 60_000;
 
 // Swarm State
 let clusterPeers = new Map(); // PeerID -> { version, cidn, reputation, lastSeen }
@@ -93,26 +100,55 @@ async function startNode() {
     const { mplex } = await import("@libp2p/mplex");
     const { mdns } = await import("@libp2p/mdns");
     const { bootstrap } = await import("@libp2p/bootstrap");
+    const { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } = await import("@libp2p/crypto/keys");
+    const { circuitRelayTransport } = await import("@libp2p/circuit-relay-v2");
+    const { dcutr } = await import("@libp2p/dcutr");
+    const { autoNAT } = await import("@libp2p/autonat");
+    const { uPnPNAT } = await import("@libp2p/upnp-nat");
+    const { kadDHT } = await import("@libp2p/kad-dht");
+    const { ping } = await import("@libp2p/ping");
+
+    // A stable PeerId across restarts is required for cluster membership,
+    // vote attribution, and "who's currently reachable" to mean anything —
+    // without this, createLibp2p() below would mint a fresh random identity
+    // every launch and every peer/member table would churn on each restart.
+    const peerKeyFile = path.join(IPFS_DATA_DIR, "libp2p-peer.key");
+    let peerPrivateKey;
+    if (fs.existsSync(peerKeyFile)) {
+      peerPrivateKey = privateKeyFromProtobuf(new Uint8Array(fs.readFileSync(peerKeyFile)));
+    } else {
+      peerPrivateKey = await generateKeyPair("Ed25519");
+      fs.writeFileSync(peerKeyFile, Buffer.from(privateKeyToProtobuf(peerPrivateKey)));
+    }
 
     // Peer discovery: mDNS finds Bucks nodes on the same LAN automatically;
     // BUCKS_BOOTSTRAP_PEERS (comma-separated multiaddrs, e.g. over Tailscale)
     // connects machines across networks.
     const peerDiscovery = [mdns({ interval: 10000 })];
-    const bootstrapList = (process.env.BUCKS_BOOTSTRAP_PEERS || "")
+    let bootstrapList = (process.env.BUCKS_BOOTSTRAP_PEERS || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (bootstrapList.length > 0) {
-      peerDiscovery.push(bootstrap({ list: bootstrapList }));
-      console.log(`[Swarm] Bootstrap peers configured: ${bootstrapList.length}`);
+    if (bootstrapList.length === 0 && !process.env.BUCKS_TESTING) {
+      // Fallback to public IPFS bootstrap nodes if no private bootstrap peers are configured
+      bootstrapList = [
+        "/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+        "/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+        "/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+        "/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt"
+      ];
+      console.log("[Swarm] No private bootstrap peers configured. Using public bootstrap nodes.");
     }
+    peerDiscovery.push(bootstrap({ list: bootstrapList }));
+    console.log(`[Swarm] Bootstrap peers configured: ${bootstrapList.length}`);
 
     // Stable ports so other machines can bootstrap-dial this node; fall back
     // to OS-assigned ports if another instance already holds them.
     async function createNode(listen) {
       return createLibp2p({
+        privateKey: peerPrivateKey,
         addresses: { listen },
-        transports: [tcp(), webSockets()],
+        transports: [tcp(), webSockets(), circuitRelayTransport()],
         // libp2p v3 renamed connectionEncryption → connectionEncrypters; the
         // old key is silently ignored, which left the node with NO encrypters
         // and made every inter-node dial fail (EncryptionFailedError).
@@ -121,17 +157,30 @@ async function startNode() {
         peerDiscovery,
         services: {
           identify: identify(),
-          pubsub: gossipsub({ allowPublishToZeroPeers: true }),
+          // The installed @chainsafe/libp2p-gossipsub calls this option
+          // `allowPublishToZeroTopicPeers`; the old `allowPublishToZeroPeers`
+          // spelling was silently ignored, so every publish before a topic
+          // mesh formed threw NoPeersSubscribedToTopic (identity/soul/feed/
+          // membership/vote/release broadcasts all hit this path).
+          pubsub: gossipsub({ allowPublishToZeroTopicPeers: true }),
+          ping: ping(),
+          dcutr: dcutr(),
+          autonat: autoNAT(),
+          upnp: uPnPNAT(),
+          dht: kadDHT({
+            protocol: '/ipfs/lan/kad/1.0.0',
+            clientMode: true
+          })
         },
       });
     }
 
     let libp2pNode;
     try {
-      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/4020", "/ip4/0.0.0.0/tcp/4021/ws"]);
+      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/4020", "/ip4/0.0.0.0/tcp/4021/ws", "/p2p-circuit"]);
     } catch (portErr) {
       console.warn(`[Swarm] Ports 4020/4021 unavailable (${portErr.message}) — using random ports.`);
-      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/tcp/0/ws"]);
+      libp2pNode = await createNode(["/ip4/0.0.0.0/tcp/0", "/ip4/0.0.0.0/tcp/0/ws", "/p2p-circuit"]);
     }
 
     libp2pNode.addEventListener("peer:discovery", (evt) => {
@@ -221,6 +270,20 @@ async function startNode() {
       }
     }
 
+    // Load recommend/not-recommend votes
+    const votesFile = path.join(IPFS_DATA_DIR, "votes.json");
+    if (fs.existsSync(votesFile)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(votesFile, "utf8"));
+        contentVotes = new Map(
+          Object.entries(data).map(([cid, voters]) => [cid, new Map(Object.entries(voters))]),
+        );
+        console.log(`[IPFS] Restored votes for ${contentVotes.size} CID(s).`);
+      } catch (e) {
+        console.error("[IPFS] Failed to load votes:", e);
+      }
+    }
+
     return heliaNode;
   } catch (err) {
     console.error("[IPFS] Failed to start Helia node:", err);
@@ -237,7 +300,7 @@ async function advertiseIdentity() {
   const identity = {
     type: "identity",
     peerId: heliaNode.libp2p.peerId.toString(),
-    version: BROWSER_VERSION,
+    version: app.getVersion(),
     cidn: CLUSTER_CIDN,
     reputation: localReputation,
     timestamp: Date.now(),
@@ -288,7 +351,7 @@ function handleClusterMessage(msg) {
       });
 
       // Version Check (Swarm Survival)
-      if (isNewerVersion(data.version, BROWSER_VERSION)) {
+      if (isNewerVersion(data.version, app.getVersion())) {
         console.log(
           `[Swarm] Peer ${peerId} has newer version: ${data.version}. Sync required.`,
         );
@@ -313,6 +376,23 @@ function handleFeedMessage(msg) {
         console.warn(`[Swarm] Dropped spoofed feed post: payload peerId ${data.post.peerId} does not match publisher ${fromPeerId}`);
         return;
       }
+      // A post's self-claimed soulId is only trusted for cluster-feed
+      // attribution if it matches the soulId currently, independently
+      // verified as broadcasting from this same peerId (soul heartbeat on
+      // SOUL_TOPIC). Otherwise strip it — the post still enters the global
+      // feed, it just won't count as "from a cluster member".
+      if (data.post && data.post.soulId) {
+        try {
+          const clusterMembership = require("./cluster-membership");
+          const verifiedSoulId = clusterMembership.getSoulIdForPeer(fromPeerId);
+          if (data.post.soulId !== verifiedSoulId) {
+            console.warn(`[Swarm] Stripped unverified soulId claim on post ${data.post.cid.slice(0, 8)} from ${fromPeerId.slice(0, 12)}...`);
+            data.post.soulId = null;
+          }
+        } catch (_) {
+          data.post.soulId = null; // cluster-membership not active — can't verify, don't trust
+        }
+      }
       // Check if already in feed
       if (!feed.some((p) => p.cid === data.post.cid)) {
         feed.unshift(data.post);
@@ -323,10 +403,83 @@ function handleFeedMessage(msg) {
 
       // Record activity for reputation (ACO)
       recordPeerActivity(data.post.peerId, true);
+    } else if (data.type === "vote") {
+      // Trust level matches "post" above: transport-sender must be the
+      // claimed voter's CURRENT peerId, but the vote itself is unsigned —
+      // a hostile peer can vote as itself, not impersonate another voter.
+      const v = data.vote;
+      if (!v || !v.cid || !v.voterSoulId || !v.voterPeerId || (v.direction !== "up" && v.direction !== "down")) return;
+      if (v.voterPeerId !== fromPeerId) {
+        console.warn(`[Swarm] Dropped spoofed vote: payload voterPeerId ${v.voterPeerId} does not match publisher ${fromPeerId}`);
+        return;
+      }
+      recordVote(v.cid, v.voterSoulId, v.direction, v.timestamp || Date.now());
     }
   } catch (e) {
     console.error("[Swarm] Failed to handle feed message:", e);
   }
+}
+
+/**
+ * Record a recommend/not-recommend vote for a CID (local or gossiped).
+ * One vote per (cid, soulId) — casting again overwrites the prior direction.
+ */
+function recordVote(cidStr, voterSoulId, direction, timestamp = Date.now()) {
+  if (!contentVotes.has(cidStr)) contentVotes.set(cidStr, new Map());
+  contentVotes.get(cidStr).set(voterSoulId, { direction, timestamp });
+}
+
+/**
+ * Broadcast this node's vote to the swarm so peers' availability counts
+ * reflect it (upvoteContent()/unrecommendContent() never used to gossip at
+ * all — vote counts didn't actually propagate before this).
+ */
+async function broadcastVote(cidStr, voterSoulId, direction) {
+  if (!gossip) return;
+  const vote = {
+    cid: cidStr,
+    direction,
+    voterSoulId,
+    voterPeerId: heliaNode.libp2p.peerId.toString(),
+    timestamp: Date.now(),
+  };
+  const data = new TextEncoder().encode(JSON.stringify({ type: "vote", vote }));
+  try {
+    await gossip.publish(FEED_TOPIC, data);
+  } catch (e) {
+    console.error("[Swarm] Failed to broadcast vote:", e);
+  }
+}
+
+/**
+ * Vote counts for a CID: total up/down, plus "active" up-voters (voted
+ * recently — a legibility proxy for "currently reachable source nodes",
+ * per the product's "more recommended = more available" model).
+ */
+function getVoteCounts(cidStr) {
+  const voters = contentVotes.get(cidStr);
+  if (!voters) return { upCount: 0, downCount: 0, activeUpCount: 0 };
+  let upCount = 0, downCount = 0, activeUpCount = 0;
+  const now = Date.now();
+  voters.forEach((v) => {
+    if (v.direction === "up") {
+      upCount++;
+      if (now - v.timestamp < VOTE_ACTIVE_WINDOW_MS) activeUpCount++;
+    } else if (v.direction === "down") {
+      downCount++;
+    }
+  });
+  return { upCount, downCount, activeUpCount };
+}
+
+/**
+ * This node's own current vote on a CID, if any ("up" | "down" | null) —
+ * drives the UI's active/toggled arrow state.
+ */
+function getMyVote(cidStr, mySoulId) {
+  const voters = contentVotes.get(cidStr);
+  const v = voters && mySoulId ? voters.get(mySoulId) : null;
+  return v ? v.direction : null;
 }
 
 /**
@@ -351,6 +504,14 @@ function isNewerVersion(v1, v2) {
     if (p1[i] < p2[i]) return false;
   }
   return false;
+}
+
+/** Last-known app version a given peer advertised on CLUSTER_TOPIC (or null
+ * if never seen there) — used by cluster-membership.js to show a soft
+ * "outdated" badge, no enforcement. */
+function getPeerVersion(peerId) {
+  const p = clusterPeers.get(peerId);
+  return p ? p.version : null;
 }
 
 /**
@@ -410,6 +571,14 @@ async function stopNode() {
         JSON.stringify(Object.fromEntries(pinnedFiles), null, 2),
         "utf8",
       );
+      fs.writeFileSync(
+        path.join(IPFS_DATA_DIR, "votes.json"),
+        JSON.stringify(
+          Object.fromEntries([...contentVotes].map(([cid, voters]) => [cid, Object.fromEntries(voters)])),
+          null, 2,
+        ),
+        "utf8",
+      );
     } catch (e) {
       console.error("[IPFS] Failed to persist state:", e);
     }
@@ -445,9 +614,19 @@ async function publishContent(content, metadata = {}) {
   const cid = await fsModule.addBytes(data);
   const cidStr = cid.toString();
 
+  // Self-tag with our soulId (best-effort — undefined until the soul bridge's
+  // first fetch completes) so cluster members can attribute this post to us.
+  // Receivers independently re-verify this against the live soul-presence
+  // mapping (see handleFeedMessage) rather than trusting it outright.
+  let soulId = null;
+  try {
+    soulId = require("./ipfs-agent-soul").getOwnSoul()?.soulId || null;
+  } catch (_) { /* soul bridge not loaded in this context (e.g. tests) */ }
+
   const post = {
     cid: cidStr,
     peerId: heliaNode.libp2p.peerId.toString(),
+    soulId,
     timestamp: Date.now(),
     metadata: {
       name: metadata.name || "Untitled",
@@ -504,26 +683,26 @@ async function getContent(pathStr) {
         }
       }
 
-      // Check if the final resolved CID is a directory
-      let isDir = false;
-      let indexCid = null;
-      try {
+      // Check if the final resolved CID is a directory. ls() itself is NOT a
+      // reliable directory test: for a raw/file leaf it yields a single
+      // self-referential entry (the node describing itself) rather than
+      // throwing or yielding nothing, so a truthy-after-ls() check false-
+      // positives on every plain file and misroutes it into the
+      // "directory without index.html" error below. stat().type is the
+      // one source of truth for node kind.
+      const stat = await fsModule.stat(currentCid);
+      if (stat.type === 'directory') {
+        let indexCid = null;
         for await (const entry of fsModule.ls(currentCid)) {
-          isDir = true;
           if (entry.name === 'index.html') {
             indexCid = entry.cid;
+            break;
           }
         }
-      } catch (e) {
-        isDir = false;
-      }
-
-      if (isDir) {
-        if (indexCid) {
-          currentCid = indexCid;
-        } else {
+        if (!indexCid) {
           throw new Error("Directory listing without index.html is not supported");
         }
+        currentCid = indexCid;
       }
 
       const chunks = [];
@@ -584,22 +763,28 @@ function unfollowPeer(peerId) {
   return { status: "unfollowed", peerId };
 }
 
+/** Currently-followed peerIds — used by device-sync.js to merge a linked
+ * device's follow list without depending on getNodeInfo()'s wider shape. */
+function getFollowing() {
+  return [...following];
+}
+
 /**
- * Upvote (Like) content — pins it locally, making this node a co-host.
- * @param {string} cidStr - The CID to upvote
+ * Pin content — fetch it locally so this node hosts/seeds it. This is now a
+ * STANDALONE action, independent of recommend/not-recommend: pinning is "I
+ * want to store & serve this", voting is "I do/don't recommend this to the
+ * network". A user can pin without recommending, or recommend without pinning.
+ * @param {string} cidStr - The CID to pin
  */
-async function upvoteContent(cidStr) {
+async function pinContent(cidStr) {
   if (!heliaNode || !fsModule) throw new Error("IPFS node not initialized");
 
-  // 1. Find the post in feed or metadata
   const post = feed.find((p) => p.cid === cidStr);
-
-  // 2. Fetch and Pin the content locally
   try {
     const { CID } = await import("multiformats/cid");
     const cid = CID.parse(cidStr);
 
-    // Fetch to ensure local copy
+    // Fetch to ensure a local copy (this is what makes us a host/source).
     const chunks = [];
     let totalSize = 0;
     for await (const chunk of fsModule.cat(cid)) {
@@ -607,13 +792,7 @@ async function upvoteContent(cidStr) {
       totalSize += chunk.length;
     }
 
-    // Update post state
-    if (post) {
-      post.upvotes = (post.upvotes || 0) + 1;
-      post.pinned = true;
-    }
-
-    // Add to pinned registry
+    if (post) post.pinned = true;
     pinnedFiles.set(cidStr, {
       size: totalSize,
       timestamp: Date.now(),
@@ -621,7 +800,7 @@ async function upvoteContent(cidStr) {
       type: post ? post.metadata.type : "unknown",
     });
 
-    console.log(`[IPFS] Upvoted & Pinned: ${cidStr} (${totalSize} bytes)`);
+    console.log(`[IPFS] Pinned: ${cidStr} (${totalSize} bytes)`);
     return { status: "pinned", cid: cidStr, size: totalSize };
   } catch (err) {
     console.error(`[IPFS] Failed to pin ${cidStr}:`, err);
@@ -630,7 +809,7 @@ async function upvoteContent(cidStr) {
 }
 
 /**
- * Unpin content to free up storage.
+ * Unpin content to free up storage. Standalone — does NOT cast a vote.
  * @param {string} cidStr
  */
 async function unpinContent(cidStr) {
@@ -643,6 +822,37 @@ async function unpinContent(cidStr) {
   }
   return { status: "not_found", cid: cidStr };
 }
+
+/**
+ * Recommend content — cast a positive network vote and broadcast it. Pure
+ * signal: does NOT pin. To also host it, pin separately.
+ */
+async function recommendContent(cidStr) {
+  const post = feed.find((p) => p.cid === cidStr);
+  if (post) post.upvotes = (post.upvotes || 0) + 1;
+  if (localSoul && localSoul.soulId) {
+    recordVote(cidStr, localSoul.soulId, "up");
+    broadcastVote(cidStr, localSoul.soulId, "up");
+  }
+  console.log(`[IPFS] Recommended: ${cidStr}`);
+  return { status: "recommended", cid: cidStr };
+}
+
+/**
+ * Not-recommend content — cast a negative network vote and broadcast it. Pure
+ * signal: does NOT unpin. Valid even for a CID this node never pinned.
+ */
+async function unrecommendContent(cidStr) {
+  if (localSoul && localSoul.soulId) {
+    recordVote(cidStr, localSoul.soulId, "down");
+    broadcastVote(cidStr, localSoul.soulId, "down");
+  }
+  console.log(`[IPFS] Not-recommended: ${cidStr}`);
+  return { status: "not_recommended", cid: cidStr };
+}
+
+/** Back-compat alias: the old "upvote = pin" name still pins (no vote now). */
+const upvoteContent = pinContent;
 
 /**
  * Get storage statistics.
@@ -665,10 +875,28 @@ function getStorageStats() {
 
 /**
  * Get the aggregated feed from all sources.
+ * @param {{ clusterOnly?: boolean }} [opts] - clusterOnly (default true) limits
+ *   results to posts self-attributed (and independently verified — see
+ *   handleFeedMessage) to a soulId that's a member of the caller's own
+ *   cluster, plus the caller's own posts regardless of membership status.
+ *   Pass clusterOnly:false for the unfiltered global/discovery view.
  * @returns {Array} - Array of post objects sorted by timestamp
  */
-function getFeed() {
-  return feed.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+function getFeed(opts = {}) {
+  const clusterOnly = opts.clusterOnly !== false; // default true
+  const sorted = feed.sort((a, b) => b.timestamp - a.timestamp);
+  if (!clusterOnly) return sorted.slice(0, 50);
+
+  const myPeerId = heliaNode ? heliaNode.libp2p.peerId.toString() : null;
+  let clusterMembership = null;
+  try { clusterMembership = require("./cluster-membership"); } catch (_) { /* not active */ }
+
+  const filtered = sorted.filter((p) => {
+    if (p.peerId === myPeerId) return true; // always see your own posts
+    if (!clusterMembership) return false; // can't verify membership -> fail closed
+    return !!(p.soulId && clusterMembership.isMember(p.soulId));
+  });
+  return filtered.slice(0, 50);
 }
 
 /**
@@ -906,7 +1134,13 @@ module.exports = {
   getContent,
   followPeer,
   unfollowPeer,
+  getFollowing,
   upvoteContent,
+  pinContent,
+  recommendContent,
+  unrecommendContent,
+  getVoteCounts,
+  getMyVote,
   getFeed,
   getNodeInfo,
   getPeers,
@@ -923,4 +1157,6 @@ module.exports = {
   getDwebIndex,
   searchDweb,
   connectPeer,
+  getPeerVersion,
+  isNewerVersion,
 };

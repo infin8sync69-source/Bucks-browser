@@ -6,14 +6,17 @@
   "code": 0.3997,
   "commerce": 0.424,
   "calendar": 0.424,
-  "direct_answer": 0.0403,
-  "web_search": 0.0894,
+  "direct_answer": 0.0648,
+  "web_search": 0.0915,
   "product_search": 0.1416,
   "render_component": 0.2577,
   "product_lookup": 0.2015,
   "ipfs_upload_text": 0.434,
-  "youtube_search": 0.3008,
-  "image_search": 0.3199,
-  "deep_research": 0.2913,
-  "weather_lookup": 0.4181
+  "youtube_search": 0.3004,
+  "image_search": 0.3118,
+  "deep_research": 0.2256,
+  "weather_lookup": 0.3538,
+  "read_file": 0.46,
+  "list_directory": 0.2913,
+  "dweb_search": 0.3916
 }

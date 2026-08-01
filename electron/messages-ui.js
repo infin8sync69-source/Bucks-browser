@@ -69,9 +69,16 @@
     addPeerBtn = document.getElementById('msg-add-peer-btn');
     ownPeerEl = document.getElementById('msg-own-peer');
     unreadBadge = document.getElementById('messages-unread-badge');
-    if (!viewEl || !window.bucksAPI || !window.bucksAPI.chatConversations) return;
+    if (!viewEl) return;
 
-    wireEvents();
+    wireEvents(); // always wire DOM events so buttons are clickable
+
+    if (!window.bucksAPI || typeof window.bucksAPI.chatConversations !== 'function') {
+      if (ownPeerEl) ownPeerEl.textContent = 'P2P node offline';
+      if (listEl) listEl.innerHTML = '<div style="padding:20px; text-align:center; font-size:12px; color:rgba(255,255,255,0.4);">P2P messaging unavailable — node not running.</div>';
+      return;
+    }
+
     loadOwnIdentity();
     refreshConversations();
 
@@ -202,7 +209,12 @@
         ownPeerId = info.peerId;
         ownAddresses = info.addresses || [];
         const myName = localStorage.getItem('bucks-profile-name') || 'You';
-        ownPeerEl.innerHTML = `<strong>${escapeHtml(myName)}</strong> · <span style="opacity:0.7">${shortId(ownPeerId)}</span> <span style="opacity:0.5">(click to copy swarm address)</span>`;
+        // ownPeerEl is now a <code> chip — just show name · short ID
+        ownPeerEl.innerHTML =
+          `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="opacity:0.6;flex-shrink:0"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>` +
+          `<span style="font-weight:600;color:rgba(255,255,255,0.75);">${escapeHtml(myName)}</span>` +
+          `<span style="opacity:0.45">·</span>` +
+          `<span title="${escapeHtml(ownPeerId)}">${shortId(ownPeerId)}</span>`;
       }
     } catch (_) {}
   }
@@ -280,7 +292,7 @@
       const peerName = getPeerName(c.peer_id);
       const sessionIcon = c.hasSession ? '🔒' : '🔓';
       return `
-        <div class="msg-conv-item" data-peer="${escapeHtml(c.peer_id)}" style="display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; cursor:pointer; background:${active ? 'rgba(169,120,255,0.15)' : 'rgba(255,255,255,0.04)'}; border:1px solid rgba(255,255,255,${active ? '0.22' : '0.06'}); transition:background 0.15s;">
+        <div class="msg-conv-item" data-peer="${escapeHtml(c.peer_id)}" role="button" tabindex="0" aria-label="${escapeHtml(peerName)} conversation" style="display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; cursor:pointer; background:${active ? 'rgba(169,120,255,0.15)' : 'rgba(255,255,255,0.04)'}; border:1px solid rgba(255,255,255,${active ? '0.22' : '0.06'}); transition:background 0.15s;">
           <div style="display:flex; align-items:center; gap:6px;">
             <div style="width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg, #a978ff55, #7b3fe455); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:rgba(255,255,255,0.8); flex-shrink:0;">${escapeHtml(peerName.charAt(0).toUpperCase())}</div>
             <span style="font-size:12px; font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(peerName)}</span>
@@ -296,6 +308,9 @@
 
     listEl.querySelectorAll('.msg-conv-item').forEach((el) => {
       el.addEventListener('click', () => openThread(el.dataset.peer));
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openThread(el.dataset.peer); }
+      });
     });
   }
 

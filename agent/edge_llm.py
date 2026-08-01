@@ -29,17 +29,29 @@ _MODEL_DIR.mkdir(parents=True, exist_ok=True)
 # Maps config.EDGE_SLMS ids to a concrete pre-quantized GGUF on Hugging Face.
 # Every id in config.EDGE_SLMS must have an entry here.
 _GGUF_CATALOGUE: dict[str, dict[str, str]] = {
-    "llama3.2:1b":  {"repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",  "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf"},
-    "smollm2:1.7b": {"repo": "bartowski/SmolLM2-1.7B-Instruct-GGUF",  "file": "SmolLM2-1.7B-Instruct-Q4_K_M.gguf"},
-    "qwen2.5:1.5b": {"repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",       "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf"},
-    "gemma2:2b":    {"repo": "bartowski/gemma-2-2b-it-GGUF",          "file": "gemma-2-2b-it-Q4_K_M.gguf"},
-    "llama3.2:3b":  {"repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",  "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf"},
-    "qwen2.5:3b":   {"repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",         "file": "qwen2.5-3b-instruct-q4_k_m.gguf"},
-    "phi3:mini":    {"repo": "microsoft/Phi-3-mini-4k-instruct-gguf", "file": "Phi-3-mini-4k-instruct-q4.gguf", "max_ctx": 4096},
+    # sha256 values are each model's HuggingFace LFS digest, fetched via a
+    # HEAD request's X-Linked-ETag header (no need to download the file
+    # itself to obtain it) — enforced by _verify_digest()/_download() above.
+    "llama3.2:1b":  {"repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",  "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+                      "sha256": "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83"},
+    "smollm2:1.7b": {"repo": "bartowski/SmolLM2-1.7B-Instruct-GGUF",  "file": "SmolLM2-1.7B-Instruct-Q4_K_M.gguf",
+                      "sha256": "77665ea4815999596525c636fbeb56ba8b080b46ae85efef4f0d986a139834d7"},
+    "qwen2.5:1.5b": {"repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",       "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"},
+    "gemma2:2b":    {"repo": "bartowski/gemma-2-2b-it-GGUF",          "file": "gemma-2-2b-it-Q4_K_M.gguf",
+                      "sha256": "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787"},
+    "llama3.2:3b":  {"repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",  "file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                      "sha256": "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff"},
+    "qwen2.5:3b":   {"repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",         "file": "qwen2.5-3b-instruct-q4_k_m.gguf",
+                      "sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"},
+    "phi3:mini":    {"repo": "microsoft/Phi-3-mini-4k-instruct-gguf", "file": "Phi-3-mini-4k-instruct-q4.gguf", "max_ctx": 4096,
+                      "sha256": "8a83c7fb9049a9b2e92266fa7ad04933bb53aa1e85136b7b30f1b8000ff2edef"},
     # bartowski mirror: the official Qwen repo only ships this quant as split
     # files, which hf_hub_download can't fetch as a single artifact (404).
-    "qwen2.5:7b":   {"repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",    "file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf"},
-    "llama3.1:8b":  {"repo": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF", "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"},
+    "qwen2.5:7b":   {"repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",    "file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+                      "sha256": "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423"},
+    "llama3.1:8b":  {"repo": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF", "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+                      "sha256": "7b064f5842bf9532c91456deda288a1b672397a54fa729aa665952863033557c"},
 }
 
 # Generic OpenAI-style tool-calling prompt/parser built into llama-cpp-python.
@@ -56,6 +68,34 @@ _llm: Optional[Any] = None
 _current_model_id: Optional[str] = None
 _load_lock = asyncio.Lock()
 _infer_lock = asyncio.Lock()
+
+# Download progress (UI feedback for the multi-minute first-run/model-switch
+# fetch — previously the switch endpoint just blocked with zero visibility).
+# Populated by polling real bytes on disk under the model's HF cache
+# directory rather than depending on hf_hub_download's internal progress
+# hooks, so it works across huggingface_hub versions.
+_download_progress: dict[str, Any] = {
+    "active": False, "model_id": None, "downloaded_bytes": 0, "total_bytes": 0,
+}
+
+
+def get_download_progress() -> dict:
+    return dict(_download_progress)
+
+
+def _dir_size_bytes(path: Path) -> int:
+    try:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    except OSError:
+        return 0
+
+
+def _watch_download_progress(model_id: str, target_dir: Path, total_bytes: int, stop_event: "threading.Event") -> None:
+    while not stop_event.wait(0.5):
+        _download_progress.update({
+            "active": True, "model_id": model_id,
+            "downloaded_bytes": _dir_size_bytes(target_dir), "total_bytes": total_bytes,
+        })
 
 # Persisted manual model choice (from the UI switcher). Survives restarts.
 _SELECTION_FILE = _MODEL_DIR.parent / "selected_model.txt"
@@ -198,11 +238,30 @@ def _verify_digest(path: str, expected_sha256: Optional[str]) -> None:
     log.info("Model digest verified: %s", path)
 
 
-def _download(repo_id: str, filename: str, expected_sha256: Optional[str] = None) -> str:
+def _download(repo_id: str, filename: str, expected_sha256: Optional[str] = None,
+               model_id: Optional[str] = None, size_gb: float = 0.0) -> str:
     from huggingface_hub import hf_hub_download
-    path = hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=str(_MODEL_DIR))
-    _verify_digest(path, expected_sha256)
-    return path
+
+    target_dir = _MODEL_DIR / f"models--{repo_id.replace('/', '--')}"
+    already_cached = target_dir.exists()
+    stop_event = threading.Event()
+    monitor: Optional[threading.Thread] = None
+    if not already_cached and model_id:
+        total_bytes = int(size_gb * (1024 ** 3))
+        _download_progress.update({"active": True, "model_id": model_id, "downloaded_bytes": 0, "total_bytes": total_bytes})
+        monitor = threading.Thread(
+            target=_watch_download_progress, args=(model_id, target_dir, total_bytes, stop_event), daemon=True,
+        )
+        monitor.start()
+    try:
+        path = hf_hub_download(repo_id=repo_id, filename=filename, cache_dir=str(_MODEL_DIR))
+        _verify_digest(path, expected_sha256)
+        return path
+    finally:
+        stop_event.set()
+        if monitor:
+            monitor.join(timeout=2)
+        _download_progress.update({"active": False})
 
 
 def _load(model_id: Optional[str] = None) -> Any:
@@ -219,7 +278,8 @@ def _load(model_id: Optional[str] = None) -> Any:
         raise ValueError(f"No embedded GGUF mapping for model id: {model_id}")
 
     log.info("Preparing embedded model %s (%s/%s)…", model_id, entry["repo"], entry["file"])
-    model_path = _download(entry["repo"], entry["file"], entry.get("sha256"))
+    size_gb = next((m["size_gb"] for m in config.EDGE_SLMS if m["id"] == model_id), 0.0)
+    model_path = _download(entry["repo"], entry["file"], entry.get("sha256"), model_id=model_id, size_gb=size_gb)
 
     log.info("Loading %s into llama.cpp…", model_path)
     llm = Llama(

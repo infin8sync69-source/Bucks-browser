@@ -227,6 +227,37 @@ async function heliaAdd(data, filename) {
   return { Name: filename || cid.toString(), Hash: cid.toString(), Size: String(data.length) };
 }
 
+/**
+ * Pin a whole local directory as a UnixFS tree, wrapped in a root directory
+ * CID. Takes a local filesystem path rather than an upload — the only
+ * caller (scripts/build-and-pin-release.js) already runs on this same
+ * machine to reach this bridge at all (same co-located trust level as
+ * heliaAdd's raw-bytes endpoint), so there's no need to invent a multipart
+ * directory wire format when both sides already share a filesystem.
+ *
+ * Unchanged files across releases produce byte-identical sub-CIDs (that's
+ * the whole point — see build-and-pin-release.js's "appTree" field), so
+ * this is what makes routine-tier updates only transfer changed blocks.
+ */
+async function heliaAddDir(dirPath) {
+  const fsModule = _ipfs.getFsModule();
+  if (!fsModule) throw new Error("IPFS node not initialized");
+  const { globSource } = await import("@helia/unixfs");
+
+  let rootCid = null;
+  let fileCount = 0;
+  let totalSize = 0;
+  for await (const entry of fsModule.addAll(globSource(dirPath, "**/*"), { wrapWithDirectory: true })) {
+    rootCid = entry.cid; // last yielded entry is the wrapping root directory
+    if (entry.unixfs?.type !== "directory") {
+      fileCount++;
+      totalSize += Number(entry.size || 0);
+    }
+  }
+  if (!rootCid) throw new Error(`No files found under ${dirPath}`);
+  return { Hash: rootCid.toString(), FileCount: fileCount, TotalSize: String(totalSize) };
+}
+
 /** POST raw bytes to Kubo /api/v0/block/put (multipart), pinned. */
 function kuboBlockPut(data) {
   return new Promise((resolve, reject) => {
@@ -339,6 +370,20 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, result);
     }
 
+    if (p === "/api/v0/add-dir" && req.method === "POST") {
+      const body = await readBody(req);
+      let payload;
+      try { payload = JSON.parse(body.toString("utf8")); }
+      catch { return sendJson(res, 400, { Message: "expected JSON body" }); }
+      const { dirPath } = payload;
+      if (!dirPath) return sendJson(res, 400, { Message: "required: dirPath (local filesystem path)" });
+      const result = await heliaAddDir(dirPath);
+      if (url.searchParams.get("pin") !== "false") {
+        try { await heliaPin(result.Hash); } catch { /* local add already cached blocks */ }
+      }
+      return sendJson(res, 200, result);
+    }
+
     if (p === "/api/v0/cat") {
       const arg = url.searchParams.get("arg");
       if (!arg) return sendJson(res, 400, { Message: "argument \"ipfs-path\" is required" });
@@ -386,6 +431,85 @@ async function handleRequest(req, res) {
 
     if (p === "/api/v0/bucks/node/info") {
       return sendJson(res, 200, _ipfs.getNodeInfo());
+    }
+
+    // ── Cluster membership: read-only. Deliberately no admit endpoint here —
+    // admission is a trust-boundary action that only the renderer's explicit
+    // user-click flow may perform (see cluster-membership.js header comment
+    // and main.js's 'cluster-admit' IPC handler). Agent tools built on this
+    // bridge (agent/tools/cluster_tools.py) can therefore never admit a peer,
+    // even if a future tool schema mistakenly tried to. ──
+    if (p === "/api/v0/bucks/cluster/members") {
+      const clusterMembership = require("./cluster-membership");
+      return sendJson(res, 200, { members: clusterMembership.getMembers() });
+    }
+
+    if (p === "/api/v0/bucks/cluster/discovered") {
+      const clusterMembership = require("./cluster-membership");
+      return sendJson(res, 200, { discovered: clusterMembership.getDiscovered() });
+    }
+
+    if (p === "/api/v0/bucks/cluster/identity") {
+      const clusterMembership = require("./cluster-membership");
+      return sendJson(res, 200, await clusterMembership.getMyIdentity());
+    }
+
+    // ── File listings (agent/tools/cluster_tools.py) ──
+    if (p === "/api/v0/bucks/files/mine") {
+      return sendJson(res, 200, _ipfs.getStorageStats());
+    }
+
+    if (p === "/api/v0/bucks/files/cluster") {
+      return sendJson(res, 200, { feed: _ipfs.getFeed() });
+    }
+
+    // ── Recommend / not-recommend — pure network signal, independent of pin ──
+    if (p === "/api/v0/bucks/cluster/votes") {
+      const cid = url.searchParams.get("cid") || "";
+      return sendJson(res, 200, _ipfs.getVoteCounts(cid));
+    }
+
+    if (p === "/api/v0/bucks/cluster/vote" && req.method === "POST") {
+      const body = await readBody(req);
+      let payload;
+      try { payload = JSON.parse(body.toString("utf8")); }
+      catch { return sendJson(res, 400, { Message: "expected JSON body" }); }
+      const { cid, direction } = payload;
+      if (!cid || (direction !== "up" && direction !== "down")) {
+        return sendJson(res, 400, { Message: "required: cid + direction ('up'|'down')" });
+      }
+      const result = direction === "down" ? await _ipfs.unrecommendContent(cid) : await _ipfs.recommendContent(cid);
+      return sendJson(res, 200, result);
+    }
+
+    // ── Pin / unpin — standalone "host this locally", no vote ──
+    if (p === "/api/v0/bucks/cluster/pin" && req.method === "POST") {
+      const body = await readBody(req);
+      let payload;
+      try { payload = JSON.parse(body.toString("utf8")); }
+      catch { return sendJson(res, 400, { Message: "expected JSON body" }); }
+      const { cid, unpin } = payload;
+      if (!cid) return sendJson(res, 400, { Message: "required: cid" });
+      const result = unpin ? await _ipfs.unpinContent(cid) : await _ipfs.pinContent(cid);
+      return sendJson(res, 200, result);
+    }
+
+    // ── Release publish (build-and-pin-release.js talks to this running
+    // instance's own bridge — it must already be a cluster member, same as
+    // any other node pinning content). Manifest signature is verified again
+    // by every RECEIVING member against RELEASE_PUBLISHER_PUBKEY, so a bad
+    // actor calling this on their own machine only broadcasts something
+    // every other node will reject. ──
+    if (p === "/api/v0/bucks/release/announce" && req.method === "POST") {
+      const body = await readBody(req);
+      let payload;
+      try { payload = JSON.parse(body.toString("utf8")); }
+      catch { return sendJson(res, 400, { Message: "expected JSON body" }); }
+      const { manifestCid, manifest } = payload;
+      if (!manifestCid || !manifest) return sendJson(res, 400, { Message: "required: manifestCid + manifest" });
+      const clusterUpdater = require("./cluster-updater");
+      const result = await clusterUpdater.announceRelease(manifestCid, manifest);
+      return sendJson(res, 200, result);
     }
 
     return sendJson(res, 404, { Message: `unknown endpoint: ${p}` });

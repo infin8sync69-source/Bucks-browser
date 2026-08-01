@@ -14,8 +14,11 @@
    ╚══════════════════════════════════════════════════════════╝ */
 'use strict';
 
-const { WebContentsView, BrowserWindow, Menu, clipboard, ipcMain } = require('electron');
+const { app, WebContentsView, BrowserWindow, Menu, clipboard, ipcMain } = require('electron');
+const fs = require('fs');
+const path = require('path');
 const { attachBluetoothChooser } = require('./permission-manager');
+const { spellcheckMenuItems } = require('./web-security');
 
 /** tabId -> { view, winId, lastBounds, visible } */
 const tabsById = new Map();
@@ -60,6 +63,9 @@ function _wireEvents(tabId, winId, view) {
     }
   });
   wc.on('found-in-page', (_e, result) => send('found-in-page', { result }));
+  // Clicking into a page focuses its webContents — the shell uses this to
+  // track which pane is focused when a tab hosts several (pane-manager.js).
+  wc.on('focus', () => send('view-focus'));
 
   // Popups / target=_blank → let the shell open them as tabs.
   wc.setWindowOpenHandler(({ url }) => {
@@ -86,6 +92,8 @@ function _wireEvents(tabId, winId, view) {
   // browser UX that DOM menus can't provide over a native view.
   wc.on('context-menu', (_e, params) => {
     const items = [];
+    // Spelling suggestions first, like every browser (only on misspellings).
+    items.push(...spellcheckMenuItems(wc, params));
     const nav = _navState(wc);
     items.push(
       { label: 'Back', enabled: nav.canGoBack, click: () => wc.navigationHistory ? wc.navigationHistory.goBack() : wc.goBack() },
@@ -96,6 +104,7 @@ function _wireEvents(tabId, winId, view) {
     if (params.linkURL) {
       items.push(
         { label: 'Open Link in New Tab', click: () => send('new-window', { url: params.linkURL }) },
+        { label: 'Open Link in Split Pane', click: () => send('open-in-pane', { url: params.linkURL }) },
         { label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) },
         { type: 'separator' },
       );
@@ -170,14 +179,39 @@ function setupTabIPC() {
   ipcMain.handle('tabs:create', (e, { tabId, url, partition }) => {
     const win = _win(e);
     if (!win || tabsById.has(tabId)) return false;
+
+    // Load javascript and webrtc preference from settings.json
+    let jsEnabled = true;
+    let webrtcProtection = true;
+    try {
+      const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+      if (fs.existsSync(settingsFile)) {
+        const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        jsEnabled = settings.jsEnabled !== false;
+        webrtcProtection = settings.webrtcProtection !== false;
+      }
+    } catch (err) {
+      console.error('[TabManager] Failed to read settings for webPreferences:', err);
+    }
+
     const view = new WebContentsView({
       webPreferences: {
         partition: partition || undefined,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
+        javascript: jsEnabled,
       },
     });
+
+    try {
+      // setWebRTCIPHandlingPolicy lives on webContents, not session.
+      const policy = webrtcProtection ? 'default_public_interface_only' : 'default';
+      view.webContents.setWebRTCIPHandlingPolicy(policy);
+    } catch (err) {
+      console.error('[TabManager] Failed to set WebRTC policy:', err);
+    }
+
     view.setVisible(false);
     win.contentView.addChildView(view);
     tabsById.set(tabId, { view, winId: win.id, lastBounds: null, visible: false });
@@ -258,7 +292,20 @@ function setupTabIPC() {
   ipcMain.handle('tabs:stop', (_e, { tabId }) => { const r = _get(tabId); if (r) r.view.webContents.stop(); });
   ipcMain.handle('tabs:setZoom', (_e, { tabId, factor }) => { const r = _get(tabId); if (r) r.view.webContents.setZoomFactor(factor); });
   ipcMain.handle('tabs:print', (_e, { tabId }) => { const r = _get(tabId); if (r) r.view.webContents.print(); });
-  ipcMain.handle('tabs:openDevTools', (_e, { tabId }) => { const r = _get(tabId); if (r) r.view.webContents.openDevTools({ mode: 'detach' }); });
+  ipcMain.handle('tabs:openDevTools', (_e, { tabId }) => {
+    try {
+      const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+      if (fs.existsSync(settingsFile)) {
+        const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        if (settings.devtoolsHotkey === false) {
+          console.warn('[TabManager] DevTools is disabled by advanced settings');
+          return;
+        }
+      }
+    } catch (_) {}
+    const r = _get(tabId);
+    if (r) r.view.webContents.openDevTools({ mode: 'detach' });
+  });
 
   ipcMain.handle('tabs:find', (_e, { tabId, text, options }) => {
     const rec = _get(tabId);
@@ -280,6 +327,20 @@ function setupTabIPC() {
     if (!rec) throw new Error('No such tab');
     const img = await rec.view.webContents.capturePage();
     return img.toPNG().toString('base64');
+  });
+
+  // Print the live page of a tab/pane to a PDF in ~/Documents/Bucks.
+  ipcMain.handle('tabs:printToPDF', async (_e, { tabId, title }) => {
+    const rec = _get(tabId);
+    if (!rec) throw new Error('No such tab');
+    const { targetPath } = require('./doc-factory');
+    const wc = rec.view.webContents;
+    const name = title || wc.getTitle() || 'page';
+    const p = targetPath(name, 'pdf');
+    const data = await wc.printToPDF({ pageSize: 'A4', printBackground: true });
+    require('fs').writeFileSync(p, data);
+    try { require('electron').shell.showItemInFolder(p); } catch (_) {}
+    return { path: p };
   });
 
   ipcMain.handle('tabs:getURL', (_e, { tabId }) => {

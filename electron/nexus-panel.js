@@ -887,7 +887,7 @@
     el.innerHTML = `
       <div class="nx-step-header">
         <span class="nx-step-icon">${meta.icon}</span>
-        <span class="nx-step-label">${meta.label}${evt.name ? `: ${evt.name}` : ''}</span>
+        <span class="nx-step-label">${meta.label}${evt.name ? `: ${_escHtml(evt.name)}` : ''}</span>
         <span class="nx-step-time">${time}</span>
         ${isLong ? '<span style="color:var(--nx-muted);font-size:10px;cursor:pointer">[expand]</span>' : ''}
       </div>
@@ -1016,10 +1016,10 @@
       const pct  = Math.round((load / max) * 100);
       return `
         <div class="nx-peer-card">
-          <div class="nx-peer-id">${(peer.nodeId || '?').slice(0, 12)}…</div>
-          <div class="nx-peer-model">${peer.model || '?'}</div>
+          <div class="nx-peer-id">${_escHtml((peer.nodeId || '?').slice(0, 12))}…</div>
+          <div class="nx-peer-model">${_escHtml(peer.model || '?')}</div>
           <div class="nx-load-bar-bg"><div class="nx-load-bar" style="width:${pct}%"></div></div>
-          <div style="font-size:10px;color:var(--nx-muted);margin-top:3px">${peer.lastSeen || ''} · ${peer.locality || ''}</div>
+          <div style="font-size:10px;color:var(--nx-muted);margin-top:3px">${_escHtml(peer.lastSeen || '')} · ${_escHtml(peer.locality || '')}</div>
         </div>
       `;
     }).join('');
@@ -1082,7 +1082,10 @@
    *  UTILITIES
    * ════════════════════════════════════════════════════════════════════════ */
   function _escHtml(str) {
-    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    // Also encodes ' (not just "): this helper's output is reused inside
+    // single-quoted onclick="...('...')" attributes, e.g. openAgentLink
+    // calls built from agent-echoed / scraped link text.
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
   function _escAttr(str) {
     return String(str || '').replace(/"/g, '&quot;');

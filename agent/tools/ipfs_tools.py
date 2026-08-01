@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import sys
+from pathlib import Path
 from typing import Callable, Optional
 
 import aiohttp
@@ -9,6 +12,47 @@ from rag.ipfs_store import IPFSKnowledgeStore
 from config import IPFS_API_URL
 
 log = logging.getLogger("bucks.tools.ipfs")
+
+
+# ── Headless fallback: read cluster state straight off disk ──────────────────
+# The /api/v0/bucks/* endpoints (dWeb index, cluster membership, shared files)
+# are served ONLY by electron/ipfs-bridge.js, i.e. only while the browser
+# window is open. Generic IPFS calls (add/cat) go to the Kubo daemon and keep
+# working headless, so the agent used to end up half-functional in a way that
+# looked arbitrary: it could upload to IPFS but "knew nothing" about the
+# cluster the moment the UI closed.
+#
+# ipfs-node.js already persists all of this state as plain JSON, so the agent
+# can read it directly as a degraded, read-only path. Writes still require the
+# browser (they need the live libp2p node to gossip).
+def _electron_user_data_dir() -> Optional[Path]:
+    """Electron's userData dir for this app, per platform."""
+    app = "bucks-browser"
+    home = Path.home()
+    if sys.platform == "darwin":
+        p = home / "Library" / "Application Support" / app
+    elif os.name == "nt":
+        base = os.environ.get("APPDATA")
+        p = Path(base) / app if base else home / "AppData" / "Roaming" / app
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME")
+        p = (Path(base) if base else home / ".config") / app
+    return p if p.is_dir() else None
+
+
+def _read_local_state(filename: str):
+    """Read one persisted ipfs-data JSON file, or None if unavailable."""
+    root = _electron_user_data_dir()
+    if not root:
+        return None
+    f = root / "ipfs-data" / filename
+    try:
+        if not f.is_file() or f.stat().st_size == 0:
+            return None
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning("local state read failed for %s: %s", filename, e)
+        return None
 
 
 async def _bucks_bridge_request(path: str, payload: Optional[dict] = None) -> Optional[dict]:
@@ -116,8 +160,40 @@ async def dweb_search(query: str) -> str:
     """
     result = await _bucks_bridge_request(f"/api/v0/bucks/dweb/search?q={query}", {})
     if result is None:
-        return ("Error: the Bucks browser bridge is not reachable, so the dWeb "
-                "index is unavailable. (Is the Bucks browser running?)")
+        # Browser closed → fall back to the index ipfs-node.js persisted to
+        # disk, filtering locally, rather than reporting "unavailable".
+        index = _read_local_state("dweb-index.json")
+        if index is None:
+            return ("The dWeb index is unavailable: the Bucks browser isn't running "
+                    "and no cached index was found on disk.")
+        q = (query or "").lower().strip()
+        items = [
+            it for it in index
+            if not q or any(q in str(it.get(f, "")).lower()
+                            for f in ("name", "title", "desc", "cid"))
+        ]
+        # A narrow query matching nothing is a dead end for the model — it
+        # tends to retry the same phrase. The index is small, so show what IS
+        # available instead and let the model pick.
+        if not items:
+            if not index:
+                return "The dWeb index is empty — nothing has been published to this swarm yet."
+            lines = [f"No dWeb page matched '{query}'. The index currently holds "
+                     f"{len(index)} page(s):"]
+            items = index
+        else:
+            lines = [f"Found {len(items)} dWeb page(s) [cached index — browser not running]:"]
+        for it in items[:20]:
+            lines.append(f"- {it.get('name', '?')} — {it.get('title', '')} "
+                         f"(CID: {it.get('cid', '?')}, ipfs://{it.get('cid', '?')})")
+        # Small models stop here and describe the page from its title alone,
+        # inventing content they never read. Spell out the next step.
+        lines.append(
+            "\n[NEXT STEP: this listing contains titles only, NOT page content. "
+            "To describe what a page actually says you MUST call ipfs_cat_text "
+            "with its CID. Do not guess or infer the contents from the title.]"
+        )
+        return "\n".join(lines)
     items = result.get("results", [])
     if not items:
         return f"No dWeb pages found for '{query}'."

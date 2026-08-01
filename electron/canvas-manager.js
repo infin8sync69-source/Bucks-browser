@@ -325,7 +325,7 @@
     },
 
     init() {
-      const searchBar = document.getElementById('agentic-search-bar');
+      const searchBar = document.getElementById('composer-bar');
       const searchInput = document.getElementById('agentic-input');
       const crudBtn = document.getElementById('agentic-crud-btn');
 

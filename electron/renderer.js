@@ -68,6 +68,53 @@
   let tabIdCounter = 0;
   function genTabId() { return `tab-${++tabIdCounter}`; }
 
+  /* ─── Tab custom labels & colors (persisted by URL origin) ─── */
+  const TAB_CUSTOM_KEY = 'bucks-tab-custom';
+  // Guard: when a rename input is active, skip re-renders that would destroy it
+  let _renamingTabId = null;
+  // Color palette for the right-click color picker
+  const TAB_COLORS = [
+    { label: 'Default', value: null },
+    { label: 'Red',    value: '#ef4444' },
+    { label: 'Orange', value: '#f97316' },
+    { label: 'Yellow', value: '#eab308' },
+    { label: 'Green',  value: '#22c55e' },
+    { label: 'Blue',   value: '#3b82f6' },
+    { label: 'Purple', value: '#a855f7' },
+    { label: 'Pink',   value: '#ec4899' },
+  ];
+
+  function _tabCustomKey(url) {
+    if (!url || url === 'bucks://newtab') return null;
+    try {
+      const u = new URL(url);
+      return (u.origin && u.origin !== 'null') ? u.origin : url;
+    } catch (_) { return null; }
+  }
+
+  function getTabCustom(url) {
+    const key = _tabCustomKey(url);
+    if (!key) return null;
+    try {
+      const store = JSON.parse(localStorage.getItem(TAB_CUSTOM_KEY) || '{}');
+      return store[key] || null;
+    } catch (_) { return null; }
+  }
+
+  function setTabCustom(url, update) {
+    const key = _tabCustomKey(url);
+    if (!key) return;
+    try {
+      const store = JSON.parse(localStorage.getItem(TAB_CUSTOM_KEY) || '{}');
+      const existing = store[key] || {};
+      Object.keys(update).forEach((k) => {
+        if (update[k] == null) { delete existing[k]; } else { existing[k] = update[k]; }
+      });
+      if (Object.keys(existing).length === 0) { delete store[key]; } else { store[key] = existing; }
+      localStorage.setItem(TAB_CUSTOM_KEY, JSON.stringify(store));
+    } catch (_) {}
+  }
+
   function cidV0toV1(cidV0) {
     const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
     const B32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
@@ -172,6 +219,18 @@
       modal.classList.add('sidebar-hidden');
     };
   });
+
+  /* ═══════════ EPHEMERAL COMMAND BAR (Cmd/Ctrl+K) ═══════════
+   * ephemeral-window.js closes its popup and forwards the typed query here.
+   * Route it into the same agentic chat pipeline Enter-in-chat already uses,
+   * so Cmd+K is a fast launcher into the one real flow rather than a second
+   * system that has to render its own results. */
+  if (window.bucksTabs && typeof window.bucksTabs.onEphemeralQuery === 'function') {
+    window.bucksTabs.onEphemeralQuery((evt) => {
+      const query = (evt && evt.query || '').trim();
+      if (query) sendChat(query);
+    });
+  }
 
   /* ═══════════ WIDGETS ENGINE & DYNAMIC WORKSPACE ═══════════ */
 
@@ -316,12 +375,12 @@
       } else if (w.type === 'music') {
         content.innerHTML = `
           <div style="display:flex; align-items:center; gap:16px; height:100%;">
-            <div style="flex:none; width:60px; height:60px; border-radius:13px; background:linear-gradient(145deg,#8a8a8e,#48484c); box-shadow:inset 0 1px 0 rgba(255,255,255,0.3); display:flex; align-items:center; justify-content:center; font-size:24px;">🎵</div>
+            <div style="flex:none; width:60px; height:60px; border-radius:13px; background: var(--bucks-bg-surface); box-shadow: var(--bucks-shadow-md); display:flex; align-items:center; justify-content:center; font-size:24px;"></div>
             <div style="flex:1; min-width:0;">
               <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:4px;">NOW PLAYING</div>
               <div style="font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Deeper Well</div>
               <div style="font-size:13px; color:rgba(255,255,255,0.55);">Kacey Musgraves</div>
-              <div style="margin-top:9px; height:4px; border-radius:99px; background:rgba(255,255,255,0.16);"><div style="width:38%; height:100%; border-radius:99px; background:#fff;"></div></div>
+              <div style="margin-top:9px; height:4px; border-radius:99px; background:rgba(255,255,255,0.16);"><div style="width:38%; height:100%; border-radius:99px; background: var(--bucks-bg-surface);"></div></div>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
               <svg class="music-ctrl-btn" width="18" height="18" viewBox="0 0 24 24" fill="#fff" style="cursor:pointer;"><path d="M7 6v12M9 12l9-6v12z"></path></svg>
@@ -333,7 +392,7 @@
       } else if (w.type === 'agent') {
         content.innerHTML = `
           <div style="display:flex; align-items:center; gap:9px; margin-bottom:12px;">
-            <span style="width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#5e5e63,#2c2c30); box-shadow:inset 0 1px 0 rgba(255,255,255,0.25);">
+            <span style="width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; background: var(--bucks-bg-surface); box-shadow: var(--bucks-shadow-md);">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l1.7 4.6 4.6 1.7-4.6 1.7L12 15.6l-1.7-4.6L5.7 9.3l4.6-1.7z"></path></svg>
             </span>
             <span style="font-size:15px; font-weight:700;">Delegate a task</span>
@@ -582,7 +641,7 @@
       btn.className = 'chat-history-item-btn';
       btn.style.cssText = `display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:13px; border:none; cursor:pointer; background:transparent; text-align:left; color:#fff; font-family:inherit; width: 100%;`;
       btn.innerHTML = `
-        <span style="flex:none; width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#5e5e63,#2c2c30); box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l1.7 4.6 4.6 1.7-4.6 1.7L12 15.6l-1.7-4.6L5.7 9.3l4.6-1.7z"></path></svg></span>
+        <span style="flex:none; width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; background: var(--bucks-bg-surface); box-shadow: var(--bucks-shadow-md);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l1.7 4.6 4.6 1.7-4.6 1.7L12 15.6l-1.7-4.6L5.7 9.3l4.6-1.7z"></path></svg></span>
         <div style="flex:1; min-width:0;"><div style="font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(h.q)}</div><div style="font-size:12px; color:rgba(255,255,255,0.5);">${h.kind}</div></div>
         <span style="flex:none; font-size:12px; color:rgba(255,255,255,0.45);">${h.time}</span>
       `;
@@ -659,7 +718,16 @@
       webview: null,
       newtabEl: null,
       spaceId: spaceId || activeSpaceId,
+      customName: undefined,
+      tabColor: undefined,
     };
+
+    // Restore any persisted label or color for this URL origin
+    const _initCustom = getTabCustom(tab.url);
+    if (_initCustom) {
+      if (_initCustom.name) tab.customName = _initCustom.name;
+      if (_initCustom.color) tab.tabColor = _initCustom.color;
+    }
 
     if (isNewTab) {
       // Liquid-glass shell: the home is the always-present `view-home` (dock
@@ -701,6 +769,7 @@
     tabs.push(tab);
     renderTabBar();
     setActiveTab(id);
+    saveSession();
     return id;
   }
 
@@ -753,6 +822,11 @@
       createTab(e.url);
     });
 
+    // Context-menu "Open Link in Split Pane" (tab-manager.js context menu).
+    wv.addEventListener('open-in-pane', (e) => {
+      if (window.bucksPaneManager) window.bucksPaneManager.addPane(tab.id, e.url);
+    });
+
     wv.addEventListener('found-in-page', (e) => {
       if (tab.id === activeTabId && findBar && !findBar.classList.contains('hidden')) {
         findResults.textContent = `${e.result.activeMatchOrdinal}/${e.result.matches}`;
@@ -766,6 +840,9 @@
   function navigateTab(tabId, input) {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    // Navigating dismisses the ephemeral agent overlay (its freeze-frame
+    // backdrop would go stale and keep covering the live view).
+    if (document.body.classList.contains('agent-freeze')) undockChatPanel();
     const url = normalizeURL(input);
     tab.url = url;
 
@@ -782,6 +859,7 @@
     if (tabId === activeTabId) {
       setActiveTab(tabId);
     }
+    saveSession();
   }
 
   function closeTab(tabId) {
@@ -789,7 +867,9 @@
     if (idx === -1) return;
     const tab = tabs[idx];
 
-    // Remove webview or new-tab element
+    // Remove webview or new-tab element (panes first: a split tab owns
+    // several views; onTabClosed closes them all, incl. tab.webview).
+    if (window.bucksPaneManager) window.bucksPaneManager.onTabClosed(tabId);
     if (tab.webview) tab.webview.remove();
     if (tab.newtabEl) tab.newtabEl.remove();
 
@@ -806,9 +886,17 @@
     }
 
     renderTabBar();
+    saveSession();
   }
 
   function setActiveTab(tabId) {
+    // The ephemeral agent overlay freezes a capture of the page it opened
+    // over; a tab switch or navigation would leave that capture stale over a
+    // hidden live view — dismiss the overlay instead (ephemeral semantics).
+    if (document.body.classList.contains('agent-freeze') && tabId !== activeTabId) {
+      undockChatPanel();
+    }
+
     activeTabId = tabId;
 
     // Hide all webviews and newtab pages
@@ -817,6 +905,14 @@
 
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+
+    // Lazily hydrate a session-restored tab on first activation.
+    if (tab.pendingUrl && !tab.webview) {
+      const url = tab.pendingUrl;
+      tab.pendingUrl = null;
+      createWebview(tab);
+      tab.webview.setAttribute('src', url);
+    }
 
     // Auto align activeSpaceId if tab belongs to a different space (e.g. mock tabs or programmatic switch)
     const tabSpaceId = tab.spaceId || 'default';
@@ -854,22 +950,86 @@
       window.canvasManager.onTabChanged(tabId, !!tab.webview);
     }
 
+    // Multi-pane workspaces: re-activate sibling panes of this tab (the
+    // querySelectorAll sweep above stripped .active from every placeholder).
+    if (window.bucksPaneManager) window.bucksPaneManager.onTabActivated(tabId);
+
     renderTabBar();
+    saveSession();
   }
 
   function updateTabTitle(tabId, title) {
     const tab = tabs.find((t) => t.id === tabId);
     if (tab) tab.title = title;
     renderTabBar();
+    saveSession();
+  }
+
+  /* ─── Session restore ───
+     Tabs survive restarts: the list persists (debounced) to localStorage and
+     is recreated on boot LAZILY — only the active tab loads its page; other
+     tabs keep a pendingUrl and hydrate on first activation (16GB-RAM budget:
+     one renderer process per restored tab would be brutal). */
+  const SESSION_KEY = 'bucks-session-v2';
+  let _sessionSaveTimer = null;
+
+  function saveSession() {
+    clearTimeout(_sessionSaveTimer);
+    _sessionSaveTimer = setTimeout(() => {
+      try {
+        const real = tabs.filter((t) => (t.webview || t.pendingUrl) && (t.pendingUrl || t.url));
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          tabs: real.map((t) => ({
+            url: t.pendingUrl || t.url,
+            title: t.title || '',
+            spaceId: t.spaceId || 'default',
+          })),
+          activeIndex: Math.max(0, real.findIndex((t) => t.id === activeTabId)),
+        }));
+      } catch (_) {}
+    }, 400);
+  }
+
+  function restoreSession() {
+    let data = null;
+    try { data = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (_) {}
+    const saved = data && Array.isArray(data.tabs)
+      ? data.tabs.filter((t) => t.url && t.url !== 'bucks://newtab').slice(0, 20)
+      : [];
+    if (!saved.length) { createTab(); return; }
+
+    const ids = [];
+    for (const s of saved) {
+      const id = genTabId();
+      const restoredTab = {
+        id, title: s.title || 'Loading…', url: s.url,
+        webview: null, newtabEl: null,
+        spaceId: s.spaceId || 'default',
+        pendingUrl: s.url,
+        customName: undefined,
+        tabColor: undefined,
+      };
+      const _rc = getTabCustom(s.url);
+      if (_rc) {
+        if (_rc.name) restoredTab.customName = _rc.name;
+        if (_rc.color) restoredTab.tabColor = _rc.color;
+      }
+      tabs.push(restoredTab);
+      ids.push(id);
+    }
+    setActiveTab(ids[Math.min(data.activeIndex || 0, ids.length - 1)]);
   }
 
   /* ─── Tab bar rendering ─── */
   function renderTabBar() {
+    // Don't blow away the DOM while the user is typing a new tab name
+    if (_renamingTabId !== null) return;
+
     tabsContainer.innerHTML = '';
-    
+
     // Only display tabs belonging to the active Space
     const visibleTabs = tabs.filter(t => (t.spaceId || 'default') === activeSpaceId);
-    
+
     // Auto-create a tab if the active space becomes empty
     if (visibleTabs.length === 0) {
       createTab('bucks://newtab', activeSpaceId);
@@ -879,22 +1039,87 @@
     visibleTabs.forEach((tab) => {
       const el = document.createElement('div');
       el.className = `tab${tab.id === activeTabId ? ' active' : ''}`;
-      el.innerHTML = `
-        <span class="tab-title">${escapeHTML(tab.title)}</span>
-        <button class="tab-close" data-tab-id="${tab.id}" title="Close tab">
-          <svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        </button>
-      `;
+
+      // Apply persisted label color as an inset left-edge accent
+      if (tab.tabColor) {
+        el.style.setProperty('--tab-accent', tab.tabColor);
+      }
+
+      // Title — shows customName if the user renamed this origin, else the page title
+      const titleEl = document.createElement('span');
+      titleEl.className = 'tab-title';
+      titleEl.textContent = tab.customName || tab.title;
+      el.appendChild(titleEl);
+
+      // Close button (hidden until tab is hovered/active via CSS)
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close';
+      closeBtn.title = 'Close tab';
+      closeBtn.dataset.tabId = tab.id;
+      closeBtn.innerHTML = `<svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+      el.appendChild(closeBtn);
+
+      // Activate tab on click (ignore clicks on close button or rename input)
       el.addEventListener('click', (e) => {
-        if (!e.target.closest('.tab-close')) setActiveTab(tab.id);
+        if (!e.target.closest('.tab-close') && !e.target.closest('.tab-rename-input')) {
+          setActiveTab(tab.id);
+        }
       });
-      el.querySelector('.tab-close').addEventListener('click', (e) => {
+
+      // Close
+      closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         closeTab(tab.id);
       });
+
+      // Right-click context menu
       el.addEventListener('contextmenu', (e) => {
         showTabContextMenu(e, tab.id);
       });
+
+      // Double-click title → inline rename input
+      titleEl.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        _renamingTabId = tab.id;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'tab-rename-input';
+        input.value = tab.customName || tab.title;
+
+        let committed = false;
+        const commit = () => {
+          if (committed) return;
+          committed = true;
+          const name = input.value.trim();
+          if (name) {
+            tab.customName = name;
+            setTabCustom(tab.url, { name });
+          } else {
+            delete tab.customName;
+            setTabCustom(tab.url, { name: null });
+          }
+          _renamingTabId = null;
+          renderTabBar();
+        };
+
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+          if (ev.key === 'Escape') {
+            ev.preventDefault();
+            committed = true; // cancel — don't save
+            _renamingTabId = null;
+            renderTabBar();
+          }
+        });
+
+        titleEl.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+
       tabsContainer.appendChild(el);
     });
 
@@ -951,10 +1176,10 @@
       item.innerHTML = `
         <span style="width: 6px; height: 6px; border-radius: 50%; background: ${space.color}; flex-shrink: 0;" title="Space: ${space.name}"></span>
         <div style="flex: 1; min-width: 0; text-align: left;">
-          <div style="font-size: 13px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(tab.title)}</div>
+          <div style="font-size: 13px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(tab.customName || tab.title)}</div>
           <div style="font-size: 10px; color: rgba(255,255,255,0.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(tab.url || 'bucks://newtab')}</div>
         </div>
-        <button class="slab-close-btn" style="background:transparent; border:none; color:rgba(255,255,255,0.4); cursor:pointer; font-size:10px; display:flex; align-items:center; justify-content:center; padding:4px;" title="Close tab">✕</button>
+        <button class="slab-close-btn" style="background:transparent; border:none; color:rgba(255,255,255,0.4); cursor:pointer; font-size:10px; display:flex; align-items:center; justify-content:center; padding:4px;" title="Close tab"></button>
       `;
       
       item.addEventListener('click', (e) => {
@@ -998,12 +1223,70 @@
   function showTabContextMenu(e, tabId) {
     e.preventDefault();
     selectedTabIdForContextMenu = tabId;
-    
+
     const menu = $('#tab-context-menu');
     if (!menu) return;
-    
+
     menu.innerHTML = '';
-    
+
+    const tab = tabs.find(t => t.id === tabId);
+
+    // ── Rename ──
+    const renameItem = document.createElement('div');
+    renameItem.className = 'dropdown-item';
+    renameItem.style.cssText = `display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; color:#fff; user-select:none;`;
+    renameItem.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Rename Tab`;
+    renameItem.addEventListener('click', () => {
+      menu.classList.add('hidden');
+      // Find the active tab element and trigger a rename on its title
+      const tabEl = Array.from(tabsContainer.querySelectorAll('.tab')).find(
+        el => el.querySelector('[data-tab-id="' + tabId + '"]')
+      );
+      const titleEl = tabEl && tabEl.querySelector('.tab-title');
+      if (titleEl) titleEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
+    menu.appendChild(renameItem);
+
+    // ── Color picker ──
+    const colorHeader = document.createElement('div');
+    colorHeader.style.cssText = `padding:4px 10px 2px; font-size:10px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.04em; user-select:none;`;
+    colorHeader.textContent = 'Label color';
+    menu.appendChild(colorHeader);
+
+    const colorRow = document.createElement('div');
+    colorRow.style.cssText = `display:flex; align-items:center; gap:5px; padding:4px 10px 8px; flex-wrap:wrap;`;
+
+    TAB_COLORS.forEach(({ label, value }) => {
+      const swatch = document.createElement('button');
+      swatch.title = label;
+      const isSelected = tab && tab.tabColor === value;
+      swatch.style.cssText = `
+        width: 18px; height: 18px; border-radius: 50%; border: 2px solid ${isSelected ? '#fff' : 'rgba(255,255,255,0.25)'};
+        cursor: pointer; flex-shrink: 0; transition: border-color 0.15s, transform 0.1s;
+        background: ${value || 'rgba(255,255,255,0.14)'};
+        box-shadow: ${isSelected ? '0 0 0 1px rgba(255,255,255,0.5)' : 'none'};
+      `;
+      if (!value) {
+        // "Default" / clear — show a slash
+        swatch.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" style="display:block;margin:auto;"><line x1="2" y1="8" x2="8" y2="2" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+      }
+      swatch.addEventListener('click', () => {
+        if (tab) {
+          if (value) { tab.tabColor = value; } else { delete tab.tabColor; }
+          setTabCustom(tab.url, { color: value || null });
+          renderTabBar();
+        }
+        menu.classList.add('hidden');
+      });
+      colorRow.appendChild(swatch);
+    });
+    menu.appendChild(colorRow);
+
+    // Divider before existing options
+    const divider0 = document.createElement('div');
+    divider0.style.cssText = `height:1px; background:rgba(255,255,255,0.1); margin:4px 0;`;
+    menu.appendChild(divider0);
+
     // Sort Options
     const sortTitleItem = document.createElement('div');
     sortTitleItem.className = 'dropdown-item';
@@ -1068,7 +1351,7 @@
     const closeItem = document.createElement('div');
     closeItem.className = 'dropdown-item';
     closeItem.style.cssText = `display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; color:#ff4757; user-select:none;`;
-    closeItem.innerHTML = `✕ Close Tab`;
+    closeItem.innerHTML = ` Close Tab`;
     closeItem.addEventListener('click', () => {
       closeTab(tabId);
       menu.classList.add('hidden');
@@ -1076,8 +1359,8 @@
     menu.appendChild(closeItem);
     
     // Position menu with boundary safety
-    const menuWidth = 180;
-    const menuHeight = 220; // approximate height including spaces
+    const menuWidth = 200;
+    const menuHeight = 300; // approximate height including color picker + spaces
     let x = e.clientX;
     let y = e.clientY;
     
@@ -1307,7 +1590,12 @@
   function escapeHTML(str) {
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML;
+    // Also encode quotes: the DOM round-trip above only escapes &<> (safe in
+    // text nodes), but this helper's output routinely lands inside
+    // single/double-quoted onclick="..." attributes too, where a raw quote
+    // lets attacker-controlled text (peer names, scraped page content) break
+    // out and inject script.
+    return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
   }
 
   function updateSecurityIcon(status) {
@@ -1341,7 +1629,7 @@
     toast.className = `toast glass-panel toast-${type} fade-in`;
     toast.innerHTML = `
       <div class="toast-content">
-        <span class="toast-icon">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+        <span class="toast-icon">${type === 'success' ? '' : type === 'error' ? '' : 'ℹ️'}</span>
         <span class="toast-text">${text}</span>
       </div>
     `;
@@ -1509,7 +1797,7 @@
           ? `<span style="color:#ff8a8a;">${escapeHTML(d.state)}</span>`
           : `${fmtBytes(d.receivedBytes)}${d.totalBytes > 0 ? ' / ' + fmtBytes(d.totalBytes) : ''}`;
       const bar = (!done && !failed)
-        ? `<div style="height:4px; background:rgba(255,255,255,0.16); border-radius:2px; overflow:hidden; margin-top:6px;"><div style="width:${pct}%; height:100%; background:#fff;"></div></div>`
+        ? `<div style="height:4px; background:rgba(255,255,255,0.16); border-radius:2px; overflow:hidden; margin-top:6px;"><div style="width:${pct}%; height:100%; background: var(--bucks-bg-surface);"></div></div>`
         : '';
       const action = done && d.savePath
         ? `<button class="dl-show" data-i="${i}" style="background:rgba(255,255,255,0.08); border:none; color:#fff; cursor:pointer; font-size:11px; padding:5px 9px; border-radius:7px;">Show in folder</button>`
@@ -1546,9 +1834,9 @@
       const d = downloads.find(x => x.fileName === data.fileName && x.state === 'progressing');
       if (d) { d.state = data.state; d.savePath = data.savePath || null; if (data.totalBytes) { d.totalBytes = data.totalBytes; d.receivedBytes = data.totalBytes; } }
       if (data.state === 'completed') {
-        showToast(`✅ Download complete: ${data.fileName}`, 'success');
+        showToast(` Download complete: ${data.fileName}`, 'success');
       } else {
-        showToast(`❌ Download ${data.state}: ${data.fileName}`, 'error');
+        showToast(` Download ${data.state}: ${data.fileName}`, 'error');
       }
     }
     renderDownloads();
@@ -1598,6 +1886,35 @@
       showDashboardView(dashboardHistory[dashboardHistoryIndex]);
       isNavigatingDashboardHistory = false;
     }
+  }
+
+  // Hamburger Menu
+  const btnHamburger = $('#btn-hamburger');
+  const hamburgerDropdown = $('#hamburger-menu-dropdown');
+
+  if (btnHamburger && hamburgerDropdown) {
+    btnHamburger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hamburgerDropdown.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!btnHamburger.contains(e.target) && !hamburgerDropdown.contains(e.target)) {
+        hamburgerDropdown.classList.add('hidden');
+      }
+    });
+
+    $('#menu-item-home')?.addEventListener('click', () => { showDashboardView('home'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-wallet')?.addEventListener('click', () => { showDashboardView('wallet'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-apps')?.addEventListener('click', () => { document.getElementById('store-overlay')?.classList.remove('hidden'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-spaces')?.addEventListener('click', () => { showDashboardView('spaces'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-files')?.addEventListener('click', () => { showDashboardView('files'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-messages')?.addEventListener('click', () => { showDashboardView('messages'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-studio')?.addEventListener('click', () => { showDashboardView('studio'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-widgets')?.addEventListener('click', () => { showDashboardView('home'); try { openWidgetLibrary(); } catch (_) {} hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-history')?.addEventListener('click', () => { showDashboardView('history'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-bookmarks')?.addEventListener('click', () => { showDashboardView('bookmarks'); hamburgerDropdown.classList.add('hidden'); });
+    $('#menu-item-settings')?.addEventListener('click', () => { showDashboardView('settings'); hamburgerDropdown.classList.add('hidden'); });
   }
 
   $('#btn-back')?.addEventListener('click', () => {
@@ -1720,11 +2037,7 @@
     if (currentSuggestions.length === 0 || omniboxDropdown.classList.contains('hidden')) {
       if (e.key === 'Enter' && addressBar.value.trim()) {
         const val = addressBar.value.trim();
-        if (!isURL(val)) {
-          sendChat(val);
-        } else {
-          navigateTab(activeTabId, val);
-        }
+        navigateTab(activeTabId, val);
         omniboxDropdown.classList.add('hidden');
         addressBar.blur();
       }
@@ -1745,11 +2058,7 @@
       e.preventDefault();
       const targetUrl = suggestionIndex >= 0 ? currentSuggestions[suggestionIndex].url : addressBar.value.trim();
       if (targetUrl) {
-        if (!isURL(targetUrl)) {
-          sendChat(targetUrl);
-        } else {
-          navigateTab(activeTabId, targetUrl);
-        }
+        navigateTab(activeTabId, targetUrl);
         addressBar.blur();
         omniboxDropdown.classList.add('hidden');
       }
@@ -1777,6 +2086,16 @@
     }
     if (e.key === 'Escape' && !findBar.classList.contains('hidden')) {
       closeFindBar();
+      return;
+    }
+    // Escape dismisses whatever chrome overlay is open (side panel / profile).
+    if (e.key === 'Escape') {
+      const sideOpen = document.querySelector('.glass-panel-side.sidebar-visible');
+      const profileOpen = document.getElementById('profile-panel');
+      if (sideOpen || (profileOpen && !profileOpen.classList.contains('hidden'))) {
+        closeSidePanels();
+        closeProfilePanel();
+      }
     }
   });
 
@@ -1906,7 +2225,10 @@
       document.body.classList.remove('dock-collapsed', 'dock-expanded');
     }
 
-    // Hide all views, show target view
+    // Hide all views, show target view. Side panels and the profile dropdown
+    // belong to other families — close them so they don't overlay the view.
+    closeSidePanels();
+    closeProfilePanel();
     const views = document.querySelectorAll('.dashboard-view');
     views.forEach(v => v.classList.add('hidden'));
     const target = document.getElementById(`view-${resolvedViewName}`);
@@ -1932,6 +2254,8 @@
             console.error('[Webview] Reload failed:', e);
           }
         }
+        // Populate the merged Files view's native tabs (Network / Pins / Cluster).
+        try { refreshIPFSStatus(); refreshIPFSFeed(); refreshClusterPanel(); } catch (_) {}
       } else if (viewName === 'studio') {
         const wv = document.getElementById('bucks-studio-webview');
         if (wv) {
@@ -2030,7 +2354,7 @@
       showDashboardView('wallet');
     }
   });
-  $('#nav-explore')?.addEventListener('click', () => {
+  function openFilesAndClusterView() {
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (activeTab && activeTab.webview) {
       const ipfsSidebar = document.getElementById('ipfs-sidebar');
@@ -2042,6 +2366,7 @@
           document.getElementById('settings-panel')?.classList.add('sidebar-hidden');
           refreshIPFSStatus();
           refreshIPFSFeed();
+          refreshClusterPanel();
         } else {
           ipfsSidebar.classList.add('sidebar-hidden');
         }
@@ -2049,8 +2374,14 @@
     } else {
       showDashboardView('ipfs');
     }
-  });
+  }
+  // Explore opens the new My Files / Cluster Files / Cluster panel (the
+  // recommend/vote + cluster-membership UI over the embedded Helia node).
+  $('#nav-explore')?.addEventListener('click', openFilesAndClusterView);
   $('#nav-spaces')?.addEventListener('click', () => showDashboardView('spaces'));
+  // Files opens the IPFS Cluster File Manager (the :3939 proxy over the
+  // running ipfs-cluster on :9094). This is a live, separate surface from the
+  // per-install Helia cluster panel above — keep it on its own button.
   $('#nav-files')?.addEventListener('click', () => showDashboardView('files'));
   $('#nav-messages')?.addEventListener('click', () => showDashboardView('messages'));
   $('#nav-studio')?.addEventListener('click', () => showDashboardView('studio'));
@@ -2088,7 +2419,25 @@
 
   /* ═══════════ SIDEBAR TOGGLE & PANELS ═══════════ */
 
+  /* Side panels, dashboard views and the profile dropdown are three separate
+     families that each only hid their own kind, so opening one left the others
+     stacked on screen. Every entry point closes the other families first. */
+  function closeSidePanels() {
+    document.querySelectorAll('.glass-panel-side').forEach((p) => {
+      p.classList.remove('sidebar-visible');
+      p.classList.add('sidebar-hidden');
+    });
+  }
+  function closeProfilePanel() {
+    document.getElementById('profile-panel')?.classList.add('hidden');
+  }
+
   function toggleSidebar(panelName) {
+    // Any sidebar switch/close may leave the wallet's Mine tab behind —
+    // stop its status poller so it doesn't keep hitting the RPC in the background.
+    stopMiningStatusPolling();
+    closeProfilePanel();
+
     const panels = {
       'wallet': walletSidebar,
       'settings': settingsPanel,
@@ -2305,6 +2654,7 @@
             <div class="sidebar-tabs">
               <button class="side-tab active" id="tab-send">Send</button>
               <button class="side-tab" id="tab-receive">Receive</button>
+              <button class="side-tab" id="tab-mine">Mine</button>
             </div>
 
             <div id="side-view-send" class="side-view">
@@ -2319,22 +2669,31 @@
               </div>
               <p class="address-full">${walletState.address}</p>
             </div>
+
+            <div id="side-view-mine" class="side-view" style="display:none">
+              <div class="wallet-card glass-panel mining-status-card">
+                <p class="label">Mining Status</p>
+                <h3 id="mining-status-text">Stopped</h3>
+                <p class="muted" id="mining-stats-text">0 blocks mined this session · 0 H/s</p>
+              </div>
+              <button class="btn-primary" id="btn-mining-toggle">Start Mining</button>
+            </div>
           </div>
         `;
 
         // Wire up tabs
-        if ($('#tab-send')) $('#tab-send').onclick = () => {
-          $('#side-view-send').style.display = 'block';
-          $('#side-view-receive').style.display = 'none';
-          $('#tab-send').classList.add('active');
-          $('#tab-receive').classList.remove('active');
-        };
-        if ($('#tab-receive')) $('#tab-receive').onclick = () => {
-          $('#side-view-send').style.display = 'none';
-          $('#side-view-receive').style.display = 'block';
-          $('#tab-send').classList.remove('active');
-          $('#tab-receive').classList.add('active');
-        };
+        const walletSideTabs = { send: $('#tab-send'), receive: $('#tab-receive'), mine: $('#tab-mine') };
+        const walletSideViews = { send: $('#side-view-send'), receive: $('#side-view-receive'), mine: $('#side-view-mine') };
+        function showWalletSideTab(name) {
+          for (const key of Object.keys(walletSideViews)) {
+            if (walletSideViews[key]) walletSideViews[key].style.display = key === name ? 'block' : 'none';
+            if (walletSideTabs[key]) walletSideTabs[key].classList.toggle('active', key === name);
+          }
+          if (name === 'mine') startMiningStatusPolling(); else stopMiningStatusPolling();
+        }
+        if (walletSideTabs.send) walletSideTabs.send.onclick = () => showWalletSideTab('send');
+        if (walletSideTabs.receive) walletSideTabs.receive.onclick = () => showWalletSideTab('receive');
+        if (walletSideTabs.mine) walletSideTabs.mine.onclick = () => showWalletSideTab('mine');
 
         if ($('#btn-copy-address')) $('#btn-copy-address').onclick = () => {
           navigator.clipboard.writeText(walletState.address);
@@ -2342,6 +2701,7 @@
         };
 
         if ($('#btn-send-bucks')) $('#btn-send-bucks').onclick = handleSendBucks;
+        if ($('#btn-mining-toggle')) $('#btn-mining-toggle').onclick = handleMiningToggle;
         break;
     }
 
@@ -2392,23 +2752,30 @@
         }
       };
 
-      // Handle sending/receiving tabs inside the dashboard
-      const tabSend = dashContent.querySelector('#tab-send');
-      const tabReceive = dashContent.querySelector('#tab-receive');
-      const viewSend = dashContent.querySelector('#side-view-send');
-      const viewReceive = dashContent.querySelector('#side-view-receive');
-      if (tabSend) tabSend.onclick = () => {
-        if (viewSend) viewSend.style.display = 'block';
-        if (viewReceive) viewReceive.style.display = 'none';
-        tabSend.classList.add('active');
-        if (tabReceive) tabReceive.classList.remove('active');
+      // Handle send/receive/mine tabs inside the dashboard clone
+      const dashTabs = {
+        send: dashContent.querySelector('#tab-send'),
+        receive: dashContent.querySelector('#tab-receive'),
+        mine: dashContent.querySelector('#tab-mine'),
       };
-      if (tabReceive) tabReceive.onclick = () => {
-        if (viewSend) viewSend.style.display = 'none';
-        if (viewReceive) viewReceive.style.display = 'block';
-        if (tabSend) tabSend.classList.remove('active');
-        tabReceive.classList.add('active');
+      const dashViews = {
+        send: dashContent.querySelector('#side-view-send'),
+        receive: dashContent.querySelector('#side-view-receive'),
+        mine: dashContent.querySelector('#side-view-mine'),
       };
+      function showDashSideTab(name) {
+        for (const key of Object.keys(dashViews)) {
+          if (dashViews[key]) dashViews[key].style.display = key === name ? 'block' : 'none';
+          if (dashTabs[key]) dashTabs[key].classList.toggle('active', key === name);
+        }
+        if (name === 'mine') startMiningStatusPolling(); else stopMiningStatusPolling();
+      }
+      if (dashTabs.send) dashTabs.send.onclick = () => showDashSideTab('send');
+      if (dashTabs.receive) dashTabs.receive.onclick = () => showDashSideTab('receive');
+      if (dashTabs.mine) dashTabs.mine.onclick = () => showDashSideTab('mine');
+
+      const dashMiningToggle = dashContent.querySelector('#btn-mining-toggle');
+      if (dashMiningToggle) dashMiningToggle.onclick = handleMiningToggle;
     }
   }
 
@@ -2470,8 +2837,111 @@
     }
   }
 
+  /* ─── Mining ───
+   * bucks-node.js's mining RPCs (/api/mining/*) have always existed and
+   * worked — there was simply no UI surface calling them anywhere in the
+   * app. This wires the existing backend into the wallet panel's new Mine
+   * tab rather than adding any new mining logic. */
+  let miningStatusInterval = null;
+
+  async function refreshMiningStatus() {
+    try {
+      const status = await window.bucksAPI.walletRPC({ method: 'GET', endpoint: '/api/mining/status' });
+      if (!status || status.error) return;
+      const running = !!status.running;
+      document.querySelectorAll('#mining-status-text').forEach((el) => {
+        el.textContent = running ? 'Mining…' : 'Stopped';
+      });
+      document.querySelectorAll('#mining-stats-text').forEach((el) => {
+        el.textContent = `${status.blocksMined || 0} blocks mined this session · ${(status.hashRate || 0).toLocaleString()} H/s`;
+      });
+      document.querySelectorAll('#btn-mining-toggle').forEach((el) => {
+        el.textContent = running ? 'Stop Mining' : 'Start Mining';
+        el.classList.toggle('btn-danger', running);
+      });
+    } catch (_) { /* best-effort UI refresh, don't spam errors */ }
+  }
+
+  function startMiningStatusPolling() {
+    if (miningStatusInterval) return;
+    refreshMiningStatus();
+    miningStatusInterval = setInterval(refreshMiningStatus, 2000);
+  }
+
+  function stopMiningStatusPolling() {
+    if (miningStatusInterval) {
+      clearInterval(miningStatusInterval);
+      miningStatusInterval = null;
+    }
+  }
+
+  async function handleMiningToggle() {
+    if (!walletState.address) {
+      showToast('Create or restore a wallet before mining.');
+      return;
+    }
+    const status = await window.bucksAPI.walletRPC({ method: 'GET', endpoint: '/api/mining/status' });
+    const running = status && status.running;
+    const res = running
+      ? await window.bucksAPI.walletRPC({ method: 'POST', endpoint: '/api/mining/stop' })
+      : await window.bucksAPI.walletRPC({ method: 'POST', endpoint: '/api/mining/start', body: { address: walletState.address } });
+    if (!res || res.success === false) {
+      showToast('Mining ' + (running ? 'stop' : 'start') + ' failed: ' + ((res && res.error) || 'unknown error'));
+    }
+    refreshMiningStatus();
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.body.setAttribute('data-theme', 'light');
+    } else if (theme === 'dark') {
+      document.body.setAttribute('data-theme', 'dark');
+    } else {
+      document.body.removeAttribute('data-theme');
+    }
+    // Update theme toggle icon in unified header
+    const iconLight = document.getElementById('theme-icon-light');
+    const iconDark = document.getElementById('theme-icon-dark');
+    const iconSystem = document.getElementById('theme-icon-system');
+    if (iconLight) iconLight.style.display = theme === 'light' ? 'block' : 'none';
+    if (iconDark) iconDark.style.display = theme === 'dark' ? 'block' : 'none';
+    if (iconSystem) iconSystem.style.display = (!theme || theme === 'system') ? 'block' : 'none';
+    // Sync the settings dropdown if open
+    const settingThemeSel = document.getElementById('setting-ui-theme');
+    if (settingThemeSel && settingThemeSel.value !== (theme || 'system')) settingThemeSel.value = theme || 'system';
+  }
+
+  // Theme toggle button — cycles system → dark → light → system
+  $('#btn-theme-toggle')?.addEventListener('click', async () => {
+    const current = document.body.getAttribute('data-theme') || 'system';
+    const next = current === 'system' ? 'dark' : current === 'dark' ? 'light' : 'system';
+    applyTheme(next);
+    // Persist
+    const updated = { ...(settings || {}), theme: next };
+    settings = updated;
+    await window.bucksAPI?.saveSettings?.(updated);
+    showToast(next === 'system' ? '🖥 System Theme' : next === 'dark' ? '🌙 Dark Theme' : '☀️ Light Theme');
+  });
+
+  // Logo home button
+  $('#bucks-logo-btn')?.addEventListener('click', () => {
+    showDashboardView('home');
+  });
+
   $('#btn-settings')?.addEventListener('click', () => toggleSidebar('settings'));
   $('#btn-close-settings')?.addEventListener('click', () => toggleSidebar('settings'));
+
+  $('#btn-header-settings')?.addEventListener('click', () => {
+    // Over a web page this used to open #settings-panel, which holds no
+    // controls — only a note pointing at the New Tab dashboard. Go straight to
+    // the real settings view instead, the same way Messages does.
+    showDashboardView('settings');
+  });
+
+  $('#btn-header-messages')?.addEventListener('click', () => {
+    // Always navigate to messages dashboard (works in both web and dashboard mode)
+    showDashboardView('messages');
+  });
 
   /* ═══════════ SETTINGS ═══════════ */
 
@@ -2480,8 +2950,22 @@
     // Populate UI
     $('#setting-search-engine').value = settings.searchEngine || 'https://duckduckgo.com/?q=';
     $('#setting-homepage').value = settings.homepage || 'bucks://newtab';
+    $('#setting-ui-theme').value = settings.theme || 'system';
     $('#setting-adblock').checked = settings.adBlockEnabled !== false;
     $('#setting-https-only').checked = settings.httpsOnly === true;
+
+    // Advanced settings
+    $('#setting-cookie-policy').value = settings.cookiePolicy || 'allow';
+    $('#setting-js-enabled').checked = settings.jsEnabled !== false;
+    $('#setting-webrtc-protection').checked = settings.webrtcProtection !== false;
+    $('#setting-devtools-hotkey').checked = settings.devtoolsHotkey !== false;
+    $('#setting-ipfs-gateway').value = settings.ipfsGateway || 'http://localhost:8080';
+    $('#setting-p2p-mdns').checked = settings.p2pMdns !== false;
+    $('#setting-p2p-dht').checked = settings.p2pDht !== false;
+    $('#setting-p2p-relay').checked = settings.p2pRelay !== false;
+
+    // Apply active theme
+    applyTheme(settings.theme || 'system');
 
     // Swarm Settings
     $('#setting-cluster-secret').value = settings.clusterSecret || 'BUCKS_DEFAULT_CLUSTER';
@@ -2493,14 +2977,24 @@
       ...settings,
       searchEngine: $('#setting-search-engine').value,
       homepage: $('#setting-homepage').value,
+      theme: $('#setting-ui-theme').value,
       adBlockEnabled: $('#setting-adblock').checked,
       httpsOnly: $('#setting-https-only').checked,
+      cookiePolicy: $('#setting-cookie-policy').value,
+      jsEnabled: $('#setting-js-enabled').checked,
+      webrtcProtection: $('#setting-webrtc-protection').checked,
+      devtoolsHotkey: $('#setting-devtools-hotkey').checked,
+      ipfsGateway: $('#setting-ipfs-gateway').value,
+      p2pMdns: $('#setting-p2p-mdns').checked,
+      p2pDht: $('#setting-p2p-dht').checked,
+      p2pRelay: $('#setting-p2p-relay').checked,
       clusterSecret: $('#setting-cluster-secret').value,
       clusterCidn: $('#setting-cluster-cidn').value
     };
     await window.bucksAPI.saveSettings(updated);
     settings = updated;
     window.bucksAPI.toggleAdBlock(updated.adBlockEnabled);
+    applyTheme(updated.theme);
     showToast('Settings saved successfully', 'success');
   }
 
@@ -2550,10 +3044,10 @@
       const profile = $('#profile-section');
       if (profile) {
         profile.innerHTML = `
-          <div style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg, #6a4bd6, #3a2270); display:flex; align-items:center; justify-content:center;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7"></path><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="3" x2="21" y2="21"></line></svg>
+          <div style="font-size:12px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7"></path><circle cx="12" cy="12" r="3"></circle><line x1="3" y1="3" x2="21" y2="21"></line></svg>
           </div>
-          <span style="font-size:12.5px; font-weight:600; color:rgba(255,255,255,0.85);">Private</span>`;
+          <div id="profile-status-dot-mini" style="position:absolute; bottom:-1px; right:-1px; width:8px; height:8px; border-radius:50%; background:#ff4757; border:1.5px solid #1a1a1c;" title="Private Mode"></div>`;
       }
       const topBar = document.querySelector('.top-bar-inner');
       if (topBar) topBar.style.border = '1px solid rgba(150,110,255,0.55)';
@@ -2620,17 +3114,17 @@
       function saveUsername() {
         const name = profileUsernameInput.value.trim();
         if (!name) {
-          if (profileUsernameStatus) { profileUsernameStatus.textContent = '⚠ Name cannot be empty'; profileUsernameStatus.style.color = '#ffa502'; }
+          if (profileUsernameStatus) { profileUsernameStatus.textContent = ' Name cannot be empty'; profileUsernameStatus.style.color = '#ffa502'; }
           return;
         }
         if (name.length > 30) {
-          if (profileUsernameStatus) { profileUsernameStatus.textContent = '⚠ Max 30 characters'; profileUsernameStatus.style.color = '#ffa502'; }
+          if (profileUsernameStatus) { profileUsernameStatus.textContent = ' Max 30 characters'; profileUsernameStatus.style.color = '#ffa502'; }
           return;
         }
         localStorage.setItem('bucks-profile-name', name);
         applyUsername(name);
         if (profileUsernameStatus) {
-          profileUsernameStatus.textContent = '✅ Username saved!';
+          profileUsernameStatus.textContent = ' Username saved!';
           profileUsernameStatus.style.color = '#2ed573';
           setTimeout(() => { profileUsernameStatus.textContent = ''; }, 2500);
         }
@@ -2659,6 +3153,32 @@
         if (!profilePanel.contains(e.target) && !profileSection.contains(e.target)) {
           profilePanel.classList.add('hidden');
         }
+      });
+    }
+
+    // Biography load/save
+    const profileBioInput = document.getElementById('profile-bio-input');
+    const profileBioSave = document.getElementById('profile-bio-save');
+    if (profileBioInput) {
+      profileBioInput.value = localStorage.getItem('bucks-profile-bio') || '';
+    }
+    if (profileBioSave && profileBioInput) {
+      profileBioSave.addEventListener('click', () => {
+        const bio = profileBioInput.value.trim();
+        localStorage.setItem('bucks-profile-bio', bio);
+        showToast('Biography saved!', 'success');
+      });
+    }
+
+    // Copy Shareable Contact Card
+    const profileCopyCard = document.getElementById('profile-copy-card');
+    if (profileCopyCard) {
+      profileCopyCard.addEventListener('click', () => {
+        const peerId = _profilePeerId || 'offline';
+        const name = (profileUsernameInput ? profileUsernameInput.value.trim() : '') || 'Bucks User';
+        const cardString = `bucks://user/${peerId}?name=${encodeURIComponent(name)}`;
+        navigator.clipboard.writeText(cardString);
+        showToast('Contact card link copied to clipboard!', 'success');
       });
     }
 
@@ -2732,15 +3252,15 @@
       async function doSync() {
         const val = profileSyncInput.value.trim();
         if (!val) {
-          if (profileSyncStatus) profileSyncStatus.textContent = '⚠ Paste a Peer ID or UUID first';
+          if (profileSyncStatus) profileSyncStatus.textContent = ' Paste a Peer ID or UUID first';
           return;
         }
         if (val === _profilePeerId || val === _profileUuid) {
-          if (profileSyncStatus) profileSyncStatus.textContent = "⚠ That's your own ID";
+          if (profileSyncStatus) profileSyncStatus.textContent = " That's your own ID";
           return;
         }
         if (val.length < 10) {
-          if (profileSyncStatus) profileSyncStatus.textContent = '⚠ ID looks too short';
+          if (profileSyncStatus) profileSyncStatus.textContent = ' ID looks too short';
           return;
         }
 
@@ -2765,13 +3285,13 @@
             localStorage.setItem('bucks-msg-contacts', JSON.stringify(contacts));
           }
 
-          if (profileSyncStatus) profileSyncStatus.innerHTML = '✅ Synced! Peer added to Messages & Following.';
+          if (profileSyncStatus) profileSyncStatus.innerHTML = ' Synced! Peer added to Messages & Following.';
           if (profileSyncedCount) profileSyncedCount.textContent = syncedPeers.length;
           profileSyncInput.value = '';
 
           if (window._showToast) window._showToast(`Synced with peer ${val.slice(0,10)}…`);
         } catch (err) {
-          if (profileSyncStatus) profileSyncStatus.innerHTML = `❌ Sync failed: ${err.message}`;
+          if (profileSyncStatus) profileSyncStatus.innerHTML = ` Sync failed: ${err.message}`;
         }
         profileSyncBtn.disabled = false;
       }
@@ -2870,7 +3390,7 @@
       'https://developer.mozilla.org',
       'https://example.com'
     ];
-    console.log('🚀 Starting Browser Benchmark...');
+    console.log(' Starting Browser Benchmark...');
     const results = [];
 
     for (const url of urls) {
@@ -2894,7 +3414,7 @@
       });
 
       const time = performance.now() - start;
-      console.log(`✅ ${url} loaded in ${Math.round(time)}ms`);
+      console.log(` ${url} loaded in ${Math.round(time)}ms`);
       results.push({ url, time: Math.round(time) });
 
       // Close tab to free memory before next test, except the last one
@@ -2903,7 +3423,7 @@
 
     console.table(results);
     const avg = results.reduce((a, b) => a + b.time, 0) / results.length;
-    console.log(`📊 Average Load Time: ${Math.round(avg)}ms`);
+    console.log(` Average Load Time: ${Math.round(avg)}ms`);
     showToast(`Benchmark Complete! Avg: ${Math.round(avg)}ms`);
   };
 
@@ -2911,7 +3431,7 @@
   // setTimeout(() => window.runBenchmark(), 3000);
 
   window.runPhase19Test = async function () {
-    console.log('🧪 Starting Phase 1.9 Automated Mechanics Test...');
+    console.log(' Starting Phase 1.9 Automated Mechanics Test...');
 
     // Mock active tab and search autocomplete entries so tests pass on clean launch
     const origTabs = [...tabs];
@@ -2938,7 +3458,7 @@
     btnBookmark.click();
     await new Promise(r => setTimeout(r, 500));
     const pass1 = bookmarks.length === prevCount + 1;
-    console.log(`[Test 1] Bookmarking Active Tab: ${pass1 ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`[Test 1] Bookmarking Active Tab: ${pass1 ? ' PASS' : ' FAIL'}`);
 
     // Test 2: Omnibox Autocomplete
     addressBar.value = 'http';
@@ -2947,14 +3467,14 @@
     const isVisible = !omniboxDropdown.classList.contains('hidden');
     const hasChildren = omniboxDropdown.children.length > 0;
     const pass2 = isVisible && hasChildren;
-    console.log(`[Test 2] Omnibox Suggestions Rendered: ${pass2 ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`[Test 2] Omnibox Suggestions Rendered: ${pass2 ? ' PASS' : ' FAIL'}`);
 
     // Test 3: Find in Page
     const event = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true });
     window.dispatchEvent(event);
     await new Promise(r => setTimeout(r, 500));
     const pass3 = !findBar.classList.contains('hidden');
-    console.log(`[Test 3] Ctrl+F Opens Find Bar: ${pass3 ? '✅ PASS' : '❌ FAIL'}`);
+    console.log(`[Test 3] Ctrl+F Opens Find Bar: ${pass3 ? ' PASS' : ' FAIL'}`);
 
     // Cleanup and restore original states
     tabs = origTabs;
@@ -2966,12 +3486,14 @@
     omniboxDropdown.classList.add('hidden');
 
     if (pass1 && pass2 && pass3) {
-      console.log('🎉 ALL PHASE 1.9 TESTS PASSED!');
+      console.log(' ALL PHASE 1.9 TESTS PASSED!');
       showToast('Phase 1.9 Verification Passed!', 'success');
     }
   };
 
-  setTimeout(() => window.runPhase19Test(), 6000);
+  // Dev-only mechanics check — run manually from the console. Auto-running it
+  // on boot hijacked activeTabId to a mock tab and mutated bookmarks/history
+  // on EVERY launch (saveBookmarks persists mid-test state on failure paths).
 
   /* ═══════════ IPFS SOCIAL PANEL ═══════════ */
   const ipfsSidebar = document.getElementById('ipfs-sidebar');
@@ -3094,25 +3616,27 @@
     }
   }
 
-  /* ── Pinned List ── */
+  /* ── Pinned List ── (mirrored into the sidebar and the merged Files view) */
   function renderPinnedList(items) {
-    const list = document.getElementById('ipfs-pinned-list');
-    if (!items.length) {
-      list.innerHTML = '<p class="tx-empty" style="font-size:11px;">No recommended files yet.</p>';
-      return;
-    }
-
-    list.innerHTML = items.map(item => `
-      <div class="ipfs-pinned-item" title="${item.cid}">
-        <div class="pinned-info">
-          <span class="pinned-name">${escapeHtml(item.name)}</span>
-          <span class="pinned-meta">${formatSize(item.size)} • ${new Date(item.timestamp).toLocaleDateString()}</span>
+    const targets = [
+      document.getElementById('ipfs-pinned-list'),
+      document.getElementById('vf-pinned-list'),
+    ].filter(Boolean);
+    if (!targets.length) return;
+    const html = !items.length
+      ? '<p class="tx-empty" style="font-size:11px;">Nothing pinned yet. Pin a file from the Network tab to host it.</p>'
+      : items.map(item => `
+        <div class="ipfs-pinned-item" title="${item.cid}">
+          <div class="pinned-info">
+            <span class="pinned-name">${escapeHtml(item.name)}</span>
+            <span class="pinned-meta">${formatSize(item.size)} • ${new Date(item.timestamp).toLocaleDateString()}</span>
+          </div>
+          <button class="btn-unpin" onclick="window._ipfsUnpin('${item.cid}')" title="Unpin content">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
         </div>
-        <button class="btn-unpin" onclick="window._ipfsUnpin('${item.cid}')" title="Unpin content">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-      </div>
-    `).join('');
+      `).join('');
+    targets.forEach(t => { t.innerHTML = html; });
   }
 
   window._ipfsUnpin = async (cid) => {
@@ -3124,6 +3648,152 @@
     refreshIPFSStatus();
     refreshIPFSFeed();
   };
+
+  /* ── My Files / Cluster Files / Cluster tabs ── */
+  document.querySelectorAll('.ipfs-tab').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      const tab = tabBtn.dataset.tab;
+      document.querySelectorAll('.ipfs-tab').forEach((b) => b.classList.toggle('active', b === tabBtn));
+      document.querySelectorAll('.ipfs-tab-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
+      if (tab === 'members') refreshClusterPanel();
+    });
+  });
+
+  function shortSoulId(id) {
+    return id ? `${id.slice(0, 10)}…${id.slice(-6)}` : '—';
+  }
+
+  /* ── Cluster membership panel ── */
+  async function refreshClusterPanel() {
+    try {
+      const [identity, discovered, members] = await Promise.all([
+        window.bucksAPI.clusterMyIdentity(),
+        window.bucksAPI.clusterDiscovered(),
+        window.bucksAPI.clusterMembers(),
+      ]);
+
+      // Identity chip (sidebar + merged Files view).
+      [document.getElementById('cluster-my-soulid'), document.getElementById('vf-cluster-my-soulid')]
+        .filter(Boolean).forEach((idEl) => {
+          if (!identity) return;
+          idEl.textContent = shortSoulId(identity.soulId);
+          idEl.title = identity.soulId ? `${identity.soulId} (click to copy)` : 'Soul identity not ready yet';
+          idEl.onclick = () => {
+            if (!identity.soulId) return;
+            navigator.clipboard.writeText(identity.soulId);
+            showToast('Your cluster ID copied!');
+          };
+        });
+
+      const discHtml = (!discovered || !discovered.length)
+        ? '<p class="tx-empty" style="font-size:11px;">No unadmitted peers nearby right now.</p>'
+        : discovered.map((d) => `
+            <div class="cluster-discovered-card">
+              <div>
+                <div style="font-size:12px;">${escapeHtml(d.locality || 'Unknown')}</div>
+                <div style="font-size:10px; font-family:monospace; color:rgba(255,255,255,0.5);">${shortSoulId(d.soulId)}</div>
+              </div>
+              <button class="btn-cluster-admit" onclick="window._clusterAdmit('${escapeHtml(d.soulId)}', '${escapeHtml(d.locality || '')}')">Add</button>
+            </div>
+          `).join('');
+      [document.getElementById('cluster-discovered-list'), document.getElementById('vf-cluster-discovered-list')]
+        .filter(Boolean).forEach((el) => { el.innerHTML = discHtml; });
+
+      const memHtml = (!members || !members.length)
+        ? '<p class="tx-empty" style="font-size:11px;">No members admitted yet.</p>'
+        : members.map((m) => `
+            <div class="cluster-member-card">
+              <div>
+                <div style="font-size:12px; display:flex; align-items:center; gap:6px;">
+                  <span class="cluster-online-dot ${m.online ? 'online' : ''}"></span>
+                  ${escapeHtml(m.displayName || 'Member')}
+                </div>
+                <div style="font-size:10px; font-family:monospace; color:rgba(255,255,255,0.5);">${shortSoulId(m.soulId)}</div>
+              </div>
+            </div>
+          `).join('');
+      [document.getElementById('cluster-members-list'), document.getElementById('vf-cluster-members-list')]
+        .filter(Boolean).forEach((el) => { el.innerHTML = memHtml; });
+    } catch (e) {
+      console.error('[Cluster UI] Failed to refresh panel:', e);
+    }
+  }
+
+  window._clusterAdmit = async (soulId, displayName) => {
+    const ok = window.confirm(`Add ${displayName || shortSoulId(soulId)} to your Bucks cluster?\n\nThey'll be trusted to sync files and this trust is transitive — they can admit others too. This can't be un-shared once other members have gossiped it.`);
+    if (!ok) return;
+    const res = await window.bucksAPI.clusterAdmit(soulId, displayName);
+    if (res && res.ok) {
+      showToast('Added to cluster!', 'success');
+    } else {
+      showToast('Failed to add: ' + (res && res.error || 'unknown error'), 'error');
+    }
+    refreshClusterPanel();
+  };
+
+  document.getElementById('btn-cluster-add-id')?.addEventListener('click', async () => {
+    const input = document.getElementById('cluster-add-id-input');
+    const soulId = input?.value.trim();
+    if (!soulId) return;
+    await window._clusterAdmit(soulId, '');
+    if (input) input.value = '';
+  });
+
+  // Merged Files view: add-by-ID (mirror of the sidebar control).
+  document.getElementById('vf-btn-cluster-add-id')?.addEventListener('click', async () => {
+    const input = document.getElementById('vf-cluster-add-id-input');
+    const soulId = input?.value.trim();
+    if (!soulId) return;
+    await window._clusterAdmit(soulId, '');
+    if (input) input.value = '';
+  });
+
+  // Merged Files view: tab strip (Cluster Manager / Network / My Pins / Cluster).
+  document.querySelectorAll('.vf-tab').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      const tab = tabBtn.dataset.vf;
+      document.querySelectorAll('.vf-tab').forEach((b) => b.classList.toggle('active', b === tabBtn));
+      document.querySelectorAll('.vf-panel').forEach((p) => p.classList.toggle('hidden', p.dataset.vfpanel !== tab));
+      if (tab === 'network') refreshIPFSFeed();
+      else if (tab === 'pins') refreshIPFSStatus();
+      else if (tab === 'cluster') refreshClusterPanel();
+    });
+  });
+
+  document.getElementById('cluster-search-input')?.addEventListener('input', async (e) => {
+    const q = e.target.value.trim();
+    if (!q) { refreshClusterPanel(); return; }
+    const results = await window.bucksAPI.clusterSearch(q);
+    const discList = document.getElementById('cluster-discovered-list');
+    const memList = document.getElementById('cluster-members-list');
+    const discovered = results.filter((r) => r.status === 'discovered');
+    const members = results.filter((r) => r.status === 'member');
+    if (discList) {
+      discList.innerHTML = discovered.length
+        ? discovered.map((d) => `
+            <div class="cluster-discovered-card">
+              <div>
+                <div style="font-size:12px;">${escapeHtml(d.locality || 'Unknown')}</div>
+                <div style="font-size:10px; font-family:monospace; color:rgba(255,255,255,0.5);">${shortSoulId(d.soulId)}</div>
+              </div>
+              <button class="btn-cluster-admit" onclick="window._clusterAdmit('${escapeHtml(d.soulId)}', '${escapeHtml(d.locality || '')}')">Add</button>
+            </div>
+          `).join('')
+        : '<p class="tx-empty" style="font-size:11px;">No matches.</p>';
+    }
+    if (memList) {
+      memList.innerHTML = members.length
+        ? members.map((m) => `
+            <div class="cluster-member-card">
+              <div>
+                <div style="font-size:12px;">${escapeHtml(m.displayName || 'Member')}</div>
+                <div style="font-size:10px; font-family:monospace; color:rgba(255,255,255,0.5);">${shortSoulId(m.soulId)}</div>
+              </div>
+            </div>
+          `).join('')
+        : '<p class="tx-empty" style="font-size:11px;">No matches.</p>';
+    }
+  });
 
   /* ── Following List ── */
   function renderFollowingList(following) {
@@ -3138,7 +3808,7 @@
     list.innerHTML = following.map(id => `
       <div class="ipfs-following-item">
         <span>${id.slice(0, 12)}…${id.slice(-6)}</span>
-        <button onclick="window._ipfsUnfollow('${id}')">✕</button>
+        <button onclick="window._ipfsUnfollow('${id}')"></button>
       </div>
     `).join('');
     const dashList = document.getElementById('ipfs-dash-following-list');
@@ -3169,7 +3839,7 @@
       const localRes = await window.bucksAPI.ipfsFollow(peerId);
 
       if (input) input.value = '';
-      showToast(`${localRes.status === 'followed' || localRes.status === 'already_following' ? '✓ Following' : 'Error'} ${peerId.slice(0, 12)}…`);
+      showToast(`${localRes.status === 'followed' || localRes.status === 'already_following' ? ' Following' : 'Error'} ${peerId.slice(0, 12)}…`);
       refreshIPFSStatus();
     } catch (e) {
       showToast('Follow failed', 'error');
@@ -3275,12 +3945,17 @@
       const stats = await window.bucksAPI.ipfsStorageStats();
       const pinnedCids = new Set((stats.pinnedItems || []).map(i => i.cid));
 
-      container.innerHTML = feed.map(post => {
+      // Vote counts drive the availability badge — "more recommended = more
+      // available" is read directly off how many active up-voters a CID has.
+      const voteCounts = await Promise.all(feed.map(post => window.bucksAPI.clusterGetVotes(post.cid).catch(() => ({ upCount: 0, downCount: 0, activeUpCount: 0, myVote: null }))));
+
+      container.innerHTML = feed.map((post, i) => {
         const time = post.timestamp ? new Date(post.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'recently';
         const peerId = post.peerId || post.peer_id;
         const peerShort = peerId ? `${peerId.slice(0, 8)}…${peerId.slice(-4)}` : 'Unknown';
         const size = post.size ? formatSize(post.size) : (post.metadata?.size ? formatSize(post.metadata.size) : '');
         const isPinnedLocally = pinnedCids.has(post.cid);
+        const votes = voteCounts[i] || { upCount: 0, downCount: 0, activeUpCount: 0, myVote: null };
 
         return `
           <div class="ipfs-feed-card fade-in">
@@ -3292,10 +3967,14 @@
               <p class="feed-name">${escapeHtml(post.name || post.metadata?.name || 'Untitled')}</p>
               ${(post.description || post.metadata?.description) ? `<p class="feed-desc">${escapeHtml(post.description || post.metadata.description)}</p>` : ''}
             </div>
-            <div class="feed-cid" title="Click to copy CID" onclick="navigator.clipboard.writeText('${post.cid}');window._showToast('CID copied!')">${post.cid}</div>
+            <div class="feed-cid" role="button" tabindex="0" title="Click to copy CID" onclick="navigator.clipboard.writeText('${post.cid}');window._showToast('CID copied!')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">${post.cid}</div>
             <div class="feed-footer">
-              <button class="btn-upvote ${isPinnedLocally ? 'upvoted' : ''}" onclick="window._ipfsUpvote('${post.cid}')">
-                ${isPinnedLocally ? '🛡️ Hosting' : '👍 Upvote'}
+              <div class="vote-controls">
+                <button class="btn-vote vote-up ${votes.myVote === 'up' ? 'active' : ''}" onclick="window._clusterVote('${post.cid}','up')" title="Recommend to the cluster">▲ <span class="vote-count">${votes.upCount}</span></button>
+                <button class="btn-vote vote-down ${votes.myVote === 'down' ? 'active' : ''}" onclick="window._clusterVote('${post.cid}','down')" title="Not recommended">▼ <span class="vote-count">${votes.downCount}</span></button>
+              </div>
+              <button class="btn-pin ${isPinnedLocally ? 'pinned' : ''}" onclick="window._clusterTogglePin('${post.cid}', ${isPinnedLocally})" title="${isPinnedLocally ? 'Hosting locally — click to unpin' : 'Pin to host this locally'}">
+                ${isPinnedLocally ? '📌 Hosting' : '📌 Pin'}
               </button>
               <span class="feed-size">${size}</span>
             </div>
@@ -3307,6 +3986,9 @@
       if (dashFeed) {
         dashFeed.innerHTML = container.innerHTML;
       }
+      // Mirror into the merged Files view's Network tab.
+      const vfFeed = document.getElementById('vf-feed');
+      if (vfFeed) vfFeed.innerHTML = container.innerHTML;
     } catch (e) {
       console.error('[IPFS UI] Feed error:', e);
       const errMsg = `<p class="tx-empty" style="color:var(--danger)">IPFS node is still starting…</p>`;
@@ -3316,22 +3998,37 @@
     }
   }
 
-  window._ipfsUpvote = async (cid) => {
+  // Recommend / not-recommend is a pure NETWORK VOTE — independent of pinning.
+  // It broadcasts a signal to the cluster but does not store the file locally.
+  window._clusterVote = async (cid, direction) => {
     try {
-      showToast('Sending appreciation...', 'info');
+      showToast(direction === 'up' ? 'Recommending…' : 'Marking not recommended…', 'info');
+      const res = await window.bucksAPI.clusterVote(cid, direction);
+      if (res.error) showToast('Failed: ' + res.error, 'error');
+      else showToast(direction === 'up' ? 'Recommended to the cluster.' : 'Marked not recommended.', 'success');
+    } catch (e) {
+      showToast('Integration Error', 'error');
+    }
+    refreshIPFSFeed();
+  };
 
-      // Co-Hosting: pin content locally — this node becomes a host for it
-      const localRes = await window.bucksAPI.ipfsUpvote(cid);
-
-      if (localRes.status === 'pinned') {
-        showToast('Pinned & Hosting globally!', 'success');
-      } else if (localRes.error) {
-        showToast('Pin failed: ' + localRes.error, 'error');
+  // Pin / unpin is a STANDALONE action — "host this file locally" — separate
+  // from recommending. Pinning makes this node a source/seed for the CID.
+  window._clusterTogglePin = async (cid, isPinned) => {
+    try {
+      if (isPinned) {
+        showToast('Unpinning…', 'info');
+        const res = await window.bucksAPI.clusterUnpin(cid);
+        showToast(res.status === 'unpinned' ? 'Unpinned — no longer hosting.' : 'Not pinned.', 'success');
+      } else {
+        showToast('Pinning & hosting…', 'info');
+        const res = await window.bucksAPI.clusterPin(cid);
+        if (res.status === 'pinned') showToast('Pinned — now hosting locally!', 'success');
+        else showToast('Pin failed: ' + (res.error || 'unknown'), 'error');
       }
     } catch (e) {
       showToast('Integration Error', 'error');
     }
-
     refreshIPFSStatus();
     refreshIPFSFeed();
   };
@@ -3347,7 +4044,9 @@
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML;
+    // See escapeHTML() above: also encode quotes so this is safe to embed
+    // inside onclick="..." attribute strings, not just text nodes.
+    return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
   }
 
   // Poll IPFS status every 5 seconds when panel is visible
@@ -3389,6 +4088,34 @@
   /* ═══════════ AGENT BRAIN — Web-Intelligent Multi-Turn Chat ═══════════ */
   const SOUL_ENGINE = 'http://127.0.0.1:8765';
   let chatBusy = false;
+
+  /* ─── Model download progress (shared by both model-switcher UIs below) ───
+   * A model switch/first-run download used to be a silent multi-minute block
+   * with only a toast after the fact — this polls edge_llm's real on-disk
+   * byte progress (agent/soul_engine.py's /models/download-progress) so the
+   * UI can show honest "downloading X%" state instead of nothing. */
+  let _modelDownloadPollInterval = null;
+  function stopModelDownloadPolling() {
+    if (_modelDownloadPollInterval) { clearInterval(_modelDownloadPollInterval); _modelDownloadPollInterval = null; }
+  }
+  function startModelDownloadPolling(onUpdate) {
+    stopModelDownloadPolling();
+    _modelDownloadPollInterval = setInterval(async () => {
+      try {
+        const r = await fetch(`${SOUL_ENGINE}/models/download-progress`, { signal: AbortSignal.timeout(2000) });
+        const p = await r.json();
+        onUpdate(p);
+        if (!p.active) stopModelDownloadPolling();
+      } catch (_) { /* transient — keep polling until the select call itself resolves */ }
+    }, 700);
+  }
+  function formatDownloadProgress(p) {
+    if (!p || !p.active || !p.total_bytes) return 'Preparing model…';
+    const pct = Math.min(100, Math.round((p.downloaded_bytes / p.total_bytes) * 100));
+    const mb = (p.downloaded_bytes / (1024 * 1024)).toFixed(0);
+    const totalMb = (p.total_bytes / (1024 * 1024)).toFixed(0);
+    return `Downloading ${pct}% (${mb}/${totalMb} MB)`;
+  }
 
   // Multi-turn conversation memory (shared across home chat bar + left panel)
   let agentConversation = []; // [{role:'user'|'assistant', text, sources}]
@@ -3441,6 +4168,16 @@
     return false;
   }
 
+  // Document-production asks → agentic path (create_document / create_pdf /
+  // page_to_pdf tools, doc-factory.js output to ~/Documents/Bucks).
+  function isDocumentQuery(q) {
+    const s = q.trim();
+    if (/\b(create|make|write|generate|prepare|export|give me)\b.{0,40}\b(report|pdf|document|write-?up|summary (file|doc))\b/i.test(s)) return true;
+    if (/\b(save|print|download)\b.{0,30}\b(page|this|tab|pane)\b.{0,20}\b(as|to)\s+(a\s+)?pdf\b/i.test(s)) return true;
+    if (/\bpdf (of|for|about)\b/i.test(s)) return true;
+    return false;
+  }
+
   function classifyIntent(q) {
     const lower = q.toLowerCase().trim();
 
@@ -3461,7 +4198,13 @@
       const v = document.getElementById('view-newtab');
       return v && !v.classList.contains('hidden');
     })();
-    if (isMapPage) {
+    // Conversational filler is never a place lookup. Nominatim fuzzy-matches
+    // hard — "Hi" came back as Hawaii, "hello" as Dello, Italy — so greetings
+    // and acknowledgements must never reach the geocoder. ("nice" is
+    // deliberately absent: Nice, France is a real place.)
+    const isSmallTalk = /^(h+i+|h+e+y+|h+e+l+o+|hello|hiya|howdy|yo|sup|wassup|greetings|good\s*(morning|afternoon|evening|night|day)|thank\s*you|thanks|thx|ty|ok|okay|kk|yes|yeah|yep|yup|no|nope|nah|bye|goodbye|cya|see\s*you|please|sorry|oops|hm+|huh|lol|haha|wow|cool|awesome|test|testing|ping|hello\s*there|what'?s\s*up|how\s*are\s*you|how'?s\s*it\s*going)[\s!.,?]*$/i.test(lower);
+
+    if (isMapPage && !isSmallTalk) {
       // "X to Y" routing pattern
       if (/^.+\s+to\s+.+$/i.test(lower)) return 'location';
       // Explicit directions
@@ -3637,7 +4380,7 @@
           <div class="gu-lb-title">${_gu_esc(title)}</div>
           <div class="gu-lb-actions">
             ${url ? `<button class="gu-cta gu-lb-open">Open source ↗</button>` : ''}
-            <button class="gu-cta gu-lb-close">✕ Close</button>
+            <button class="gu-cta gu-lb-close"> Close</button>
           </div>
         </div>
       </div>`;
@@ -3669,7 +4412,7 @@
       dock.id = 'bucks-mini-player';
       dock.innerHTML = `
         <div class="mp-bar">
-          <span class="mp-eq">♪</span>
+          <span class="mp-eq"></span>
           <span class="mp-title"></span>
           <button class="mp-btn mp-open" title="Open in YouTube tab">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
@@ -3677,7 +4420,7 @@
           <button class="mp-btn mp-collapse" title="Collapse to audio pill (keeps playing)">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
           </button>
-          <button class="mp-btn mp-close" title="Stop and close">✕</button>
+          <button class="mp-btn mp-close" title="Stop and close"></button>
         </div>
         <div class="mp-body"></div>`;
       dock.querySelector('.mp-open').addEventListener('click', () => {
@@ -3907,21 +4650,21 @@
       const target = p.url || p.title;
       const imgHtml = p.image
         ? `<img src="${_gu_esc(p.image)}" loading="lazy" referrerpolicy="no-referrer"
-                onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>🛍️</div>'"/>`
-        : '<div class="gu-product-noimg">🛍️</div>';
+                onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>️</div>'"/>`
+        : '<div class="gu-product-noimg">️</div>';
 
       return `
-      <div class="gu-product gu-product--click" onclick="window.__bucksGenUIAction('${kind}','${_gu_esc(target).replace(/'/g, "\\'")}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
+      <div class="gu-product gu-product--click" role="button" tabindex="0" onclick="window.__bucksGenUIAction('${kind}','${_gu_esc(target).replace(/'/g, "\\'")}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
         <div class="gu-product-img">${imgHtml}</div>
         <div class="gu-product-title">${_gu_esc(p.title)}</div>
         <div class="gu-product-meta">
           <span class="gu-product-price">${_gu_esc(p.price)}</span>
-          ${p.rating != null ? `<span class="gu-product-rating">★ ${_gu_esc(p.rating)}</span>` : ''}
+          ${p.rating != null ? `<span class="gu-product-rating"> ${_gu_esc(p.rating)}</span>` : ''}
         </div>
         ${p.badge ? `<span class="gu-product-badge">${_gu_esc(p.badge)}</span>` : ''}
         <div class="gu-product-actions" onclick="event.stopPropagation();">
           <button class="gu-cta gu-product-cta" onclick="window.__bucksGenUIAction('${kind}','${_gu_esc(target).replace(/'/g, "\\'")}')">${p.url ? 'View & Buy' : 'View'}</button>
-          <button class="gu-cta gu-product-ask" onclick="window.__askAboutProduct('${_gu_esc(p.title).replace(/'/g, "\\'")}')" title="Ask AI about this product">💬</button>
+          <button class="gu-cta gu-product-ask" onclick="window.__askAboutProduct('${_gu_esc(p.title).replace(/'/g, "\\'")}')" title="Ask AI about this product"></button>
         </div>
       </div>`;
     }).join('');
@@ -3939,7 +4682,7 @@
             <option value="all" ${filterBy === 'all' ? 'selected' : ''}>All Prices</option>
             <option value="low" ${filterBy === 'low' ? 'selected' : ''}>Under $50 / ₹1000</option>
             <option value="high" ${filterBy === 'high' ? 'selected' : ''}>Over $50 / ₹1000</option>
-            <option value="rating" ${filterBy === 'rating' ? 'selected' : ''}>4★ & above</option>
+            <option value="rating" ${filterBy === 'rating' ? 'selected' : ''}>4 & above</option>
           </select>
           <select class="gu-select" onchange="window.__sortProductGrid('${gridId}', this.value)">
             <option value="default" ${sortBy === 'default' ? 'selected' : ''}>Featured</option>
@@ -4058,6 +4801,13 @@
         return arg ? `Play ${arg}` : 'Play a video';
       case '/research':
         return arg ? `Research ${arg}` : 'Run deep research';
+      case '/report':
+        return arg ? `Research ${arg} and create a PDF report of your findings (create_pdf)` : 'Create a PDF report';
+      case '/pdf':
+        return arg ? `Create a PDF about: ${arg}` : 'Save the current page as a PDF (page_to_pdf)';
+      case '/doc':
+      case '/document':
+        return arg ? `Create a document about: ${arg}` : 'Create a document';
       case '/weather':
         return arg ? `What's the weather in ${arg}?` : 'Show the weather';
       case '/links':
@@ -4251,15 +5001,15 @@
         const target = _gu_esc(p.url || p.title);
         const imgHtml = p.image
           ? `<img src="${_gu_esc(p.image)}" loading="lazy" referrerpolicy="no-referrer"
-                  onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>🛍️</div>'"/>`
-          : '<div class="gu-product-noimg">🛍️</div>';
+                  onerror="this.parentElement.innerHTML='<div class=\\'gu-product-noimg\\'>️</div>'"/>`
+          : '<div class="gu-product-noimg">️</div>';
         return `
-        <div class="gu-product gu-product--click${i >= PAGE ? ' gu-hidden' : ''}" onclick="window.__bucksGenUIAction('${kind}','${target}')" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
+        <div class="gu-product gu-product--click${i >= PAGE ? ' gu-hidden' : ''}" role="button" tabindex="0" onclick="window.__bucksGenUIAction('${kind}','${target}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" title="${p.url ? 'Open ' + _gu_esc(p.url) : 'Search ' + _gu_esc(p.title)}">
           <div class="gu-product-img">${imgHtml}</div>
           <div class="gu-product-title">${_gu_esc(p.title)}</div>
           <div class="gu-product-meta">
             <span class="gu-product-price">${_gu_esc(p.price)}</span>
-            ${p.rating != null ? `<span class="gu-product-rating">★ ${_gu_esc(p.rating)}</span>` : ''}
+            ${p.rating != null ? `<span class="gu-product-rating"> ${_gu_esc(p.rating)}</span>` : ''}
           </div>
           ${p.badge ? `<span class="gu-product-badge">${_gu_esc(p.badge)}</span>` : ''}
           <button class="gu-cta gu-product-cta" onclick="event.stopPropagation();window.__bucksGenUIAction('${kind}','${target}')">${p.url ? 'View & Buy' : 'View'}</button>
@@ -4287,6 +5037,40 @@
       const head = `<tr>${cols.map(c => `<th>${_gu_esc(c)}</th>`).join('')}</tr>`;
       const rows = (d.rows || []).map(r => `<tr>${r.map(cell => `<td>${_gu_esc(cell)}</td>`).join('')}</tr>`).join('');
       return `<div class="gu-table-wrap"><table class="gu-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+    },
+    // ── Spatial-workspace A2UI (deterministic; emitted by pane tools) ──
+    workspace_overview(d) {
+      const panes = (d.panes || []).map(p => `
+        <div class="gu-ws-pane${p.focused ? ' focused' : ''}">
+          <span class="gu-ws-idx">${_gu_esc(p.index)}</span>
+          <div class="gu-ws-body">
+            <div class="gu-ws-title">${_gu_esc(p.title || p.url || 'Untitled')}</div>
+            <div class="gu-ws-url">${_gu_esc(p.url || '')}</div>
+          </div>
+          ${p.openedBy === 'agent' ? '<span class="gu-ws-badge">agent</span>' : ''}
+          <button class="gu-ws-act" title="Focus pane" onclick="window.__bucksPaneAction('focus','${_gu_esc(p.id)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 5V3m0 18v-2m7-7h2M3 12h2m11.95-4.95l1.41-1.41M5.64 18.36l1.41-1.41m0-9.9L5.64 5.64m12.72 12.72l-1.41-1.41"/></svg>
+          </button>
+          <button class="gu-ws-act" title="Close pane" onclick="window.__bucksPaneAction('close','${_gu_esc(p.id)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>`).join('');
+      const layouts = (d.presets || []).map(name =>
+        `<button class="gu-cta gu-ws-layout" onclick="window.__bucksPaneAction('arrange','${_gu_esc(name)}')">${_gu_esc(name)}</button>`).join('');
+      return `<div class="gu-workspace">${panes || '<div class="gu-empty">No panes in this tab yet.</div>'}
+        ${layouts ? `<div class="gu-cta-row gu-ws-layouts">${layouts}</div>` : ''}</div>`;
+    },
+    sweep_digest(d) {
+      const items = (d.items || []).map(it => `
+        <div class="gu-sweep-card">
+          ${it.thumb ? `<img class="gu-sweep-thumb" src="${_gu_attr(it.thumb)}" alt=""/>` : ''}
+          <div class="gu-sweep-body">
+            <div class="gu-ws-title">${_gu_esc(it.title || it.url)}</div>
+            <div class="gu-ws-url">${_gu_esc(it.url || '')}</div>
+            ${it.summary ? `<div class="gu-sweep-text">${_gu_esc(it.summary)}</div>` : ''}
+          </div>
+        </div>`).join('');
+      return `<div class="gu-sweep">${items || '<div class="gu-empty">Nothing swept.</div>'}</div>`;
     },
     chart(d) { return _gu_chart(d); },
     image_gallery(d) {
@@ -4362,12 +5146,12 @@
       const strip = days.length ? `<div class="gu-wx-strip">${days.map(day => `
         <div class="gu-wx-day">
           <div class="gu-wx-day-name">${_gu_esc(day.day)}</div>
-          <div class="gu-wx-day-icon">${_gu_esc(day.icon || '🌡️')}</div>
+          <div class="gu-wx-day-icon">${_gu_esc(day.icon || '️')}</div>
           <div class="gu-wx-day-temps"><b>${num(day.high_c)}°</b> <span>${num(day.low_c)}°</span></div>
         </div>`).join('')}</div>` : '';
       return `<div class="gu-weather">
         <div class="gu-wx-now">
-          <div class="gu-wx-icon">${_gu_esc(cur.icon || '🌡️')}</div>
+          <div class="gu-wx-icon">${_gu_esc(cur.icon || '️')}</div>
           <div class="gu-wx-main">
             <div class="gu-wx-temp">${num(cur.temp_c)}°C</div>
             <div class="gu-wx-cond">${_gu_esc(cur.condition || '')}</div>
@@ -4401,7 +5185,7 @@
         const text = typeof it === 'string' ? it : (it.text || '');
         const done = typeof it === 'object' && !!it.done;
         return `
-        <div class="gu-check-item${done ? ' done' : ''}" onclick="this.classList.toggle('done')">
+        <div class="gu-check-item${done ? ' done' : ''}" role="button" tabindex="0" aria-pressed="${done ? 'true' : 'false'}" onclick="this.classList.toggle('done')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
           <span class="gu-check-box"></span>
           <span class="gu-check-text">${_gu_esc(text)}</span>
         </div>`;
@@ -4424,7 +5208,7 @@
         <div class="gu-code-bar">
           <span class="gu-code-lang">${lang || 'code'}</span>
           <button class="gu-cta gu-code-copy"
-            onclick="navigator.clipboard.writeText(this.closest('.gu-code').querySelector('code').textContent).then(()=>{this.textContent='Copied ✓';setTimeout(()=>this.textContent='Copy',1200);})">Copy</button>
+            onclick="navigator.clipboard.writeText(this.closest('.gu-code').querySelector('code').textContent).then(()=>{this.textContent='Copied ';setTimeout(()=>this.textContent='Copy',1200);})">Copy</button>
         </div>
         <pre class="gu-code-pre"><code>${_gu_esc(code)}</code></pre>
       </div>`;
@@ -4813,7 +5597,7 @@
 
     msgContainer.innerHTML += `
       <div style="display:flex; justify-content:flex-start; margin-bottom:12px;">
-        <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
+        <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow: var(--bucks-shadow-md);">
           <div style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.92);">${formattedAnswer}</div>
           ${srcHtml}
           ${chipsHtml}
@@ -5011,13 +5795,131 @@
   window.addEventListener('online', () => showToast('Back online', 'success'));
 
   /* ═══════════ AGENTIC BROWSER (Phase 1 slice) ═══════════ */
-  // Bind the renderer actuation layer to whatever tab is active.
+  // Bind the renderer actuation layer to whatever tab is active. On a split
+  // tab, tab.webview tracks the FOCUSED pane (pane-manager.js focusPane), so
+  // un-addressed browser_* tools act where the user last clicked.
   if (window.__bucksBrowserControl) {
     window.__bucksBrowserControl.bind(() => {
       const t = tabs.find((t) => t.id === activeTabId);
       return t ? t.webview : null;
     });
   }
+
+  /* ═══════════ SPATIAL PANES — workspace wiring ═══════════ */
+  if (window.bucksPaneManager) {
+    window.bucksPaneManager.init({
+      browserContent,
+      walletSidebar,
+      getTabs: () => tabs,
+      getActiveTabId: () => activeTabId,
+      createTabView: () => new window.BucksTabView({ partition: IS_PRIVATE ? 'bucks-private' : undefined }),
+      createTab: (url) => createTab(url),
+      closeTab: (tabId) => closeTab(tabId),
+      normalizeURL,
+      setAddressBar: (url) => { if (addressBar) addressBar.value = url || ''; },
+      onWorkspaceChanged: null,
+    });
+
+    // Toolbar: split the current page into a second pane (duplicates it, so
+    // there's always something meaningful side-by-side to start from).
+    const splitBtn = document.getElementById('btn-split');
+    if (splitBtn) {
+      splitBtn.addEventListener('click', () => {
+        const t = tabs.find((x) => x.id === activeTabId);
+        if (!t || !t.webview) { showToast('Open a page first, then split it', 'info'); return; }
+        window.bucksPaneManager.addPane(activeTabId, t.webview.getURL() || t.url);
+      });
+    }
+
+    // Pane-addressed tool surface for the agent (agent-browser-control.js).
+    if (window.__bucksBrowserControl && window.__bucksBrowserControl.bindPanes) {
+      window.__bucksBrowserControl.bindPanes({
+        list: () => window.bucksPaneManager.listPanes(activeTabId),
+        resolve: (ref) => {
+          const rec = window.bucksPaneManager.resolvePane(activeTabId, ref);
+          if (rec) return rec.wv;
+          // Unsplit tab: the single page answers to 'main' / 'focused' / 1.
+          if (ref == null || ref === 'main' || ref === 'focused' || String(ref) === '1') {
+            const t = tabs.find((x) => x.id === activeTabId);
+            return t ? t.webview : null;
+          }
+          return null;
+        },
+        open: (url, opts) => window.bucksPaneManager.addPane(activeTabId, url, { ...(opts || {}), openedBy: 'agent' }),
+        close: (ref) => {
+          const rec = window.bucksPaneManager.resolvePane(activeTabId, ref);
+          return rec ? window.bucksPaneManager.closePane(activeTabId, rec.id) : false;
+        },
+        focus: (ref) => {
+          const rec = window.bucksPaneManager.resolvePane(activeTabId, ref);
+          return rec ? window.bucksPaneManager.focusPane(activeTabId, rec.id) : false;
+        },
+        arrange: (preset) => window.bucksPaneManager.arrange(activeTabId, preset),
+        setReading: (ref, on) => {
+          const rec = window.bucksPaneManager.resolvePane(activeTabId, ref);
+          if (rec) window.bucksPaneManager.setAgentReading(activeTabId, rec.id, on);
+        },
+        presets: window.bucksPaneManager.PRESET_NAMES,
+      });
+    }
+  }
+
+  // Links handed to Bucks by the OS (default-browser / bucks:// deep links).
+  if (window.bucksAPI && window.bucksAPI.onOpenExternalUrl) {
+    window.bucksAPI.onOpenExternalUrl(({ url }) => {
+      if (url) createTab(url);
+    });
+  }
+
+  // Cluster-native update available (electron-updater/GitHub replacement —
+  // see cluster-updater.js). Manifest is already signature- and version-
+  // verified by the time this fires; this is just the user-facing prompt.
+  if (window.bucksAPI && window.bucksAPI.onClusterUpdateAvailable) {
+    window.bucksAPI.onClusterUpdateAvailable((manifest) => {
+      const install = window.confirm(
+        `Bucks v${manifest.version} is available via the cluster (you're on v${window.bucksAPI.appVersion || '?'}).\n\n` +
+        `${manifest.notes || ''}\n\nDownload and install now?`,
+      );
+      if (!install) return;
+      showToast('Downloading update from cluster peers...', 'info');
+      window.bucksAPI.clusterUpdateApply().then((res) => {
+        if (res.ok) showToast('Update downloaded — installer launching.', 'success');
+        else showToast('Update failed: ' + res.error, 'error');
+      });
+    });
+  }
+
+  // Routine-tier updates (JS/HTML/CSS/assets only) apply automatically with
+  // no prompt — this just tells the user a restart is about to happen.
+  if (window.bucksAPI && window.bucksAPI.onClusterUpdateRestarting) {
+    window.bucksAPI.onClusterUpdateRestarting((manifest) => {
+      showToast(`Updated to v${manifest.version} — restarting...`, 'info');
+    });
+  }
+
+  // A2UI: deterministic workspace cards pushed into the agent chat stream by
+  // pane tools (panes_list → workspace_overview, workspace_sweep → digest).
+  window.__bucksWorkspaceCard = (spec) => {
+    const msgContainer = document.getElementById('nav-chat-messages-container');
+    if (!msgContainer) return;
+    const el = renderComponent(spec);
+    el.style.cssText += 'animation:nxFadeUp .18s ease;';
+    msgContainer.appendChild(el);
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  };
+
+  // Pane actions triggered from A2UI cards (buttons rendered by
+  // workspace_overview / sweep_digest in _GENUI_RENDERERS).
+  window.__bucksPaneAction = (act, arg) => {
+    const pm = window.bucksPaneManager;
+    if (!pm) return;
+    if (act === 'arrange') { pm.arrange(activeTabId, arg); return; }
+    if (act === 'open') { pm.addPane(activeTabId, arg); return; }
+    const rec = pm.resolvePane(activeTabId, arg);
+    if (!rec) return;
+    if (act === 'focus') pm.focusPane(activeTabId, rec.id);
+    else if (act === 'close') pm.closePane(activeTabId, rec.id);
+  };
 
   // Agentic run control: AbortController + a stopped flag so any tool request
   // that arrives after Stop never actuates the live tab.
@@ -5176,6 +6078,13 @@
   }
 
   async function sendChat(query) {
+    // Fold any composer attachments (files / IPFS CIDs) into the message, then
+    // clear the tray — so every send path picks them up without knowing about
+    // them. No-op when nothing is attached.
+    const decorated = composerDecorate((query || '').trim());
+    if (decorated !== (query || '').trim()) composerClearAttachments();
+    query = decorated;
+
     const q = (query || '').trim();
     if (!q || chatBusy) return;
     chatBusy = true;
@@ -5193,8 +6102,8 @@
      */
     const intent0 = classifyIntent(q);
     const isAgentCmd = intent0 === 'agent' || intent0 === 'shopping' || q.startsWith('/agent') ||
-                       isMediaOrResearchQuery(q) ||
-                       /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search)/i.test(q);
+                       isMediaOrResearchQuery(q) || isDocumentQuery(q) ||
+                       /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search|report|pdf|doc|document)/i.test(q);
     if (isAgentCmd) {
       const goal = translateSlashCommand(q).replace(/^\/agent\s*/i, '').trim();
 
@@ -5328,6 +6237,9 @@
 
       /* ══ LOCATION / DIRECTIONS (Ephemeral Map Card) ══ */
       if (intent === 'location') {
+        // Set once a real place or route resolves. If nothing plausible comes
+        // back we fall through to the model rather than asserting a wrong place.
+        let locationHandled = false;
         renderAgentSteps([
           { label: 'Finding location', sub: q.slice(0, 50), state: 'active' }
         ]);
@@ -5349,7 +6261,7 @@
             const cardId = 'loc-card-' + Date.now();
             msgContainer.innerHTML += `
               <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
-                <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background:linear-gradient(145deg,rgba(123,63,228,0.12),rgba(60,60,70,0.35));border:1px solid rgba(123,63,228,0.25);box-shadow:0 4px 24px rgba(0,0,0,0.15);">
+                <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid rgba(123,63,228,0.25);box-shadow: var(--bucks-shadow-md);">
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                     <span style="font-size:14px;font-weight:600;color:#fff;">Directions</span>
@@ -5360,10 +6272,10 @@
                   </div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(20,0,5); setTimeout(()=>{ const inp = document.querySelector('.em-from'); if(inp){inp.value='${escapeHtml(from)}';} const inp2 = document.querySelector('.em-to'); if(inp2){inp2.value='${escapeHtml(to)}';} },300)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
-                      🗺️ Open in Map
+                      ️ Open in Map
                     </button>
                     <button onclick="window._bucksLocationRoute('${escapeHtml(from)}','${escapeHtml(to)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
-                      🧭 Get Directions
+                       Get Directions
                     </button>
                   </div>
                 </div>
@@ -5371,6 +6283,7 @@
             msgContainer.scrollTop = msgContainer.scrollHeight;
           }
           agentConversation.push({ role: 'assistant', text: `Directions: ${from} → ${to}` });
+          locationHandled = true;
         } else {
           // ── SINGLE PLACE SEARCH ──
           // Try universe map first
@@ -5392,6 +6305,11 @@
             places = await res.json();
           } catch (_) {}
 
+          // Don't second-guess the geocoder by requiring the result name to
+          // echo the query: renamed cities legitimately come back under their
+          // current name (Mysore→Mysuru, Bangalore→Bengaluru). Non-place text
+          // is kept out on the input side instead (isSmallTalk in
+          // classifyIntent) — Nominatim will match almost any string.
           if (places && places.length > 0) {
             const p = places[0];
             const name = p.display_name.split(',')[0];
@@ -5407,7 +6325,7 @@
             if (msgContainer) {
               msgContainer.innerHTML += `
                 <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
-                  <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background:linear-gradient(145deg,rgba(123,63,228,0.12),rgba(60,60,70,0.35));border:1px solid rgba(123,63,228,0.25);box-shadow:0 4px 24px rgba(0,0,0,0.15);">
+                  <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid rgba(123,63,228,0.25);box-shadow: var(--bucks-shadow-md);">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span style="font-size:14.5px;font-weight:700;color:#fff;">${escapeHtml(name)}</span>
@@ -5415,11 +6333,11 @@
                     <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;line-height:1.4;">${escapeHtml(fullAddr)}</div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${lat}° N, ${lon}° E</div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                      <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(${p.lat},${p.lon},14)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
-                        🗺️ Navigate
+                      <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(${+p.lat || 0},${+p.lon || 0},14)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
+                        ️ Navigate
                       </button>
                       <button onclick="window._bucksLocationRoute('my location','${escapeHtml(name)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
-                        🧭 Directions
+                         Directions
                       </button>
                     </div>
                   </div>
@@ -5427,16 +6345,21 @@
               msgContainer.scrollTop = msgContainer.scrollHeight;
             }
             agentConversation.push({ role: 'assistant', text: `Found: ${name} — ${fullAddr}` });
-          } else {
-            renderWebAnswer({ answer: `No location found for **"${q}"**. Try a different place name.`, sources: [], followUps: [] });
+            locationHandled = true;
           }
         }
-        chatBusy = false;
-        return;
+        if (locationHandled) {
+          chatBusy = false;
+          return;
+        }
+        // The geocoder found nothing at all — drop the "Finding location" trace
+        // and let the normal model path answer it as ordinary conversation
+        // instead of dead-ending on "No location found".
+        renderAgentSteps([]);
       }
 
       /* ══ WEB SEARCH / RESEARCH ══ */
-      if (intent === 'search' || intent === 'research') {
+      if (false) { // Bypassed to prioritize local Soul Engine model first
         renderAgentSteps([
           { label: 'Searching the web', sub: q.slice(0, 50), state: 'active' }
         ]);
@@ -5464,7 +6387,7 @@
         const msgContainer = document.getElementById('nav-chat-messages-container');
         if (msgContainer) {
           msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="streaming-agent-bubble">
-            <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
+            <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow: var(--bucks-shadow-md);">
               <div id="streaming-agent-text" style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.92);"></div>
             </div>
           </div>`;
@@ -5512,7 +6435,7 @@
           
           if (msgContainer) {
             msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="soul-engine-streaming-bubble">
-              <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
+              <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow: var(--bucks-shadow-md);">
                 <div id="soul-engine-streaming-text" style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.92);"></div>
               </div>
             </div>`;
@@ -5570,7 +6493,7 @@
           const msgContainer = document.getElementById('nav-chat-messages-container');
           if (msgContainer) {
             msgContainer.innerHTML += `<div style="display:flex; justify-content:flex-start; margin-bottom:12px;" id="streaming-agent-bubble">
-              <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow:0 0 20px rgba(0,0,0,0.1);">
+              <div style="max-width:90%; padding:14px; border-radius:4px 14px 14px 14px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); box-shadow: var(--bucks-shadow-md);">
                 <div id="streaming-agent-text" style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,0.92);"></div>
               </div>
             </div>`;
@@ -5627,12 +6550,64 @@
   // building a second copy) means every existing flow — plain chat, agentic
   // tool trace, browser_action approval — keeps working unchanged; only its
   // container and CSS positioning change.
+  // ── Ephemeral overlay backdrop ──────────────────────────────────────────
+  // Native WebContentsViews always paint above shell DOM, so the agent panel
+  // can't float over a live page. Instead: capture the page, paint the
+  // capture into #page-freeze-backdrop at the exact view bounds, then hide
+  // the native view (body.agent-freeze — see tab-view.js _sync). The panel
+  // now visually sits ON the page; dismissing restores the live view.
+  async function freezePageBackdrop() {
+    if (!document.body.classList.contains('web-mode')) return;
+    // Already frozen (dockChatPanel runs on every message) — the view is
+    // hidden now, so a re-capture would blank the backdrop. Keep the frame.
+    if (document.body.classList.contains('agent-freeze')) return;
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab?.webview?.el?.isConnected) return;
+
+    let backdrop = document.getElementById('page-freeze-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'page-freeze-backdrop';
+      // Click-away on the frozen page dismisses the ephemeral panel.
+      backdrop.addEventListener('click', () => undockChatPanel());
+      browserContent.appendChild(backdrop);
+    }
+
+    const host = browserContent.getBoundingClientRect();
+    const r = tab.webview.el.getBoundingClientRect();
+    Object.assign(backdrop.style, {
+      left: `${r.left - host.left}px`,
+      top: `${r.top - host.top}px`,
+      width: `${r.width}px`,
+      height: `${r.height}px`,
+    });
+
+    try {
+      const b64 = await tab.webview.capturePageBase64();
+      backdrop.style.backgroundImage = `url(data:image/png;base64,${b64})`;
+    } catch (_) {
+      backdrop.style.backgroundImage = 'none';
+    }
+    backdrop.classList.add('visible');
+    document.body.classList.add('agent-freeze');
+  }
+
+  function unfreezePageBackdrop() {
+    document.body.classList.remove('agent-freeze');
+    document.getElementById('page-freeze-backdrop')?.classList.remove('visible');
+  }
+
   function dockChatPanel() {
     const navPanel = document.getElementById('nav-chat-panel');
     const zone = document.getElementById('nt-ephemeral-zone');
     const view = document.getElementById('view-newtab');
     if (!navPanel || !zone) return;
-    
+
+    // Over a web page, float the panel above a freeze-frame of the page
+    // instead of pushing the page out of the stage. Capture first (the view
+    // must still be visible), then swap.
+    freezePageBackdrop();
+
     // It is permanently docked now. Just show it.
     zone.classList.remove('hidden');
     navPanel.classList.remove('hidden');
@@ -5648,7 +6623,9 @@
     const navPanel = document.getElementById('nav-chat-panel');
     const zone = document.getElementById('nt-ephemeral-zone');
     const view = document.getElementById('view-newtab');
-    
+
+    unfreezePageBackdrop();
+
     if (zone) {
       zone.classList.remove('active');
       setTimeout(() => {
@@ -5706,11 +6683,42 @@
     } catch (_) {}
   }
 
+  async function populateNavChatProviders() {
+    const selects = [
+      document.getElementById('nav-chat-provider-select'),
+      document.getElementById('tab-chat-provider-select')
+    ].filter(Boolean);
+    if (!selects.length) return;
+    try {
+      const r = await fetch(`${SOUL_ENGINE}/providers`, { signal: AbortSignal.timeout(3000) });
+      const data = await r.json();
+      const providers = data?.providers || [];
+      if (providers.length) {
+        const optionsHtml = providers.map(p => {
+          const active = p.current ? 'selected' : '';
+          // Un-configured providers (e.g. a cloud one with no key) are shown
+          // but disabled, so the user sees what exists without being able to
+          // pick something that would immediately fail.
+          const disabled = !p.configured && !p.current ? 'disabled' : '';
+          const tag = p.inbuilt ? ' • built-in' : (p.configured ? '' : ' • not set up');
+          return `<option value="${p.id}" ${active} ${disabled}>${p.label}${tag}</option>`;
+        }).join('');
+        selects.forEach(sel => { sel.innerHTML = optionsHtml; });
+      } else {
+        selects.forEach(sel => { sel.innerHTML = '<option value="">—</option>'; });
+      }
+    } catch (_) {
+      selects.forEach(sel => { sel.innerHTML = '<option value="">Offline</option>'; });
+    }
+  }
+
   async function populateNavChatModels() {
     const selects = [
       document.getElementById('nav-chat-model-select'),
       document.getElementById('tab-chat-model-select')
     ].filter(Boolean);
+    // Always refresh the provider selector alongside the model list.
+    populateNavChatProviders();
     if (!selects.length) return;
     try {
       const r = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) });
@@ -5723,13 +6731,366 @@
           const disabled = !m.fits_ram && !m.current ? 'disabled' : '';
           return `<option value="${m.id}" ${active} ${disabled}>${m.id} (${m.size_gb}GB)</option>`;
         }).join('');
-        selects.forEach(sel => { sel.innerHTML = optionsHtml; });
+        selects.forEach(sel => { sel.innerHTML = optionsHtml; sel.disabled = false; });
       } else {
-        selects.forEach(sel => { sel.innerHTML = '<option value="">Ollama Model</option>'; });
+        // Non-edge providers pick their model from config, not this catalogue —
+        // show the active model label as a single read-only entry.
+        const label = data?.activeModel || 'Provider model';
+        selects.forEach(sel => { sel.innerHTML = `<option value="">${label}</option>`; sel.disabled = true; });
       }
     } catch (_) {
       selects.forEach(sel => { sel.innerHTML = '<option value="">Offline</option>'; });
     }
+  }
+
+  /* ═══════════ AGENTIC COMPOSER ═══════════
+   * Attachments, IPFS CIDs, and model switching on the primary command bar.
+   * Attachments are held here and folded into the outgoing message at send
+   * time, so every existing send path (Enter handler, ⌘K, chips) picks them
+   * up without needing to know they exist. */
+  const composerAttachments = [];               // { kind:'file'|'cid', name, size, mime, dataUrl?, cid?, text? }
+  const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{58}|baf[a-z0-9]{20,})$/;
+
+  function composerRenderTray() {
+    const tray = document.getElementById('composer-tray');
+    if (!tray) return;
+    tray.classList.toggle('has-items', composerAttachments.length > 0);
+    tray.innerHTML = '';
+    composerAttachments.forEach((att, i) => {
+      const pill = document.createElement('div');
+      pill.className = 'composer-pill' + (att.kind === 'cid' ? ' composer-pill--cid' : '');
+
+      if (att.dataUrl && (att.mime || '').startsWith('image/')) {
+        const img = document.createElement('img');
+        img.className = 'composer-pill-thumb';
+        img.src = att.dataUrl;
+        img.alt = '';
+        pill.appendChild(img);
+      } else {
+        const ic = document.createElement('span');
+        ic.className = 'composer-pill-icon';
+        ic.innerHTML = att.kind === 'cid'
+          ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8.66 5v10L12 22 3.34 17V7z"/></svg>'
+          : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>';
+        pill.appendChild(ic);
+      }
+
+      const label = document.createElement('span');
+      label.className = 'composer-pill-label';
+      label.textContent = att.kind === 'cid'
+        ? `${att.cid.slice(0, 8)}…${att.cid.slice(-4)}`
+        : att.name;
+      label.title = att.kind === 'cid' ? att.cid : `${att.name} (${_composerSize(att.size)})`;
+      pill.appendChild(label);
+
+      const x = document.createElement('button');
+      x.className = 'composer-pill-x';
+      x.type = 'button';
+      x.setAttribute('aria-label', `Remove ${att.kind === 'cid' ? att.cid : att.name}`);
+      x.textContent = '×';
+      x.addEventListener('click', () => { composerAttachments.splice(i, 1); composerRenderTray(); composerSyncSend(); });
+      pill.appendChild(x);
+
+      tray.appendChild(pill);
+    });
+  }
+
+  function _composerSize(n) {
+    if (!n && n !== 0) return '';
+    return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  }
+
+  function composerSyncSend() {
+    const btn = document.getElementById('composer-send-btn');
+    const input = document.getElementById('nt-search-input');
+    if (!btn || !input) return;
+    const ready = !!input.value.trim() || composerAttachments.length > 0;
+    btn.classList.toggle('is-ready', ready);
+  }
+
+  /** Fold attachments into the outgoing text. Called by every send path.
+   *
+   * Files are referenced by PATH, not by dumping their bytes inline: the agent
+   * can read_file them on demand, re-read them across steps, and they don't
+   * consume the (8k-token) context window before it has even started. Only a
+   * short head excerpt is inlined, as a hint about what the file is. */
+  function composerDecorate(query) {
+    if (!composerAttachments.length) return query;
+    const parts = [query];
+    const files = composerAttachments.filter(a => a.kind === 'file');
+    const cids = composerAttachments.filter(a => a.kind === 'cid');
+
+    if (cids.length) {
+      parts.push('\n\nAttached IPFS content — call ipfs_cat_text on each CID to read it. Do NOT guess the contents:');
+      cids.forEach(c => parts.push(`- ${c.cid}`));
+    }
+
+    if (files.length) {
+      parts.push('\n\nAttached files, saved in this project. Use read_file with the exact path shown to open one:');
+      files.forEach(f => {
+        if (f.relPath) {
+          parts.push(`- ${f.name} → read_file("${f.relPath}")  [${f.mime || 'unknown type'}, ${_composerSize(f.size)}]`);
+        } else {
+          parts.push(`- ${f.name} [${f.mime || 'unknown type'}, ${_composerSize(f.size)}] — could not be saved to disk, contents unavailable`);
+        }
+        if (f.isImage) {
+          parts.push('  (This is an image. The active local model is text-only and cannot see image content — '
+                   + 'say so plainly rather than describing the picture.)');
+        } else if (f.text) {
+          parts.push(`  First lines of ${f.name}:\n  ${f.text.slice(0, 400).replace(/\n/g, '\n  ')}`);
+        }
+      });
+    }
+    return parts.join('\n');
+  }
+
+  function composerClearAttachments() {
+    composerAttachments.length = 0;
+    composerRenderTray();
+    composerSyncSend();
+  }
+
+  async function composerAddFiles(fileList) {
+    for (const file of Array.from(fileList || [])) {
+      if (composerAttachments.length >= 8) {
+        showToast('Attachment limit reached (8).', 'error');
+        break;
+      }
+      const att = {
+        kind: 'file', name: file.name, size: file.size, mime: file.type,
+        isImage: (file.type || '').startsWith('image/'),
+      };
+      try {
+        if (att.isImage) {
+          att.dataUrl = await new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(fr.result); fr.onerror = rej;
+            fr.readAsDataURL(file);
+          });
+        } else if (file.size <= 512 * 1024) {
+          att.text = await file.text();  // short excerpt only — see composerDecorate
+        }
+
+        // Persist inside BUCKS_ROOT so the agent's sandboxed read_file can
+        // open it. Without this the agent gets a filename it cannot act on,
+        // which is exactly the "attachment does nothing" failure.
+        if (window.bucksAPI?.composerSaveAttachment) {
+          const buf = await file.arrayBuffer();
+          let bin = '';
+          const bytes = new Uint8Array(buf);
+          const CH = 0x8000;
+          for (let i = 0; i < bytes.length; i += CH) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+          }
+          const saved = await window.bucksAPI.composerSaveAttachment(file.name, btoa(bin));
+          if (saved?.ok) att.relPath = saved.relPath;
+          else console.warn('[Composer] attachment not saved:', saved?.error);
+        }
+      } catch (e) {
+        console.warn('[Composer] attachment processing failed:', e?.message || e);
+      }
+      composerAttachments.push(att);
+    }
+    composerRenderTray();
+    composerSyncSend();
+  }
+
+  function composerAddCid(raw) {
+    const cid = (raw || '').trim().replace(/^ipfs:\/\//i, '').split(/[/?#]/)[0];
+    if (!CID_RE.test(cid)) { showToast('That does not look like a valid IPFS CID.', 'error'); return false; }
+    if (composerAttachments.some(a => a.cid === cid)) { showToast('That CID is already attached.'); return true; }
+    composerAttachments.push({ kind: 'cid', cid });
+    composerRenderTray();
+    composerSyncSend();
+    return true;
+  }
+
+  async function composerRefreshModel() {
+    const dot = document.getElementById('composer-model-dot');
+    const sel = document.getElementById('model-selector');
+    if (!dot) return;
+    try {
+      const r = await fetch(`${SOUL_ENGINE}/health`, { signal: AbortSignal.timeout(2500) });
+      if (!r.ok) throw new Error('offline');
+      const h = await r.json();
+      if (h.mode === 'loading') {
+        dot.className = 'composer-model-dot is-loading';
+        try {
+          const pr = await fetch(`${SOUL_ENGINE}/models/download-progress`, { signal: AbortSignal.timeout(2000) });
+          const p = await pr.json();
+          if (p && p.active && sel) {
+            const prog = formatDownloadProgress(p);
+            sel.innerHTML = `<option value="">${prog}</option>`;
+          }
+        } catch (_) {}
+      } else {
+        dot.className = 'composer-model-dot';
+      }
+      // Fetch full model list from Soul Engine
+      if (sel) {
+        try {
+          const mr = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(2000) });
+          const { models, current } = await mr.json();
+          if (models && models.length) {
+            const prev = sel.value;
+            sel.innerHTML = '';
+            models.forEach(m => {
+              const opt = document.createElement('option');
+              opt.value = m.id;
+              opt.textContent = m.id + (m.downloaded ? '' : ' ⬇');
+              if (m.current || m.id === (current || h.model)) opt.selected = true;
+              if (!m.fits_ram && !m.current) opt.disabled = true;
+              sel.appendChild(opt);
+            });
+            if (!sel.value && prev) sel.value = prev;
+            return;
+          }
+        } catch (_) {}
+        // Soul Engine online but no model list — show current model name
+        if (h.model) sel.innerHTML = `<option value="${h.model}">${h.model}</option>`;
+      }
+    } catch (_) {
+      dot.className = 'composer-model-dot is-offline';
+      // Soul Engine offline — scan local GGUF files via IPC
+      if (sel) {
+        try {
+          const models = (typeof window.bucksAPI?.getAvailableModels === 'function')
+            ? (await window.bucksAPI.getAvailableModels()) : [];
+          if (!models || !models.length) {
+            sel.innerHTML = '<option value="">No models — download one ⬇</option>';
+          } else {
+            sel.innerHTML = '';
+            models.forEach(m => {
+              const opt = document.createElement('option');
+              opt.value = m.id;
+              opt.textContent = `${m.name} (${m.size})`;
+              sel.appendChild(opt);
+            });
+          }
+        } catch (_2) {
+          sel.innerHTML = '<option value="">Soul Engine offline</option>';
+        }
+      }
+    }
+  }
+
+  async function composerRenderModelList() {
+    const list = document.getElementById('composer-model-list');
+    if (!list) return;
+    list.innerHTML = '<div style="padding:10px 9px;font-size:12px;color:rgba(255,255,255,0.4)">Loading…</div>';
+    try {
+      const r = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) });
+      const { models, current } = await r.json();
+      if (!models || !models.length) {
+        list.innerHTML = '<div style="padding:10px 9px;font-size:12px;color:rgba(255,255,255,0.4)">Model switching needs edge mode.</div>';
+        return;
+      }
+      list.innerHTML = '';
+      models.forEach(m => {
+        const disabled = !m.fits_ram && !m.current;
+        const row = document.createElement('button');
+        row.className = 'composer-model-row';
+        row.type = 'button';
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', String(!!m.current));
+        row.disabled = disabled;
+        if (disabled) row.title = `Needs more RAM than this machine has free (${m.size_gb} GB model)`;
+        const dlIcon = m.downloaded ? '' :
+          '<span class="row-dl" title="Click to download this model"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M5 14l7 7 7-7"/><line x1="3" y1="21" x2="21" y2="21"/></svg></span>';
+        row.innerHTML =
+          `<span class="row-check">${m.current ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>` +
+          `<span class="row-name">${escapeHtml(m.id)}</span>` +
+          dlIcon +
+          `<span class="row-meta">${m.size_gb} GB</span>`;
+        row.addEventListener('click', async () => {
+          document.getElementById('composer-model-popover').hidden = true;
+          document.getElementById('composer-model-btn')?.setAttribute('aria-expanded', 'false');
+          showToast(`Preparing ${m.id}… first-time downloads can take a few minutes`, 'info');
+          startModelDownloadPolling(() => composerRefreshModel());
+          try {
+            const res = await fetch(`${SOUL_ENGINE}/models/select`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: m.id }),
+            }).then(x => x.json()).catch(() => ({}));
+            if (res && res.ok === false) showToast(`Failed to switch model: ${res.error || 'unknown error'}`, 'error');
+            else showToast(`Active model is now ${m.id}`, 'success');
+          } catch (_) { showToast('Failed to switch active model', 'error'); }
+          stopModelDownloadPolling();
+          composerRefreshModel();
+          if (typeof updateNewtabStatus === 'function') updateNewtabStatus();
+        });
+        list.appendChild(row);
+      });
+    } catch (_) {
+      list.innerHTML = '<div style="padding:10px 9px;font-size:12px;color:rgba(255,255,255,0.4)">Soul Engine offline.</div>';
+    }
+  }
+
+  function wireComposer() {
+    const bar = document.getElementById('composer-bar');
+    const input = document.getElementById('nt-search-input');
+    const fileInput = document.getElementById('composer-file-input');
+    if (!bar || !input) return;
+
+    input.addEventListener('input', () => {
+      composerSyncSend();
+      // Pasting a bare CID into the field promotes it to an attachment.
+      const v = input.value.trim();
+      if (CID_RE.test(v.replace(/^ipfs:\/\//i, ''))) {
+        if (composerAddCid(v)) { input.value = ''; composerSyncSend(); }
+      }
+    });
+
+    document.getElementById('composer-send-btn')?.addEventListener('click', () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    document.getElementById('composer-attach-btn')?.addEventListener('click', () => fileInput?.click());
+    fileInput?.addEventListener('change', (e) => { composerAddFiles(e.target.files); e.target.value = ''; });
+
+    // Model selector — switch active model on change
+    const modelSel = document.getElementById('model-selector');
+    modelSel?.addEventListener('change', async () => {
+      const model = modelSel.value;
+      if (!model) return;
+      try {
+        const res = await fetch(`${SOUL_ENGINE}/models/select`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+          signal: AbortSignal.timeout(3000),
+        }).then(x => x.json()).catch(() => ({}));
+        if (res && res.ok === false) showToast(`Failed to switch model: ${res.error || 'unknown'}`, 'error');
+        else showToast(`Active model: ${model}`, 'success');
+      } catch (_) {
+        showToast('Soul Engine offline — model switch unavailable', 'error');
+      }
+      composerRefreshModel();
+    });
+
+    // Drag & drop onto the bar
+    ['dragenter', 'dragover'].forEach(ev =>
+      bar.addEventListener(ev, (e) => { e.preventDefault(); bar.classList.add('is-dragover'); }));
+    ['dragleave', 'drop'].forEach(ev =>
+      bar.addEventListener(ev, (e) => { e.preventDefault(); bar.classList.remove('is-dragover'); }));
+    bar.addEventListener('drop', (e) => {
+      if (e.dataTransfer?.files?.length) composerAddFiles(e.dataTransfer.files);
+      else {
+        const t = e.dataTransfer?.getData('text');
+        if (t && CID_RE.test(t.trim().replace(/^ipfs:\/\//i, ''))) composerAddCid(t);
+      }
+    });
+
+    // Paste an image straight from the clipboard
+    input.addEventListener('paste', (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const files = items.filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean);
+      if (files.length) { e.preventDefault(); composerAddFiles(files); }
+    });
+
+    composerRefreshModel();
+    setInterval(composerRefreshModel, 15000);
+    composerSyncSend();
   }
 
   function wireAgentChat() {
@@ -5756,14 +7117,23 @@
     const handleModelChange = async (model) => {
       if (!model) return;
       try {
-        await fetch(`${SOUL_ENGINE}/models/select`, {
+        showToast(`Preparing ${model}… first-time downloads can take a few minutes`, 'info');
+        startModelDownloadPolling(() => updateNewtabStatus()); // keeps the Agent card's label honest during the download
+        const r = await fetch(`${SOUL_ENGINE}/models/select`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model }),
         });
-        showToast(`Switched active model to ${model}`, 'success');
+        const result = await r.json().catch(() => ({}));
+        stopModelDownloadPolling();
+        if (result && result.ok === false) {
+          showToast(`Failed to switch model: ${result.error || 'unknown error'}`, 'error');
+        } else {
+          showToast(`Switched active model to ${model}`, 'success');
+        }
         updateNewtabStatus(); // Also update model name on status cards
       } catch (err) {
+        stopModelDownloadPolling();
         showToast('Failed to switch active model', 'error');
       }
     };
@@ -5780,6 +7150,49 @@
         const val = e.target.value;
         if (modelSelect) modelSelect.value = val;
         await handleModelChange(val);
+      });
+    }
+
+    // --- PROVIDER (AI engine) SWITCHING ---
+    const providerSelect = document.getElementById('nav-chat-provider-select');
+    const tabProviderSelect = document.getElementById('tab-chat-provider-select');
+
+    const handleProviderChange = async (provider) => {
+      if (!provider) return;
+      try {
+        const r = await fetch(`${SOUL_ENGINE}/providers/select`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider }),
+        });
+        const res = await r.json();
+        if (res.ok) {
+          showToast(`Switched AI engine to ${provider}`, 'success');
+          // The embedded-model list only applies to the edge provider, so
+          // repopulate both selectors to reflect the new provider's state.
+          await populateNavChatModels();
+          updateNewtabStatus();
+        } else {
+          showToast(`Couldn't switch engine: ${res.error || 'unavailable'}`, 'error');
+          await populateNavChatProviders(); // revert the <select> to actual state
+        }
+      } catch (err) {
+        showToast('Failed to switch AI engine', 'error');
+      }
+    };
+
+    if (providerSelect) {
+      providerSelect.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (tabProviderSelect) tabProviderSelect.value = val;
+        await handleProviderChange(val);
+      });
+    }
+    if (tabProviderSelect) {
+      tabProviderSelect.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (providerSelect) providerSelect.value = val;
+        await handleProviderChange(val);
       });
     }
 
@@ -5832,6 +7245,35 @@
         undockChatPanel();
       });
     }
+
+    // Drag to resize #nt-ephemeral-zone
+    const resizeHandle = document.getElementById('nt-ephemeral-resize-handle');
+    const zone = document.getElementById('nt-ephemeral-zone');
+    if (resizeHandle && zone) {
+      let startY = 0;
+      let startHeight = 0;
+      
+      const onMouseMove = (e) => {
+        const deltaY = e.clientY - startY;
+        let newHeight = startHeight - deltaY;
+        newHeight = Math.max(150, Math.min(newHeight, window.innerHeight - 120));
+        zone.style.height = newHeight + 'px';
+        window.dispatchEvent(new Event('resize'));
+      };
+      
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+      
+      resizeHandle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startY = e.clientY;
+        startHeight = zone.getBoundingClientRect().height;
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    }
     
     // (dismiss button is wired above: undock + resetChat)
 
@@ -5848,7 +7290,7 @@
       const navPanel = document.getElementById('nav-chat-panel');
       if (!navPanel || navPanel.classList.contains('hidden')) return;
       if (navPanel.dataset.docked === 'true') {
-        // Docked on the dashboard: only the explicit ✕ dismisses it — a
+        // Docked on the dashboard: only the explicit  dismisses it — a
         // click-outside-to-close here would fight with clicking around
         // inside the dashboard while reading a response.
         return;
@@ -5970,13 +7412,19 @@
     const leftDockTrigger = document.getElementById('left-dock-trigger');
     const leftDock = document.querySelector('.left-dock');
     if (leftDockTrigger && leftDock) {
+      // Kick an immediate native-view resync (tab-view.js listens for resize)
+      // so the pane bounds leave room for the dock the moment it slides in,
+      // instead of waiting up to 250ms for the polling pass.
+      const kickResync = () => window.dispatchEvent(new Event('resize'));
       const showDock = () => {
         leftDock.classList.add('expanded');
         leftDockTrigger.querySelector('svg').style.transform = 'rotate(180deg)';
+        kickResync();
       };
       const hideDock = () => {
         leftDock.classList.remove('expanded');
         leftDockTrigger.querySelector('svg').style.transform = 'rotate(0deg)';
+        kickResync();
       };
       leftDockTrigger.addEventListener('mouseenter', () => {
         if (!document.body.classList.contains('dock-collapsed')) {
@@ -6203,7 +7651,7 @@
     if (!thread || !thread.messages.length) {
       container.innerHTML = `<div style="display:flex; justify-content:center; padding:30px 0;">
         <div style="text-align:center; max-width:400px;">
-          <div style="font-size:36px; margin-bottom:12px;">✨</div>
+          <div style="font-size:36px; margin-bottom:12px;"></div>
           <div style="font-weight:700; font-size:18px; margin-bottom:8px;">Start a conversation</div>
           <div style="font-size:13px; color:rgba(255,255,255,0.5); line-height:1.6;">Ask anything — research, browse the web, analyze data, interact with IPFS, or just chat.</div>
         </div>
@@ -6219,7 +7667,7 @@
       }
       if (isUser) {
         return `<div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; margin-bottom:12px;">
-          <div style="max-width:85%; padding:10px 14px; border-radius:14px 14px 4px 14px; background:linear-gradient(135deg,#7b3fe4,#a978ff); font-size:14px; line-height:1.55; white-space:pre-wrap; color:#fff; box-shadow:0 2px 8px rgba(0,0,0,0.2);">${escapeHtml(msg.text)}</div>
+          <div style="max-width:85%; padding:10px 14px; border-radius:14px 14px 4px 14px; background: var(--bucks-bg-surface); font-size:14px; line-height:1.55; white-space:pre-wrap; color:#fff; box-shadow: var(--bucks-shadow-md);">${escapeHtml(msg.text)}</div>
           <div style="font-size:10.5px; color:rgba(255,255,255,0.3); padding:0 4px;">You</div>
         </div>`;
       } else {
@@ -6246,11 +7694,11 @@
         }
 
         return `<div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px; margin-bottom:12px; width:100%;">
-          <div style="max-width:88%; padding:10px 14px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); font-size:14px; line-height:1.55; white-space:pre-wrap; color:#fff; box-shadow:0 2px 8px rgba(0,0,0,0.2); width:100%;">
+          <div style="max-width:88%; padding:10px 14px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); font-size:14px; line-height:1.55; white-space:pre-wrap; color:#fff; box-shadow: var(--bucks-shadow-md); width:100%;">
             <div class="nx-token-body">${parsed.html}</div>
             ${ctaHtml}
           </div>
-          <div style="font-size:10.5px; color:rgba(255,255,255,0.3); padding:0 4px;">✦ Bucks AI</div>
+          <div style="font-size:10.5px; color:rgba(255,255,255,0.3); padding:0 4px;"> Bucks AI</div>
         </div>`;
       }
     }).join('');
@@ -6339,6 +7787,12 @@
   }
 
   async function sendChatTab(query) {
+    // Same attachment fold as sendChat — without this, anything attached is
+    // silently dropped whenever the expanded chat tab is the active view.
+    const decorated = composerDecorate((query || '').trim());
+    if (decorated !== (query || '').trim()) composerClearAttachments();
+    query = decorated;
+
     const q = (query || '').trim();
     if (!q || chatTabBusy) return;
 
@@ -6384,8 +7838,8 @@
 
     // Agentic path: explicit "/agent <task>", a shopping query, or an agentic skillset slash command
     const isAgent = /^\/agent(ic)?\b/i.test(q) || isShoppingQuery(q) ||
-                    isMediaOrResearchQuery(q) ||
-                    /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search)/i.test(q);
+                    isMediaOrResearchQuery(q) || isDocumentQuery(q) ||
+                    /^\/(product|scrape|summarize|summerize|links|code|calendar|track|ipfs|images|video|play|research|weather|search|report|pdf|doc|document)/i.test(q);
     if (isAgent) {
       const taskPrompt = translateSlashCommand(q).replace(/^\/agent(ic)?\s*/i, '').trim();
       if (!taskPrompt) {
@@ -6411,11 +7865,11 @@
                 : (ev.label || ev.name || 'Working…'));
               break;
             case 'browser_action':
-              if (ev.needs_approval) appendChatTabAssistantChunk(`\n🌐 ${ev.label || ev.name}\n`);
+              if (ev.needs_approval) appendChatTabAssistantChunk(`\n ${ev.label || ev.name}\n`);
               else setChatTabAgentStatus(ev.label || ev.name || 'Browser action…');
               break;
             case 'error':
-              appendChatTabAssistantChunk(`\n⚠️ ${ev.content || 'error'}\n`);
+              appendChatTabAssistantChunk(`\n️ ${ev.content || 'error'}\n`);
               break;
             case 'done': setChatTabAgentStatus(''); break;
             // tool_result / result / session → ignore (status only)
@@ -6460,11 +7914,11 @@
                 : (ev.label || ev.name || 'Working…'));
               break;
             case 'browser_action':
-              if (ev.needs_approval) appendChatTabAssistantChunk(`\n🌐 ${ev.label || ev.name}\n`);
+              if (ev.needs_approval) appendChatTabAssistantChunk(`\n ${ev.label || ev.name}\n`);
               else setChatTabAgentStatus(ev.label || ev.name || 'Browser action…');
               break;
             case 'error':
-              appendChatTabAssistantChunk(`\n⚠️ ${ev.content || 'error'}\n`);
+              appendChatTabAssistantChunk(`\n️ ${ev.content || 'error'}\n`);
               break;
             case 'done': setChatTabAgentStatus(''); break;
             default: break; // session / cancelled → status only
@@ -6612,7 +8066,13 @@
         const hasSuggestions = searchWrap?.querySelector('.command-suggestions-dropdown');
         if (hasSuggestions) return;
 
-        const val = ntSearchInput.value.trim();
+        let val = ntSearchInput.value.trim();
+        // Attachments alone are a valid message ("here's a file — look at it").
+        // Previously this returned early, so pressing Enter with only an
+        // attachment did nothing at all.
+        if (!val && composerAttachments.length) {
+          val = 'Review the attached file(s) and tell me what they contain.';
+        }
         if (!val) return;
 
         // Intercept local view navigation slash commands
@@ -6649,9 +8109,19 @@
     }
 
     // Status card clicks
-    document.getElementById('nt-card-wallet')?.addEventListener('click', () => showDashboardView('wallet'));
-    document.getElementById('nt-card-ipfs')?.addEventListener('click', () => showDashboardView('ipfs'));
-    document.getElementById('nt-card-agent')?.addEventListener('click', () => showDashboardView('chat-tab'));
+    // Status cards are role="button"/tabindex="0" divs (see index.html) — wire
+    // Enter/Space alongside click so keyboard/screen-reader users can reach
+    // the same "open X" action a mouse click gives.
+    function wireActivatable(el, handler) {
+      if (!el) return;
+      el.addEventListener('click', handler);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(e); }
+      });
+    }
+    wireActivatable(document.getElementById('nt-card-wallet'), () => showDashboardView('wallet'));
+    wireActivatable(document.getElementById('nt-card-ipfs'), () => showDashboardView('ipfs'));
+    wireActivatable(document.getElementById('nt-card-agent'), () => showDashboardView('chat-tab'));
 
     // ── Model switcher (SOUL AGENT card) ──
     async function renderModelPicker() {
@@ -6695,13 +8165,23 @@
       const row = e.target.closest('.nt-model-row');
       if (!row || row.dataset.disabled === 'true') return;
       const model = row.dataset.model;
-      row.querySelector('.nt-model-row-name').insertAdjacentHTML('beforeend', ' <span style="color:rgba(255,255,255,0.4);font-size:10px;">switching…</span>');
+      const nameEl = row.querySelector('.nt-model-row-name');
+      const statusSpan = document.createElement('span');
+      statusSpan.style.cssText = 'color:rgba(255,255,255,0.4);font-size:10px;';
+      statusSpan.textContent = ' switching…';
+      nameEl.insertAdjacentElement('beforeend', statusSpan);
+      startModelDownloadPolling((p) => { statusSpan.textContent = ' ' + formatDownloadProgress(p); });
       try {
-        await fetch(`${SOUL_ENGINE}/models/select`, {
+        const r = await fetch(`${SOUL_ENGINE}/models/select`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model }),
         });
-      } catch (_) {}
+        const result = await r.json().catch(() => ({}));
+        if (result && result.ok === false) showToast(`Failed to switch model: ${result.error || 'unknown error'}`, 'error');
+      } catch (_) {
+        showToast('Failed to switch active model', 'error');
+      }
+      stopModelDownloadPolling();
       await renderModelPicker();
       updateNewtabStatus();  // refresh the card's model label
     });
@@ -6747,12 +8227,27 @@
       const agentDot = document.getElementById('nt-agent-dot');
       const agentModel = document.getElementById('nt-agent-model');
       const agentLbl = document.getElementById('nt-agent-label');
-      fetch('http://127.0.0.1:8765/health', { signal: AbortSignal.timeout(2000) })
+      fetch(`${SOUL_ENGINE}/health`, { signal: AbortSignal.timeout(2000) })
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => {
-          if (agentDot) agentDot.className = 'nt-status-dot online';
+        .then(async (data) => {
           if (agentModel) agentModel.textContent = data?.model || 'hermes3';
-          if (agentLbl) agentLbl.textContent = 'Soul Engine ready';
+          // mode:"loading" covers BOTH a normal multi-second model load AND a
+          // first-run/switch multi-minute download — previously any 200 here
+          // was shown as "ready" regardless, which is actively misleading
+          // during a background download.
+          if (data?.mode === 'loading') {
+            if (agentDot) agentDot.className = 'nt-status-dot warning';
+            let label = 'Loading model…';
+            try {
+              const pr = await fetch(`${SOUL_ENGINE}/models/download-progress`, { signal: AbortSignal.timeout(2000) });
+              const p = await pr.json();
+              if (p && p.active) label = formatDownloadProgress(p);
+            } catch (_) { /* fall back to the generic loading label */ }
+            if (agentLbl) agentLbl.textContent = label;
+          } else {
+            if (agentDot) agentDot.className = 'nt-status-dot online';
+            if (agentLbl) agentLbl.textContent = 'Soul Engine ready';
+          }
         })
         .catch(() => {
           if (agentDot) { agentDot.className = 'nt-status-dot'; agentDot.style.background = 'rgba(255,255,255,0.2)'; }
@@ -6821,6 +8316,23 @@
   }
 
   async function init() {
+    // The preload bridge is the hard dependency of everything below. If it is
+    // ever missing (preload failed to load, sandbox misconfiguration, opened
+    // outside Electron) the first property access used to throw and abort
+    // init() at line one — killing the ENTIRE renderer silently: no dock, no
+    // tabs, no chat, and no error visible to the user. Fail loudly instead.
+    if (!window.bucksAPI) {
+      const msg = 'Bucks failed to start: the preload bridge (window.bucksAPI) is unavailable.';
+      console.error('[Init] ' + msg);
+      document.body.insertAdjacentHTML('afterbegin',
+        `<div role="alert" style="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;
+          justify-content:center;background:#17171d;color:#fff;font:14px/1.5 system-ui;padding:32px;text-align:center;">
+          <div><h2 style="margin:0 0 8px;font-size:18px;">Bucks couldn't start</h2>
+          <p style="margin:0;opacity:.7;">The preload bridge is unavailable, so the interface can't load.<br>
+          Restart the app; if it persists, launch from a terminal to see startup errors.</p></div></div>`);
+      return;
+    }
+
     // Flag-gate the Wallet UI (hide by default unless BUCKS_SHOW_WALLET=1)
     const showWallet = window.bucksAPI.showWallet;
     if (!showWallet) {
@@ -6856,8 +8368,28 @@
 
     // Wire the agent chat bar first so it survives any downstream init error.
     try { wireAgentChat(); } catch (e) { console.error('[Chat] wire failed:', e); }
+    try { wireComposer(); } catch (e) { console.error('[Composer] wire failed:', e); }
 
     try { await loadSettings(); } catch (e) { console.error('[Init] loadSettings:', e); }
+
+    // First-run onboarding — briefly explain the local AI, P2P/IPFS swarm,
+    // wallet/mining, and Cmd+K before dropping the user into the dashboard.
+    // Gated on settings.onboardingSeen (persisted via the existing
+    // get/save-settings IPC — no new plumbing needed).
+    try {
+      if (!settings.onboardingSeen) {
+        const overlay = document.getElementById('onboarding-overlay');
+        if (overlay) {
+          overlay.style.display = 'flex';
+          const dismiss = async () => {
+            overlay.style.display = 'none';
+            settings.onboardingSeen = true;
+            try { await window.bucksAPI.saveSettings(settings); } catch (e) { console.error('[Onboarding] Failed to persist:', e); }
+          };
+          document.getElementById('btn-onboarding-done')?.addEventListener('click', dismiss);
+        }
+      }
+    } catch (e) { console.error('[Init] Onboarding overlay failed:', e); }
 
     // Initialize Workspace, Widgets, Chat History, App Store
     try {
@@ -6889,7 +8421,7 @@
       console.error('[Init] Top Right and Overlays failed:', e);
     }
 
-    try { createTab(); } catch (e) { console.error('[Init] createTab:', e); }
+    try { restoreSession(); } catch (e) { console.error('[Init] restoreSession:', e); try { createTab(); } catch (_) {} }
     try { refreshIPFSStatus(); } catch (e) { console.error('[Init] refreshIPFSStatus:', e); }
 
     try {

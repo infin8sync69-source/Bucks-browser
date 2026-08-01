@@ -647,10 +647,15 @@
   }
 
   // ════════════════════════ INSPECT (click → reverse geocode card) ════════════════════════
+  // title/addr come from Nominatim's display_name (forward search + reverse
+  // geocode) — network-sourced text, not literal-safe to drop into HTML.
+  function _escPop(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
   function popupHTML(title, addr, lat, lon, type) {
     return `<div class="em-pop">
-      <b class="em-pt">${title || 'Dropped pin'}</b>
-      ${addr ? `<div class="em-pa">${addr}</div>` : ''}
+      <b class="em-pt">${_escPop(title) || 'Dropped pin'}</b>
+      ${addr ? `<div class="em-pa">${_escPop(addr)}</div>` : ''}
       <div class="em-pc">${lat.toFixed(5)}, ${lon.toFixed(5)}${type ? ' · ' + type : ''}</div>
       <div class="em-pbtns">
         <button class="em-pbtn em-p-from">${ico('dot', 12)} From here</button>

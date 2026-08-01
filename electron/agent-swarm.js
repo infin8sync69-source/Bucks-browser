@@ -16,7 +16,12 @@
 const http = require("http");
 const crypto = require("crypto");
 
-const AGENT_SERVER_URL = process.env.AGENT_SERVER_URL || "http://localhost:3000";
+// Deliberately a DIFFERENT env var than cluster-membership.js's
+// AGENT_SERVER_URL (which defaults to :8765, the always-on Soul Engine):
+// this module only matters when BUCKS_EXPERIMENTAL_SWARM=1, and sharing the
+// var name meant setting AGENT_SERVER_URL for one purpose silently redirected
+// the other module's agent-signing calls to the wrong port.
+const AGENT_SERVER_URL = process.env.BUCKS_SWARM_AGENT_SERVER_URL || "http://localhost:3000";
 const SWARM_HEARTBEAT_MS = 8_000;   // advertise every 8 s
 const PEER_TIMEOUT_MS    = 30_000;  // peer dead after 30 s silence
 const MAX_LOAD           = 5;       // max concurrent tasks before refusing delegation

@@ -82,8 +82,8 @@ async function initChat(helia, gossipSub, unixfs) {
   );
   fs.mkdirSync(CHAT_DATA_DIR, { recursive: true });
 
-  // Initialize Signal store
-  signalStore.initStore();
+  // Initialize Signal store (async: loads the PQC modules before returning)
+  await signalStore.initStore();
 
   // Load persisted conversations
   loadConversations();
@@ -98,17 +98,35 @@ async function initChat(helia, gossipSub, unixfs) {
 
   gossip.subscribe(BUNDLE_TOPIC);
 
-  // Exchange key bundles immediately upon peer connection
+  // Exchange key bundles immediately upon peer connection. The gossipsub
+  // mesh takes ~1 heartbeat to form after a fresh connection, so this first
+  // publish can race mesh formation and get silently dropped (gossipsub
+  // doesn't buffer/retry) — without a second attempt, two peers meeting for
+  // the first time would otherwise wait for the unrelated 30s periodic
+  // republish below before they could exchange keys at all.
   heliaNode.libp2p.addEventListener("peer:connect", (evt) => {
     console.log(`[Chat] Swarm connection established with peer: ${evt.detail.toString()}. Triggering bundle exchange.`);
     publishPreKeyBundle();
+    setTimeout(publishPreKeyBundle, 2000);
   });
 
-  // Register direct stream handler for E2E chat messages
-  heliaNode.libp2p.handle('/bucks/chat/1.0.0', async ({ stream }) => {
+  // Register direct stream handler for E2E chat messages.
+  // NOTE: the libp2p major in this repo's dependency tree has swapped
+  // protocol-handler calling conventions mid-project (seen firsthand: v3
+  // calls handler(stream, connection) positionally with an event-based
+  // MessageStream that has no .source/.sink; v2 — what @chainsafe/
+  // libp2p-gossipsub actually supports, see package.json — calls
+  // handler({ stream, connection }) with the classic it-stream duplex). This
+  // handles either shape instead of hard-coding the version installed today.
+  heliaNode.libp2p.handle('/bucks/chat/1.0.0', async (arg1, arg2) => {
+    const stream = arg1 && arg1.stream ? arg1.stream : arg1;
+    const connection = arg1 && arg1.stream ? arg1.connection : arg2;
     try {
+      const source = typeof stream.sink === 'function' && stream.source != null
+        ? stream.source
+        : (await import('@libp2p/utils')).messageStreamToDuplex(stream).source;
       const chunks = [];
-      for await (const chunk of stream.source) {
+      for await (const chunk of source) {
         let bytes;
         if (chunk instanceof Uint8Array) {
           bytes = chunk;
@@ -124,6 +142,16 @@ async function initChat(helia, gossipSub, unixfs) {
       const text = toString(allBytes);
       const data = JSON.parse(text);
 
+      // Authenticity: `data.from` is a self-reported field inside the JSON
+      // payload — it must match the noise-authenticated remote peer of this
+      // very stream, or anyone we accept a connection from could claim to be
+      // any other peerId (spoofing X3DH inits and chat messages alike).
+      const remotePeerId = connection && connection.remotePeer ? connection.remotePeer.toString() : null;
+      if (!remotePeerId || data.from !== remotePeerId) {
+        console.warn(`[Chat] Dropped ${data.type || 'message'}: claimed from=${data.from} does not match authenticated stream peer ${remotePeerId}`);
+        return;
+      }
+
       if (data.type === "x3dh_init") {
         handleX3DHInit(data);
       } else if (data.type === "chat_message") {
@@ -134,8 +162,14 @@ async function initChat(helia, gossipSub, unixfs) {
     }
   });
 
-  // Initialize agent integration
-  await agentIntegration.checkAgentStatus();
+  // Initialize agent integration — only probe the :3000 experimental swarm
+  // agent server when that layer is actually enabled (see main.js, gated
+  // behind BUCKS_EXPERIMENTAL_SWARM=1); otherwise nothing listens there by
+  // design and this would just log a guaranteed connection failure on every
+  // chat-engine startup.
+  if (process.env.BUCKS_EXPERIMENTAL_SWARM === '1') {
+    await agentIntegration.checkAgentStatus();
+  }
 
   // Broadcast our pre-key bundle periodically
   publishPreKeyBundle();
@@ -179,9 +213,19 @@ function handleBundleMessage(msg) {
   try {
     const data = JSON.parse(new TextDecoder().decode(msg.data));
     if (data.type !== "prekey_bundle") return;
-    if (data.peerId === localPeerId) return; // Ignore our own
 
-    if (!acceptBundle(data.peerId, data.bundle)) return; // tampered / impersonation
+    // Trust the gossipsub-verified publisher (msg.from), never the
+    // self-reported data.peerId — otherwise any mesh peer can broadcast a
+    // bundle claiming to be a soulId/peerId it doesn't own (see ipfs-node.js
+    // for the same fromPeerId = msg.from.toString() pattern used elsewhere).
+    const fromPeerId = msg.from ? msg.from.toString() : null;
+    if (!fromPeerId || fromPeerId !== data.peerId) {
+      console.warn(`[Chat] Dropped bundle: claimed peerId ${data.peerId} does not match publisher ${fromPeerId}`);
+      return;
+    }
+    if (fromPeerId === localPeerId) return; // Ignore our own
+
+    if (!acceptBundle(fromPeerId, data.bundle)) return; // tampered / impersonation
     persistBundles();
   } catch (e) {
     // Ignore malformed bundles
@@ -211,10 +255,25 @@ function persistBundles() {
  * @returns {{ success: boolean, error?: string }}
  */
 async function sendDirect(peerId, payload) {
-  const { pipe } = await import('it-pipe');
-  const stream = await heliaNode.libp2p.dialProtocol(peerId, '/bucks/chat/1.0.0');
+  // peerId here is always a .toString()'d string (see localPeerId / data.to /
+  // data.from throughout this file), but libp2p's dialProtocol only special-
+  // cases real PeerId objects (isPeerId() check in get-peer.js) — a bare
+  // string falls into its multiaddr-array branch and throws
+  // "multiaddrs[0].getComponents is not a function". Every direct send needs
+  // a real PeerId instance.
+  const { peerIdFromString } = await import('@libp2p/peer-id');
+  const stream = await heliaNode.libp2p.dialProtocol(peerIdFromString(peerId), '/bucks/chat/1.0.0');
   const data = new TextEncoder().encode(JSON.stringify(payload));
-  await pipe([data], stream.sink);
+  // Same dual-shape handling as the receive side (see handler comment above):
+  // classic streams expose stream.sink directly for it-pipe; newer
+  // event-based MessageStreams need @libp2p/utils's pipe() to wrap them.
+  if (typeof stream.sink === 'function') {
+    const { pipe } = await import('it-pipe');
+    await pipe([data], stream.sink);
+  } else {
+    const { pipe } = await import('@libp2p/utils');
+    await pipe([data], stream);
+  }
 }
 
 async function sendMessage(peerId, text, attachmentCid = null) {
@@ -230,12 +289,15 @@ async function sendMessage(peerId, text, attachmentCid = null) {
       };
     }
 
-    // Perform X3DH
-    const { sharedSecret, ephemeralPublicKey } =
+    // Perform X3DH (hybrid ML-KEM-768 + X25519 when the peer's bundle supports it)
+    const { sharedSecret, ephemeralPublicKey, kemCiphertext } =
       signalStore.performX3DH(bundle);
-    signalStore.createSession(peerId, sharedSecret, true, bundle);
 
-    // Send X3DH init message so peer can derive the same shared secret
+    // Send X3DH init message so peer can derive the same shared secret.
+    // Only commit the session locally once we know the init message actually
+    // reached the peer — committing beforehand left a permanently desynced
+    // session on failure: hasSession() would report true, so retries skipped
+    // re-sending the init while the peer never got it to respond to.
     const initMessage = {
       type: "x3dh_init",
       from: localPeerId,
@@ -243,6 +305,7 @@ async function sendMessage(peerId, text, attachmentCid = null) {
       identityKey: signalStore.getIdentityPublicKey(),
       ephemeralKey: ephemeralPublicKey,
       oneTimePreKeyId: bundle.oneTimePreKeyId,
+      kemCiphertext: kemCiphertext, // null for non-hybrid peers
       timestamp: Date.now(),
     };
 
@@ -252,6 +315,8 @@ async function sendMessage(peerId, text, attachmentCid = null) {
       console.error("[Chat] Failed to send X3DH init:", e);
       return { success: false, error: "Failed to establish E2E session: " + e.message };
     }
+
+    signalStore.createSession(peerId, sharedSecret, true, bundle);
   }
 
   // Encrypt the message
@@ -432,10 +497,11 @@ function handleX3DHInit(data) {
       data.identityKey,
       data.ephemeralKey,
       data.oneTimePreKeyId || null,
+      data.kemCiphertext || null,
     );
     signalStore.createSession(data.from, sharedSecret, false);
     console.log(
-      `[Chat] X3DH session established with ${data.from.substring(0, 8)}... (responder)`,
+      `[Chat] X3DH session established with ${data.from.substring(0, 8)}... (responder${data.kemCiphertext ? ", hybrid PQC" : ""})`,
     );
   } catch (e) {
     console.error(

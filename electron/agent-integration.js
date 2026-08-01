@@ -15,15 +15,27 @@ const http = require("http");
 const https = require("https");
 
 // Configuration
+// NOTE: this targets the same optional :3000 "agent server" that main.js
+// only starts under BUCKS_EXPERIMENTAL_SWARM=1 (its own comment there calls
+// it "unsigned, unaudited"). The real always-on agent is the Soul Engine on
+// :8765 (soul-engine-supervisor.js) — this module and its "ollama" default
+// are a separate, disabled-by-default code path, not what actually answers
+// chat by default.
+// Deliberately NOT the shared AGENT_SERVER_URL var (cluster-membership.js
+// uses that one and defaults to :8765, the always-on Soul Engine) — see
+// agent-swarm.js for the same reasoning.
 const AGENT_SERVER_URL =
-  process.env.AGENT_SERVER_URL || "http://localhost:3000";
+  process.env.BUCKS_SWARM_AGENT_SERVER_URL || "http://localhost:3000";
 const REQUEST_TIMEOUT = 60000; // 60 seconds for agent tasks
 
 // State
 let currentModel = process.env.MODEL_PROVIDER || "ollama";
 let agentStatus = {
   online: false,
-  provider: "ollama",
+  // "unavailable", not "ollama": nothing has actually been contacted yet, and
+  // claiming a specific provider before any successful status check is
+  // misleading (this file never actually calls Ollama's API either way).
+  provider: "unavailable",
   availableProviders: ["ollama", "litai"],
   lastCheck: null,
 };
@@ -82,7 +94,7 @@ async function checkAgentStatus() {
   try {
     const status = await makeRequest("GET", "/api/v1/status");
     agentStatus.online = true;
-    agentStatus.provider = status.current_provider || "ollama";
+    agentStatus.provider = status.current_provider || "unavailable";
     agentStatus.availableProviders = status.available_providers || [
       "ollama",
       "litai",
@@ -92,7 +104,12 @@ async function checkAgentStatus() {
   } catch (e) {
     agentStatus.online = false;
     agentStatus.lastCheck = new Date();
-    console.error("[Agent] Status check failed:", e.message);
+    // e.message is empty for AggregateError (Node's Happy-Eyeballs dual-stack
+    // connect wraps per-attempt ECONNREFUSED errors and leaves .message ""),
+    // which is exactly what happens here since nothing listens on
+    // AGENT_SERVER_URL by default — fall back to the wrapped sub-errors.
+    const reason = e && (e.message || (e.errors && e.errors.map((x) => x.message).join("; ")) || String(e));
+    console.error("[Agent] Status check failed:", reason || "unknown error");
     return agentStatus;
   }
 }

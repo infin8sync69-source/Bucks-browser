@@ -31,6 +31,7 @@ Run:
 from __future__ import annotations
 
 import os
+import re
 import json
 import asyncio
 import uuid
@@ -48,10 +49,11 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 import config
 import edge_llm
+import model_engine
 import genui
 from tools.registry import TOOLS
 
-from soul.generator import load_or_create_soul
+from soul.generator import load_or_create_soul, sign_payload
 from soul.frozen import FrozenMemory
 from soul.registry import SoulRegistry
 from p2p.discovery import AgentDiscovery
@@ -67,12 +69,19 @@ log = logging.getLogger("soul-engine")
 
 OLLAMA = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL = os.getenv("BUCKS_MODEL", "hermes3:latest")
-MAX_TOOL_STEPS = int(os.getenv("BUCKS_MAX_TOOL_STEPS", "5"))
+# 10, not 5: a genuine multi-step task (search → open → read → render) burns 4-5
+# steps on its own, so the old ceiling truncated real work mid-flight and
+# surfaced "Reached the maximum number of reasoning steps." as the answer.
+# Duplicate-call suppression (see the tool loop) is what actually bounds
+# runaway loops now, so the step ceiling can afford to be generous.
+MAX_TOOL_STEPS = int(os.getenv("BUCKS_MAX_TOOL_STEPS", "10"))
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
 
 def _use_embedded() -> bool:
-    return config.get_provider() == "edge"
+    # Runtime provider (persisted UI choice) takes precedence over the env
+    # default, so switching to/from edge in the switcher is reflected here.
+    return model_engine.current_provider() == "edge"
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +504,73 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         }, "required": ["query"]},
     }},
     {"type": "function", "function": {
+        "name": "cluster_list_members",
+        "description": ("List members already admitted into the user's Bucks cluster (the "
+                        "private, invite-grown group of trusted devices). Use when the user "
+                        "asks who's in their cluster, or wants an overview of it."),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_list_discovered",
+        "description": ("List nearby peers seen on the network but NOT yet admitted into the "
+                        "cluster — candidates the user could invite. Use when the user asks "
+                        "who's nearby, or wants to find someone to add to the cluster."),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_get_my_identity",
+        "description": ("Get this node's own shareable cluster ID — what the user gives a "
+                        "friend so an existing member can add them. Use when the user asks "
+                        "for their ID, invite code, or how to be added to someone's cluster."),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_list_files",
+        "description": ("List files known to this node: scope='mine' for only what's pinned "
+                        "locally, scope='cluster' (default) for everything visible across the "
+                        "swarm. Use when the user asks what files/content are available."),
+        "parameters": {"type": "object", "properties": {
+            "scope": {"type": "string", "enum": ["mine", "cluster"], "description": "Which set of files to list (default 'cluster')"},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_recommend",
+        "description": ("Recommend a file/CID to the cluster — a positive VOTE broadcast to the "
+                        "network. This is a pure signal and does NOT pin/host the file. Use when "
+                        "the user says to recommend or upvote a file. To also host it, call "
+                        "cluster_pin separately."),
+        "parameters": {"type": "object", "properties": {
+            "cid": {"type": "string", "description": "The IPFS CID to recommend"},
+        }, "required": ["cid"]},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_unrecommend",
+        "description": ("Mark a file/CID as NOT recommended — a negative VOTE broadcast to the "
+                        "network. Pure signal; does NOT unpin or remove any local copy. Use when "
+                        "the user says to downvote or un-recommend a file."),
+        "parameters": {"type": "object", "properties": {
+            "cid": {"type": "string", "description": "The IPFS CID to mark as not recommended"},
+        }, "required": ["cid"]},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_pin",
+        "description": ("Pin/host a file/CID locally so this node stores and serves it — a "
+                        "STANDALONE action, separate from recommending. Use when the user says to "
+                        "pin, host, save, or replicate a file locally."),
+        "parameters": {"type": "object", "properties": {
+            "cid": {"type": "string", "description": "The IPFS CID to pin/host"},
+        }, "required": ["cid"]},
+    }},
+    {"type": "function", "function": {
+        "name": "cluster_unpin",
+        "description": ("Unpin a file/CID — stop hosting the local copy to free storage. "
+                        "Standalone; does not affect recommend votes. Use when the user says to "
+                        "unpin, stop hosting, or remove a local copy."),
+        "parameters": {"type": "object", "properties": {
+            "cid": {"type": "string", "description": "The IPFS CID to unpin"},
+        }, "required": ["cid"]},
+    }},
+    {"type": "function", "function": {
         "name": "image_search",
         "description": ("Search the web for IMAGES and show them to the user as a gallery. "
                         "Use when the user asks to see pictures, photos, images, or wallpapers "
@@ -570,6 +646,72 @@ BROWSER_TOOL_SCHEMAS: list[dict[str, Any]] = [
         "Capture a screenshot of the current tab for visual grounding.",
         {}, []),
 ]
+
+# Optional pane targeting on every page-level browser tool: a tab can host
+# several live pages at once ("panes", pane-manager.js). Omitted = the
+# focused pane. Values: a pane id from panes_list (e.g. "p3"), a 1-based
+# index, or "focused".
+_PANE_PROP = {"pane": {"type": "string", "description":
+    "Optional pane to act on (id from panes_list, 1-based index, or 'focused'). "
+    "Omit to use the focused pane."}}
+for _s in BROWSER_TOOL_SCHEMAS:
+    _s["function"]["parameters"]["properties"].update(_PANE_PROP)
+
+# Spatial-workspace tools — a tab can be split into multiple resizable panes;
+# these let the agent inventory, create, arrange, and sweep them.
+BROWSER_TOOL_SCHEMAS += [
+    _fn("panes_list",
+        "List the panes (split windows) in the current tab: id, title, URL, "
+        "and which one is focused. Call before any pane-targeted action.",
+        {}, []),
+    _fn("pane_open",
+        "Open a URL in a NEW pane beside the current page(s), keeping them "
+        "visible. Use for side-by-side comparison or multi-source research "
+        "instead of navigating away.",
+        {"url": {"type": "string", "description": "URL to open in the new pane"},
+         "layout": {"type": "string", "enum": ["cols", "rows", "main-left", "grid", "focus"],
+                    "description": "Optional layout preset to apply after opening"}},
+        ["url"]),
+    _fn("pane_close",
+        "Close one pane of the current tab.",
+        {"pane": {"type": "string", "description": "Pane id or index"}}, ["pane"]),
+    _fn("pane_focus",
+        "Focus a pane (nav controls and un-addressed browser tools then act on it).",
+        {"pane": {"type": "string", "description": "Pane id or index"}}, ["pane"]),
+    _fn("pane_arrange",
+        "Re-arrange the panes of the current tab with a layout preset.",
+        {"preset": {"type": "string", "enum": ["cols", "rows", "main-left", "grid", "focus"]}},
+        ["preset"]),
+    _fn("workspace_sweep",
+        "Read EVERY pane in the current tab in one pass: returns each pane's "
+        "title, URL, and main text, and shows the user a per-pane digest with "
+        "thumbnails. Use for 'summarize/compare everything in this tab'.",
+        {}, []),
+    # ── document production (saved to ~/Documents/Bucks, revealed in Finder) ──
+    _fn("create_document",
+        "Write a document FILE from markdown you compose (report, notes, "
+        "summary, article). Saved to the user's Documents/Bucks folder. Use "
+        "when the user asks to 'create a document/report/notes' as a file.",
+        {"title": {"type": "string", "description": "Document title (also the filename)"},
+         "content": {"type": "string", "description": "Full document body in markdown"},
+         "format": {"type": "string", "enum": ["md", "html", "txt"],
+                    "description": "File format (default md; html is styled)"}},
+        ["title", "content"]),
+    _fn("create_pdf",
+        "Render markdown you compose into a styled PDF report file (headings, "
+        "tables, code blocks supported). Saved to Documents/Bucks. Use for "
+        "'create a PDF', 'export a report as PDF', deliverable write-ups.",
+        {"title": {"type": "string", "description": "Report title (also the filename)"},
+         "content": {"type": "string", "description": "Full report body in markdown"}},
+        ["title", "content"]),
+    _fn("page_to_pdf",
+        "Save the CURRENT live web page (or an addressed pane) as a PDF file — "
+        "an exact print of what is on screen. Use for 'save/print this page "
+        "as PDF'. For a composed write-up use create_pdf instead.",
+        {"title": {"type": "string", "description": "Optional filename override"},
+         **_PANE_PROP},
+        []),
+]
 BROWSER_TOOL_NAMES = {s["function"]["name"] for s in BROWSER_TOOL_SCHEMAS}
 
 # ---------------------------------------------------------------------------
@@ -619,8 +761,180 @@ RENDER_TOOL_SCHEMA: dict[str, Any] = {
 }
 RENDER_TOOL_NAME = "render_component"
 
+# ---------------------------------------------------------------------------
+# Composer attachments — resolved server-side, never left to the model.
+# ---------------------------------------------------------------------------
+_ATTACHMENT_RE = re.compile(r'\.bucks-attachments/[\w.\- ]+')
+# Per-file cap. Generous enough to be useful, bounded so several attachments
+# cannot swallow the whole 8k context before reasoning starts.
+ATTACHMENT_INLINE_CHARS = int(os.getenv("BUCKS_ATTACHMENT_INLINE_CHARS", "6000"))
+_TEXTUAL_SUFFIXES = {
+    ".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+    ".csv", ".tsv", ".log", ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".htm",
+    ".css", ".scss", ".sh", ".bash", ".zsh", ".sql", ".xml", ".env", ".rs", ".go",
+    ".java", ".c", ".h", ".cpp", ".rb", ".php", ".swift", ".kt", ".gitignore",
+}
+
+
+def _inline_attachments(message: str) -> str:
+    """Replace `.bucks-attachments/<file>` references with the file's contents.
+
+    Reads through the same sandboxed helper the file tools use, so an
+    attachment path cannot be used to escape the project root.
+    """
+    paths = list(dict.fromkeys(_ATTACHMENT_RE.findall(message or "")))
+    if not paths:
+        return message
+
+    from tools.fs_impl import safe_path
+
+    blocks = []
+    for rel in paths:
+        name = rel.split("/")[-1]
+        try:
+            p = safe_path(rel)
+            if not p.is_file():
+                blocks.append(f"\n[Attachment {name}: file not found on disk.]")
+                continue
+            suffix = "".join(Path(name).suffixes[-1:]).lower()
+            if suffix and suffix not in _TEXTUAL_SUFFIXES:
+                blocks.append(
+                    f"\n[Attachment {name} is a binary/{suffix.lstrip('.')} file. "
+                    "Its contents cannot be read as text, and the active local model "
+                    "cannot interpret images. Say so plainly instead of describing it.]"
+                )
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            truncated = len(text) > ATTACHMENT_INLINE_CHARS
+            body = text[:ATTACHMENT_INLINE_CHARS]
+            note = (f"\n[TRUNCATED: first {ATTACHMENT_INLINE_CHARS} of {len(text)} characters. "
+                    f"Call read_file(\"{rel}\") for more.]") if truncated else ""
+            blocks.append(f"\n----- BEGIN ATTACHMENT: {name} -----\n{body}{note}\n----- END ATTACHMENT: {name} -----")
+        except Exception as e:
+            log.warning("attachment inline failed for %s: %s", rel, e)
+            blocks.append(f"\n[Attachment {name} could not be read: {e}]")
+
+    return (
+        message
+        + "\n\nThe FULL CONTENTS of the attached file(s) follow. Answer using ONLY "
+          "what is written below — do not invent details and do not describe the "
+          "file from its name.\n"
+        + "\n".join(blocks)
+    )
+
+# ---------------------------------------------------------------------------
+# Tool tiering — pick a small, relevant subset per request.
+#
+# Handing the model every schema at once was the single biggest cause of poor
+# agentic behaviour: 26 general + 15 browser schemas ≈ 4,100 tokens, i.e. HALF
+# of the 8,192-token context window consumed before the system prompt, RAG
+# snippets, chat history or the user's actual question. A 7B local model then
+# had to choose correctly among 41 options. Measured effect: repeated identical
+# tool calls and unfinished tasks.
+#
+# Selection is keyword-driven and additive: a small always-on core plus any
+# category the query actually implicates, capped so the budget stays bounded.
+# Unknown/ambiguous queries fall back to the general web core, which is the
+# safest default (it can still search and answer).
+# ---------------------------------------------------------------------------
+_TOOL_CATEGORIES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # category: (tool names, trigger keywords)
+    "web":      (("web_search", "fetch_url", "extract_links", "deep_research"),
+                 ("search", "google", "look up", "find out", "research", "news",
+                  "article", "website", "url", "link", "http", "who is", "what is",
+                  "latest", "compare", "explain")),
+    "media":    (("image_search", "youtube_search"),
+                 ("image", "photo", "picture", "png", "jpg", "video", "youtube",
+                  "watch", "clip", "trailer", "footage", "show me")),
+    "weather":  (("weather_lookup",),
+                 ("weather", "forecast", "temperature", "rain", "humid", "climate")),
+    "files":    (("list_directory", "read_file"),
+                 ("file", "directory", "folder", "read ", "source", "code", "repo",
+                  "script", "lines", "ls ", "path", "open the", "codebase")),
+    "calendar": (("calendar_add", "calendar_list"),
+                 ("calendar", "schedule", "meeting", "appointment", "remind",
+                  "event", "agenda", "book a")),
+    "commerce": (("product_search", "product_lookup", "track_order"),
+                 ("buy", "price", "cheap", "cost", "shop", "product", "order",
+                  "purchase", "deal", "discount", "amazon", "track my",
+                  # shopping intent is often expressed as a budget/ranking
+                  # phrase with no explicit commerce verb ("top 5 X under ₹10k")
+                  "under ₹", "under $", "under rs", "budget", "best ", "top ",
+                  "cheapest", "review", " vs ", "₹", "$")),
+    "ipfs":     (("ipfs_upload_text", "ipfs_cat_text", "dweb_publish", "dweb_search"),
+                 ("ipfs", "cid", "dweb", "pin ", "publish", "upload", "decentral")),
+    # Keywords here are deliberately narrow. Generic words ("node", "identity",
+    # "recommend") false-positive constantly — e.g. the filename
+    # "bucks-node.js" pulled the whole 8-tool cluster block into a file-reading
+    # request, crowding out the tools that request actually needed.
+    "cluster":  (("cluster_list_members", "cluster_list_discovered",
+                  "cluster_get_my_identity", "cluster_list_files",
+                  "cluster_recommend", "cluster_unrecommend",
+                  "cluster_pin", "cluster_unpin"),
+                 ("cluster", "swarm", "soul id", "my identity", "peers",
+                  "my node", "cluster member")),
+}
+
+# Always available: the model must be able to search and to render UI.
+_CORE_TOOL_NAMES = ("web_search", RENDER_TOOL_NAME)
+
+# Upper bound on schemas per request. ~10 keeps the tool budget near 1k tokens,
+# leaving the bulk of the window for reasoning and conversation.
+MAX_TOOLS_PER_REQUEST = int(os.getenv("BUCKS_MAX_TOOLS_PER_REQUEST", "10"))
+
+# Deliberately specific. Bare "page"/"open"/"tab" are far too common — the
+# query "search the dweb index for published pages" tripped the browser block
+# and pushed a 10-tool budget to 25, which is exactly the context bloat this
+# selector exists to prevent. Browser control needs an explicit UI-driving verb.
+_BROWSER_TRIGGER_WORDS = (
+    "navigate", "click", "scroll", "browse", "go to", "visit",
+    "this page", "current page", "this site", "this tab", "current tab",
+    "open the", "open a", "open my", "screenshot", "pane", "fill in", "fill out",
+    "new tab", "switch tab", "close tab",
+)
+
+
+def select_tool_schemas(message: str, agentic: bool) -> list[dict[str, Any]]:
+    """Choose a bounded, relevant slice of the tool catalogue for one request."""
+    q = (message or "").lower()
+    by_name = {s["function"]["name"]: s for s in TOOL_SCHEMAS}
+    by_name[RENDER_TOOL_NAME] = RENDER_TOOL_SCHEMA
+
+    chosen: list[str] = [n for n in _CORE_TOOL_NAMES if n in by_name]
+    matched_category = False
+    for names, keywords in _TOOL_CATEGORIES.values():
+        if any(k in q for k in keywords):
+            matched_category = True
+            for n in names:
+                if n in by_name and n not in chosen:
+                    chosen.append(n)
+
+    # Nothing matched — keep the general web core so the agent can still work.
+    if not matched_category:
+        for n in ("fetch_url", "deep_research"):
+            if n in by_name and n not in chosen:
+                chosen.append(n)
+
+    # Browser/pane control is only meaningful in agentic mode, and only when the
+    # request actually implies driving the UI — it is by far the largest schema
+    # block (15). It is counted INSIDE the budget, not bolted on after it:
+    # appending post-cap is how a nominally 10-tool request became 25.
+    wants_browser = agentic and any(w in q for w in _BROWSER_TRIGGER_WORDS)
+    if wants_browser:
+        # Reserve room for the browser block, keeping a few topical tools too.
+        keep = max(3, MAX_TOOLS_PER_REQUEST - len(BROWSER_TOOL_SCHEMAS) // 3)
+        selected = [by_name[n] for n in chosen[:keep]] + list(BROWSER_TOOL_SCHEMAS)
+    else:
+        selected = [by_name[n] for n in chosen[:MAX_TOOLS_PER_REQUEST]]
+
+    return selected
+
+
 # Actions that change state — gated behind user confirmation in the renderer.
-STATE_CHANGING_TOOLS = {"browser_click", "browser_type", "browser_navigate"}
+STATE_CHANGING_TOOLS = {"browser_click", "browser_type", "browser_navigate",
+                        "pane_open", "pane_close",
+                        "cluster_recommend", "cluster_unrecommend",
+                        "cluster_pin", "cluster_unpin"}
 
 # ---------------------------------------------------------------------------
 # In-flight state: remote tool calls and session management
@@ -813,8 +1127,55 @@ def _research_topic(msg: str) -> str:
                 "", q, flags=_re.I)
     q = _re.sub(r"^\s*research\s+", "", q, flags=_re.I)
     q = _re.sub(r"^\s*tell me everything about\s+", "", q, flags=_re.I)
+    q = _strip_doc_clause(q)
     q = _re.sub(r"\s+", " ", q).strip(" ?.!")
     return q or msg.strip()
+
+
+# ── Document-production intent (research → PDF/doc) ─────────────────────────
+# A research request can also ask for a deliverable file ("...and create a PDF
+# report"). The deterministic research path skips the tool loop, so we detect
+# that here and emit the create_pdf/create_document tool ourselves.
+_DOC_RE = _re.compile(
+    r"\b(create|make|write|generate|prepare|export|produce|compile|give me)\b[^.]{0,40}?"
+    r"\b(pdf|report|document|write-?up|dossier|white ?paper)\b", _re.I)
+
+
+def _wants_document(msg: str) -> bool:
+    return bool(_DOC_RE.search(msg))
+
+
+def _wants_pdf(msg: str) -> bool:
+    return bool(_re.search(r"\bpdf\b", msg, _re.I))
+
+
+def _strip_doc_clause(topic: str) -> str:
+    """Drop a trailing '... and create a PDF/report/document ...' instruction so
+    it doesn't leak into the research topic / document title."""
+    t = _re.sub(r"[\s,]+and\s+(create|make|write|generate|prepare|export|produce|"
+                r"compile|give me)\b.*$", "", topic, flags=_re.I | _re.S)
+    t = _re.sub(r"\s*\(create_pdf\)\s*$", "", t, flags=_re.I)
+    return t.strip(" ,.-") or topic
+
+
+def _compose_research_doc(topic: str, briefing: str, corpus: str) -> str:
+    """Assemble a detailed markdown research document from the model briefing
+    and the gathered source corpus (blocks of 'SOURCE: title (url)\\n body')."""
+    parts = [f"# {topic}", ""]
+    if briefing:
+        parts += ["## Executive Summary", "", briefing.strip(), ""]
+    src_md = []
+    for block in corpus.split("SOURCE: ")[1:]:
+        head, _, body = block.partition("\n")
+        m = _re.match(r"\s*(.*?)\s*\((https?://[^)]+)\)\s*$", head)
+        if m:
+            title, url = m.group(1).strip(), m.group(2).strip()
+            src_md.append(f"### {title}\n\n**Source:** [{url}]({url})\n\n{body.strip()}")
+        else:
+            src_md.append(f"### {head.strip()}\n\n{body.strip()}")
+    if src_md:
+        parts += ["## Sources & Detailed Extracts", "", "\n\n".join(src_md)]
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -844,6 +1205,19 @@ async def register_peer_soul(req: Request) -> JSONResponse:
     soul = await req.json()
     result = DISCOVERY.on_peer_soul(soul)
     return JSONResponse(result)
+
+
+@app.post("/api/v1/soul/sign")
+async def sign_with_soul(req: Request) -> JSONResponse:
+    """Sign an arbitrary canonical payload with this node's soul key. The
+    Ed25519 private key only ever lives here (agent_soul_key.pem) — electron
+    calls this to sign things like cluster-membership admission records
+    without the key ever crossing the process boundary."""
+    body = await req.json()
+    payload = body.get("payload", "")
+    if not payload:
+        return JSONResponse({"ok": False, "error": "payload required"})
+    return JSONResponse({"ok": True, "signature": sign_payload(payload)})
 
 
 # ---------------------------------------------------------------------------
@@ -921,24 +1295,56 @@ async def deny_pending(update_id: str) -> JSONResponse:
 
 @app.get("/models")
 async def list_models_endpoint() -> JSONResponse:
-    """Catalogue for the UI model switcher. Only meaningful in edge mode."""
-    if not _use_embedded():
-        return JSONResponse({"models": [], "current": MODEL, "provider": config.get_provider()})
+    """Catalogue for the UI switcher: the embedded-model list (edge only) plus
+    the active provider + concrete model label so the UI can render both the
+    provider selector and, in edge mode, the model selector."""
+    edge_models = edge_llm.list_models() if _use_embedded() else []
     return JSONResponse({
-        "models": edge_llm.list_models(),
-        "current": edge_llm.current_model_id(),
-        "provider": "edge",
+        "models": edge_models,
+        "current": edge_llm.current_model_id() if _use_embedded() else None,
+        "provider": model_engine.current_provider(),
+        "activeModel": model_engine.active_model_label(),
     })
 
 
 @app.post("/models/select")
 async def select_model_endpoint(req: Request) -> JSONResponse:
-    """Switch the active embedded model (downloads on first use, then loads)."""
+    """Switch the active EMBEDDED model (downloads on first use, then loads).
+    Only meaningful when the edge provider is active — other providers pick
+    their model from config/env, not this catalogue."""
     if not _use_embedded():
-        return JSONResponse({"ok": False, "error": "model switching only available in edge mode"})
+        return JSONResponse({"ok": False, "error": "embedded-model switching only applies to the edge provider"})
     body = await req.json()
     model_id = body.get("model", "")
     result = await edge_llm.switch_model(model_id)
+    return JSONResponse(result)
+
+
+@app.get("/models/download-progress")
+async def model_download_progress_endpoint() -> JSONResponse:
+    """Real byte-level progress for an in-flight model download, polled by the
+    UI so /models/select's multi-minute first-run fetch isn't a silent block
+    (see edge_llm._download's disk-size monitor thread)."""
+    if not _use_embedded():
+        return JSONResponse({"active": False})
+    return JSONResponse(edge_llm.get_download_progress())
+
+
+@app.get("/providers")
+async def list_providers_endpoint() -> JSONResponse:
+    """All inference providers with configured/current flags for the switcher."""
+    return JSONResponse({
+        "providers": model_engine.available_providers(),
+        "current": model_engine.current_provider(),
+        "activeModel": model_engine.active_model_label(),
+    })
+
+
+@app.post("/providers/select")
+async def select_provider_endpoint(req: Request) -> JSONResponse:
+    """Switch the active inference provider (persisted; survives restart)."""
+    body = await req.json()
+    result = model_engine.switch_provider(body.get("provider", ""))
     return JSONResponse(result)
 
 
@@ -951,6 +1357,8 @@ async def agent_status() -> JSONResponse:
         "peers": SOUL_REGISTRY.count(),
         "rl_weights": POLICY.get_weights(),
         "experience_count": EXPERIENCE.count(),
+        "provider": model_engine.current_provider(),
+        "model": model_engine.active_model_label(),
     })
 
 
@@ -1020,29 +1428,10 @@ async def chat(req: Request) -> StreamingResponse:
     async def gen() -> AsyncGenerator[str, None]:
         pieces: list[str] = []
         try:
-            if _use_embedded():
-                async for tok in edge_llm.chat_stream(messages):
-                    pieces.append(tok)
-                    yield sse({"type": "token", "content": tok})
-            else:
-                async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-                    async with c.stream(
-                        "POST", f"{OLLAMA}/api/chat",
-                        json={"model": MODEL, "messages": messages, "stream": True},
-                    ) as r:
-                        async for line in r.aiter_lines():
-                            if not line.strip():
-                                continue
-                            try:
-                                obj = json.loads(line)
-                            except json.JSONDecodeError:
-                                continue
-                            tok = obj.get("message", {}).get("content", "")
-                            if tok:
-                                pieces.append(tok)
-                                yield sse({"type": "token", "content": tok})
-                            if obj.get("done"):
-                                break
+            # Single dispatch point across every provider (see model_engine.py).
+            async for tok in model_engine.chat_stream(messages):
+                pieces.append(tok)
+                yield sse({"type": "token", "content": tok})
             if pieces:
                 await RAG.store_interaction(
                     text=f"Q: {message}\nA: {''.join(pieces)}", source="chat_interaction",
@@ -1259,6 +1648,12 @@ async def agent(req: Request) -> StreamingResponse:
             "browser_read_page before acting so you have current [ref] numbers, "
             "and again after each action to observe the result. Click and type "
             "only via refs from the latest snapshot."
+            "\n\nA tab can hold several pages at once as resizable PANES. "
+            "Prefer pane_open over browser_navigate when the user wants to "
+            "compare things or keep the current page visible; use panes_list "
+            "to see the workspace and workspace_sweep to read every pane in "
+            "one call (e.g. 'summarize everything in this tab'). Target a "
+            "specific pane by passing pane='<id>' to any browser_* tool."
         )
     if context:
         system += f"\n\nCurrent page context:\n{context}"
@@ -1266,7 +1661,21 @@ async def agent(req: Request) -> StreamingResponse:
     rag_system, _ = await RAG.build_prompt(message, k=config.RAG_TOP_K)
     full_system = "\n\n".join(p for p in (rag_system, system) if p.strip())
 
-    tools = list(TOOL_SCHEMAS) + [RENDER_TOOL_SCHEMA] + (BROWSER_TOOL_SCHEMAS if agentic else [])
+    # Bounded, query-relevant slice instead of the whole catalogue — see
+    # select_tool_schemas() for why handing over all 41 schemas broke agentic
+    # behaviour on an 8k-context local model.
+    tools = select_tool_schemas(message, agentic)
+    log.info("tool budget: %d schemas selected for %r", len(tools), (message or "")[:60])
+
+    # Attachments are resolved HERE, deterministically, before the model runs.
+    #
+    # Handing the model a path and trusting it to call read_file does not work
+    # on a 7B local model: observed behaviour was zero tool calls and a
+    # confidently fabricated summary of a file it never opened (invented
+    # incident names, invented causes). An attached file is an explicit user
+    # instruction, not something to be inferred, so the content is injected
+    # rather than left to the model's discretion.
+    message = _inline_attachments(message)
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": full_system},
@@ -1411,6 +1820,51 @@ async def agent(req: Request) -> StreamingResponse:
                     streamed = fallback[:900]
                 final_result = streamed
 
+                # Deliverable file: if the request also asked for a PDF/document,
+                # produce it now from the gathered research. The deterministic
+                # research path never enters the tool loop, so we emit the
+                # create_pdf/create_document browser_action ourselves and await
+                # the renderer's doc-factory result.
+                if _wants_document(message) and (corpus or streamed):
+                    want_pdf = _wants_pdf(message)
+                    tool = "create_pdf" if want_pdf else "create_document"
+                    briefing = _re.sub(r"<followup>.*?</followup>", "", streamed or "",
+                                       flags=_re.S | _re.I).strip()
+                    doc_md = _compose_research_doc(topic, briefing, corpus or "")
+                    d_args: dict[str, Any] = {"title": topic[:80], "content": doc_md}
+                    if not want_pdf:
+                        d_args["format"] = "md"
+                    rid = uuid.uuid4().hex
+                    yield sse({"type": "thinking",
+                               "content": "Compiling the PDF report…" if want_pdf
+                               else "Writing the document…"})
+                    yield sse({
+                        "type": "browser_action", "id": rid, "action_id": uuid.uuid4().hex,
+                        "name": tool, "args": d_args, "needs_approval": False,
+                        "session_id": session_id, "label": _action_label(tool, d_args),
+                    })
+                    doc_res = await _await_remote_tool(rid, timeout=90.0)
+                    note = f"\n\n📄 {doc_res}" if isinstance(doc_res, str) and doc_res else ""
+                    if note:
+                        for piece in _chunk(note):
+                            yield sse({"type": "token", "content": piece})
+                        final_result = (streamed or "") + note
+
+            # Duplicate-call suppression. Small local models frequently re-issue
+            # a tool call they have already made with identical arguments,
+            # ignoring the result already sitting in the transcript. Left
+            # unchecked this burns every remaining step and the user gets
+            # "Reached the maximum number of reasoning steps." instead of an
+            # answer. Re-running is also wasteful (network, latency) and can be
+            # side-effecting. Instead: serve the cached result and tell the
+            # model, explicitly, that it must now move on.
+            _tool_call_cache: dict[str, str] = {}
+            _repeat_hits = 0
+            # Set when the model is provably stuck. `break` inside the inner
+            # `for call in tool_calls` loop only escapes that loop, so the outer
+            # step loop needs an explicit flag to stop too.
+            _loop_broken = False
+
             async with httpx.AsyncClient(timeout=TIMEOUT) as c:
                 for step in range(MAX_TOOL_STEPS):
                     # Handled deterministically above — skip the tool loop.
@@ -1439,17 +1893,8 @@ async def agent(req: Request) -> StreamingResponse:
                         )
                         temp_messages[-1]["content"] = temp_messages[-1].get("content", "") + reminder
 
-                    if _use_embedded():
-                        msg = await edge_llm.chat_with_tools(temp_messages, tools)
-                    else:
-                        r = await c.post(
-                            f"{OLLAMA}/api/chat",
-                            json={"model": MODEL, "messages": temp_messages,
-                                  "tools": tools, "stream": False},
-                        )
-                        r.raise_for_status()
-                        msg = r.json().get("message", {})
-                        log.info(f"[Debug] Ollama response message: {msg}")
+                    # Unified tool-calling across every provider (model_engine.py).
+                    msg = await model_engine.chat_with_tools(temp_messages, tools)
                     tool_calls = msg.get("tool_calls") or []
 
                     if not tool_calls:
@@ -1596,7 +2041,69 @@ async def agent(req: Request) -> StreamingResponse:
                             else:
                                 result = str(raw)
                         else:
+                            # STATE_CHANGING_TOOLS was previously only ever
+                            # consulted inside the BROWSER_TOOL_NAMES branch
+                            # above — a regular TOOLS-registry entry (e.g.
+                            # cluster_recommend/cluster_unrecommend) could be
+                            # added to that set and it would do nothing,
+                            # since Tool.safe/STATE_CHANGING_TOOLS was never
+                            # read here. This mirrors the same gate: emit the
+                            # identical browser_action-shaped event (the
+                            # renderer's approval UI keys off ev.type, not
+                            # tool name) and wait for approval, but skip
+                            # _await_remote_tool() — these tools run locally
+                            # via run_tool(), not in the renderer.
+                            if name in STATE_CHANGING_TOOLS:
+                                action_id = uuid.uuid4().hex
+                                yield sse({
+                                    "type":           "browser_action",
+                                    "id":              action_id,
+                                    "action_id":       action_id,
+                                    "name":            name,
+                                    "args":            args,
+                                    "needs_approval":  True,
+                                    "session_id":      session_id,
+                                    "label":           _action_label(name, args),
+                                })
+                                approved = await _await_approval(action_id, timeout=30.0)
+                                if not approved:
+                                    result = f"Action '{name}' denied by user."
+                                    yield sse({
+                                        "type":    "tool_result",
+                                        "name":    name,
+                                        "content": result,
+                                        "denied":  True,
+                                    })
+                                    messages.append({"role": "tool", "content": result, "name": name})
+                                    continue
+
+                            # Already ran this exact call? Reuse the result and
+                            # push the model forward instead of repeating work.
+                            _sig = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+                            if _sig in _tool_call_cache:
+                                _repeat_hits += 1
+                                cached = _tool_call_cache[_sig]
+                                log.info("duplicate tool call suppressed: %s (repeat #%d)", name, _repeat_hits)
+                                messages.append({
+                                    "role": "tool", "name": name,
+                                    "content": (
+                                        f"{cached[:2000]}\n\n"
+                                        "[NOTE: you already called this tool with these exact arguments. "
+                                        "Do not call it again. Use the information above to either call a "
+                                        "DIFFERENT tool or write your final answer now.]"
+                                    ),
+                                })
+                                if _repeat_hits >= 3:
+                                    # Model is stuck — stop looping and let the
+                                    # post-loop synthesis produce an answer from
+                                    # what the tools already returned.
+                                    log.warning("breaking tool loop after %d duplicate calls", _repeat_hits)
+                                    _loop_broken = True
+                                    break
+                                continue
+
                             result, ui_spec = await run_tool(name, args)
+                            _tool_call_cache[_sig] = result
                             # ── Generative UI: emit a component if the tool
                             #    produced one (deterministic path). ────────────
                             if ui_spec:
@@ -1612,6 +2119,34 @@ async def agent(req: Request) -> StreamingResponse:
                             "content": preview,
                         })
                         messages.append({"role": "tool", "content": result[:4000], "name": name})
+
+                    # Stuck repeating itself: stop stepping and answer from what
+                    # the tools already returned. Without this the user got a
+                    # bare "[Reached tool-step limit.]" and none of the data the
+                    # agent had actually collected.
+                    if _loop_broken:
+                        tool_notes = "\n\n".join(
+                            f"[{m.get('name', 'tool')} result]\n{str(m.get('content', ''))[:1200]}"
+                            for m in messages if m.get("role") == "tool"
+                        )
+                        streamed = ""
+                        try:
+                            async for tok in _stream_llm([
+                                {"role": "system", "content": full_system},
+                                {"role": "user", "content": (
+                                    f"{message}\n\nInformation gathered so far:\n{tool_notes}"
+                                    "\n\nUsing only this information, write your final answer now. "
+                                    "If a tool reported an error, say plainly what failed instead of retrying it."
+                                )},
+                            ]):
+                                if cancel_evt.is_set():
+                                    break
+                                streamed += tok
+                                yield sse({"type": "token", "content": tok})
+                        except Exception as e:
+                            log.warning("post-loop synthesis failed: %s", e)
+                        final_result = streamed or final_result
+                        break
                 else:
                     final_result = "Reached the maximum number of reasoning steps."
                     yield sse({"type": "token", "content": "\n[Reached tool-step limit.]"})
@@ -1657,6 +2192,19 @@ def _action_label(name: str, args: dict) -> str:
         "browser_type":       f"Type \"{str(args.get('text',''))[:40]}\" into [{args.get('ref','?')}]",
         "browser_scroll":     f"Scroll {args.get('direction', '?')}",
         "browser_screenshot": "Take screenshot",
+        "panes_list":         "List panes in this tab",
+        "pane_open":          f"Open {args.get('url', '?')} in a new pane",
+        "pane_close":         f"Close pane [{args.get('pane', '?')}]",
+        "pane_focus":         f"Focus pane [{args.get('pane', '?')}]",
+        "pane_arrange":       f"Arrange panes ({args.get('preset', '?')})",
+        "workspace_sweep":    "Read every pane in this tab",
+        "create_document":    f"Write document “{args.get('title', 'document')}”",
+        "create_pdf":         f"Create PDF report “{args.get('title', 'report')}”",
+        "page_to_pdf":        "Save the current page as PDF",
+        "cluster_recommend":   f"Recommend content {str(args.get('cid', '?'))[:12]}… (vote)",
+        "cluster_unrecommend": f"Un-recommend content {str(args.get('cid', '?'))[:12]}… (vote)",
+        "cluster_pin":         f"Pin/host content {str(args.get('cid', '?'))[:12]}…",
+        "cluster_unpin":       f"Unpin content {str(args.get('cid', '?'))[:12]}…",
     }
     return labels.get(name, name)
 
@@ -1692,27 +2240,8 @@ def _chunk(text: str, size: int = 24):
 async def _stream_llm(messages: list[dict[str, Any]]) -> AsyncGenerator[str, None]:
     """Stream a plain (no-tools) completion from the active model — used by the
     deterministic research path to synthesize the gathered corpus."""
-    if _use_embedded():
-        async for tok in edge_llm.chat_stream(messages):
-            yield tok
-        return
-    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-        async with c.stream(
-            "POST", f"{OLLAMA}/api/chat",
-            json={"model": MODEL, "messages": messages, "stream": True},
-        ) as r:
-            async for line in r.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                tok = obj.get("message", {}).get("content", "")
-                if tok:
-                    yield tok
-                if obj.get("done"):
-                    break
+    async for tok in model_engine.chat_stream(messages):
+        yield tok
 
 
 if __name__ == "__main__":

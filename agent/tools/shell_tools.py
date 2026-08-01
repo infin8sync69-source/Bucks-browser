@@ -7,7 +7,10 @@ import subprocess
 from pathlib import Path
 from crewai.tools import tool
 
-BUCKS_ROOT = Path(os.environ.get("BUCKS_PROJECT_ROOT", Path.home() / "Desktop" / "bucks core"))
+# Single source of truth — see tools/fs_impl.py. Defining the project root
+# separately in each tool module is how it came to be wrong (and wrong in three
+# places at once) in the first place.
+from tools.fs_impl import BUCKS_ROOT  # noqa: E402
 
 ALLOWED_PREFIXES = (
     "npm ", "npx ", "cargo ", "pnpm ", "yarn ",

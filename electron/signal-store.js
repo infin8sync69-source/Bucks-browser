@@ -2,14 +2,29 @@
  * ╔═══════════════════════════════════════════════════════════╗
  * ║   BUCKS BROWSER — Signal Protocol Key Store              ║
  * ║   Pure JS implementation using Node.js crypto            ║
- * ║   X25519 (ECDH) + AES-256-GCM + HKDF                    ║
+ * ║   Hybrid classical + post-quantum:                       ║
+ * ║   X25519 (ECDH) + ML-KEM-768 (FIPS 203) key agreement,   ║
+ * ║   Ed25519 + ML-DSA-65 (FIPS 204) signatures,              ║
+ * ║   AES-256-GCM + HKDF                                     ║
  * ╚═══════════════════════════════════════════════════════════╝
  *
  * This module manages:
- * - Identity key pairs (long-term X25519 keys)
- * - Signed pre-keys & one-time pre-keys for X3DH
+ * - Identity key pairs (long-term X25519 + ML-KEM/ML-DSA keys)
+ * - Signed pre-keys & one-time pre-keys for hybrid X3DH
  * - Per-peer Double Ratchet session state
  * - Persistent storage in the Electron userData directory
+ *
+ * Post-quantum posture: X3DH is hardened with an ML-KEM-768 encapsulation
+ * mixed into the same HKDF that derives the session root key (mirrors
+ * Signal's own PQXDH design). We deliberately do NOT re-run a KEM at every
+ * Double Ratchet DH step — HKDF/HMAC-SHA256 are one-way, so once the root key
+ * is seeded with a PQ-safe component, every downstream ratchet chain key
+ * derived from it stays protected even if X25519 is later broken (harvest-
+ * now-decrypt-later), without paying per-message KEM ciphertext overhead.
+ * The PQ pre-key instead rotates on the same cadence as the classical signed
+ * pre-key (see regenerateSignedPreKey), which is where fresh PQ material
+ * actually matters. ML-DSA-65 signatures likewise bind the pre-key bundle
+ * against a quantum forger, alongside the existing Ed25519 signature.
  */
 
 const crypto = require("crypto");
@@ -21,6 +36,26 @@ let app = null, safeStorage = null;
 try { ({ app, safeStorage } = require("electron")); } catch (_) { /* test env */ }
 
 let STORE_DIR = null;
+
+// ─── Post-Quantum Primitives (ML-KEM-768 / ML-DSA-65) ───
+// @noble/post-quantum ships ESM-only; this module is CommonJS, so we load it
+// once via dynamic import() during initStore() and cache the module refs.
+// Every function below that touches PQC assumes initStore() has already
+// resolved — true for all real call sites (chat-engine.js awaits initStore()
+// before subscribing to any topic that could trigger a bundle/X3DH handler).
+
+let mlKem768 = null;
+let mlDsa65 = null;
+
+async function loadPQC() {
+  if (mlKem768 && mlDsa65) return;
+  const [{ ml_kem768 }, { ml_dsa65 }] = await Promise.all([
+    import("@noble/post-quantum/ml-kem.js"),
+    import("@noble/post-quantum/ml-dsa.js"),
+  ]);
+  mlKem768 = ml_kem768;
+  mlDsa65 = ml_dsa65;
+}
 
 // ─── Crypto Primitives ───
 
@@ -194,7 +229,8 @@ function readProtected(file) {
 
 let identityKeyPair = null; // { publicKey, privateKey } Buffers (DER) — X25519 (DH)
 let signingKeyPair = null;  // { publicKey, privateKey } Buffers (DER) — Ed25519 (signatures)
-let signedPreKey = null; // { keyId, keyPair, signature }
+let pqSigningKeyPair = null; // { publicKey, secretKey } Uint8Arrays — ML-DSA-65 (post-quantum signatures)
+let signedPreKey = null; // { keyId, keyPair, pqKeyPair, signature, signatureDsa }
 let oneTimePreKeys = new Map(); // keyId -> keyPair
 let sessions = new Map(); // peerId -> SessionState
 let preKeyCounter = 0;
@@ -202,7 +238,9 @@ let preKeyCounter = 0;
 /**
  * Initialize the key store. Loads or generates identity keys.
  */
-function initStore() {
+async function initStore() {
+  await loadPQC();
+
   STORE_DIR = path.join(app.getPath("userData"), "ipfs-data", "signal");
   fs.mkdirSync(STORE_DIR, { recursive: true });
 
@@ -222,6 +260,13 @@ function initStore() {
           privateKey: Buffer.from(data.signingPrivateKey, "base64"),
         };
       }
+      // ML-DSA-65 post-quantum signing identity — same migration story.
+      if (data.pqSigningPublicKey && data.pqSigningPrivateKey) {
+        pqSigningKeyPair = {
+          publicKey: Buffer.from(data.pqSigningPublicKey, "base64"),
+          secretKey: Buffer.from(data.pqSigningPrivateKey, "base64"),
+        };
+      }
       preKeyCounter = data.preKeyCounter || 0;
       console.log("[Signal] Identity loaded.");
     } catch (e) {
@@ -233,17 +278,28 @@ function initStore() {
   if (!identityKeyPair) {
     identityKeyPair = generateKeyPair();
     signingKeyPair = generateSigningKeyPair();
+    pqSigningKeyPair = mlDsa65.keygen();
     preKeyCounter = 0;
     saveIdentity();
     console.log("[Signal] New identity generated.");
-  } else if (!signingKeyPair) {
-    // Migrate a pre-Ed25519 identity in place.
-    signingKeyPair = generateSigningKeyPair();
-    saveIdentity();
-    console.log("[Signal] Added Ed25519 signing key to existing identity.");
+  } else {
+    let migrated = false;
+    if (!signingKeyPair) {
+      // Migrate a pre-Ed25519 identity in place.
+      signingKeyPair = generateSigningKeyPair();
+      migrated = true;
+      console.log("[Signal] Added Ed25519 signing key to existing identity.");
+    }
+    if (!pqSigningKeyPair) {
+      // Migrate a pre-hybrid identity in place.
+      pqSigningKeyPair = mlDsa65.keygen();
+      migrated = true;
+      console.log("[Signal] Added ML-DSA-65 post-quantum signing key to existing identity.");
+    }
+    if (migrated) saveIdentity();
   }
 
-  // Generate signed pre-key
+  // Generate signed pre-key (classical + post-quantum)
   regenerateSignedPreKey();
 
   // Generate initial batch of one-time pre-keys
@@ -260,20 +316,37 @@ function saveIdentity() {
     privateKey: identityKeyPair.privateKey.toString("base64"),
     signingPublicKey: signingKeyPair.publicKey.toString("base64"),
     signingPrivateKey: signingKeyPair.privateKey.toString("base64"),
+    pqSigningPublicKey: Buffer.from(pqSigningKeyPair.publicKey).toString("base64"),
+    pqSigningPrivateKey: Buffer.from(pqSigningKeyPair.secretKey).toString("base64"),
     preKeyCounter: preKeyCounter,
   });
 }
 
 function regenerateSignedPreKey() {
-  const keyPair = generateKeyPair();
-  // Real, verifiable signature: Ed25519 over the signed-pre-key public bytes.
-  // Any peer can verify this against our advertised signing identity key.
-  const signature = signEd25519(signingKeyPair.privateKey, keyPair.publicKey);
+  const keyPair = generateKeyPair(); // X25519
+  const pqKeyPair = mlKem768.keygen(); // ML-KEM-768
+
+  // Bind the classical and post-quantum pre-keys into a single signed
+  // statement (sign their concatenation) so an attacker can't splice a valid
+  // classical pre-key together with a forged/unrelated PQ pre-key, or vice
+  // versa. Both an Ed25519 and an ML-DSA-65 signature cover the same bytes —
+  // a peer needs to break both signature schemes to forge this bundle.
+  const signedMaterial = Buffer.concat([
+    keyPair.publicKey,
+    Buffer.from(pqKeyPair.publicKey),
+  ]);
+  const signature = signEd25519(signingKeyPair.privateKey, signedMaterial);
+  const signatureDsa = Buffer.from(mlDsa65.sign(signedMaterial, pqSigningKeyPair.secretKey));
 
   signedPreKey = {
     keyId: Date.now(),
     keyPair: keyPair,
+    pqKeyPair: {
+      publicKey: Buffer.from(pqKeyPair.publicKey),
+      secretKey: Buffer.from(pqKeyPair.secretKey),
+    },
     signature: signature,
+    signatureDsa: signatureDsa,
   };
 }
 
@@ -305,21 +378,32 @@ function getPreKeyBundle() {
     identityKey: identityKeyPair.publicKey.toString("base64"),
     // Ed25519 verification key — lets peers verify signedPreKeySignature.
     signingKey: signingKeyPair.publicKey.toString("base64"),
+    // ML-DSA-65 verification key — lets peers verify signedPQPreKeySignature.
+    pqSigningKey: Buffer.from(pqSigningKeyPair.publicKey).toString("base64"),
     signedPreKeyId: signedPreKey.keyId,
     signedPreKey: signedPreKey.keyPair.publicKey.toString("base64"),
+    // ML-KEM-768 public key — the initiator encapsulates against this to mix
+    // a post-quantum shared secret into the X3DH root key (see performX3DH).
+    signedPQPreKey: signedPreKey.pqKeyPair.publicKey.toString("base64"),
+    // Both signatures cover the SAME bytes: concat(signedPreKey, signedPQPreKey).
     signedPreKeySignature: signedPreKey.signature.toString("base64"),
+    signedPQPreKeySignature: signedPreKey.signatureDsa.toString("base64"),
     oneTimePreKeyId: oneTimePreKeyId,
     oneTimePreKey: oneTimePreKeyPublic,
   };
 }
 
 /**
- * Verify a peer's pre-key bundle: the signed pre-key must carry a valid
- * Ed25519 signature from the bundle's own signing key. This is what stops a
- * man-in-the-middle from swapping in their own signed pre-key. Bundles from
+ * Verify a peer's pre-key bundle: the signed pre-key (classical + PQ, bound
+ * together as one signed statement) must carry a valid Ed25519 signature from
+ * the bundle's own signing key, and — for hybrid-upgraded peers — a valid
+ * ML-DSA-65 signature too. This is what stops a man-in-the-middle from
+ * swapping in their own signed pre-key, classical or quantum. Bundles from
  * older peers that predate Ed25519 (no `signingKey`) are accepted but flagged
- * unverified so the UI can warn.
- * @returns {{ ok: boolean, verified: boolean, reason?: string }}
+ * unverified; bundles that have Ed25519 but predate the PQ upgrade (no
+ * `signedPQPreKey`) are accepted as classical-only and flagged `pq: false` so
+ * the UI can warn and X3DH falls back to classical-only key agreement.
+ * @returns {{ ok: boolean, verified: boolean, pq?: boolean, reason?: string }}
  */
 function verifyPreKeyBundle(bundle) {
   if (!bundle || !bundle.identityKey || !bundle.signedPreKey) {
@@ -328,22 +412,48 @@ function verifyPreKeyBundle(bundle) {
   if (!bundle.signingKey || !bundle.signedPreKeySignature) {
     return { ok: true, verified: false, reason: "legacy unsigned bundle" };
   }
-  const ok = verifyEd25519(
+
+  const classicalPub = Buffer.from(bundle.signedPreKey, "base64");
+  const hasPQ = !!(bundle.signedPQPreKey && bundle.pqSigningKey && bundle.signedPQPreKeySignature);
+  const signedMaterial = hasPQ
+    ? Buffer.concat([classicalPub, Buffer.from(bundle.signedPQPreKey, "base64")])
+    : classicalPub;
+
+  const edOk = verifyEd25519(
     Buffer.from(bundle.signingKey, "base64"),
-    Buffer.from(bundle.signedPreKey, "base64"),
+    signedMaterial,
     Buffer.from(bundle.signedPreKeySignature, "base64"),
   );
-  return ok
-    ? { ok: true, verified: true }
-    : { ok: false, verified: false, reason: "signed pre-key signature invalid" };
+  if (!edOk) {
+    return { ok: false, verified: false, reason: "signed pre-key signature invalid" };
+  }
+
+  if (!hasPQ) {
+    return { ok: true, verified: true, pq: false, reason: "peer bundle predates post-quantum upgrade" };
+  }
+
+  const dsaOk = mlDsa65.verify(
+    Buffer.from(bundle.signedPQPreKeySignature, "base64"),
+    signedMaterial,
+    Buffer.from(bundle.pqSigningKey, "base64"),
+  );
+  if (!dsaOk) {
+    return { ok: false, verified: false, reason: "post-quantum signed pre-key signature invalid" };
+  }
+
+  return { ok: true, verified: true, pq: true };
 }
 
 // ─── X3DH Key Agreement (Initiator Side) ───
 
 /**
  * Perform X3DH as the initiator to derive a shared secret with a peer.
+ * When the peer's bundle carries an ML-KEM-768 signed pre-key, this also
+ * encapsulates against it and mixes the resulting shared secret into the same
+ * HKDF as the classical DH outputs — a hybrid PQXDH-style handshake. Falls
+ * back to classical-only X3DH for peers who haven't upgraded yet.
  * @param {object} peerBundle - The peer's pre-key bundle
- * @returns {{ sharedSecret: Buffer, ephemeralPublicKey: string }}
+ * @returns {{ sharedSecret: Buffer, ephemeralPublicKey: string, kemCiphertext: string|null }}
  */
 function performX3DH(peerBundle) {
   const ephemeral = generateKeyPair();
@@ -367,17 +477,31 @@ function performX3DH(peerBundle) {
     dhConcat = Buffer.concat([dhConcat, dh4]);
   }
 
+  // Hybrid PQC step: encapsulate against the peer's ML-KEM-768 pre-key. The
+  // resulting ciphertext travels alongside the ephemeral key in the X3DH init
+  // message so the responder can decapsulate the same shared secret.
+  let kemCiphertext = null;
+  let infoLabel = "BucksSignalX3DH";
+  if (peerBundle.signedPQPreKey) {
+    const peerPQPub = Buffer.from(peerBundle.signedPQPreKey, "base64");
+    const { cipherText, sharedSecret: kemSs } = mlKem768.encapsulate(peerPQPub);
+    dhConcat = Buffer.concat([dhConcat, Buffer.from(kemSs)]);
+    kemCiphertext = Buffer.from(cipherText).toString("base64");
+    infoLabel = "BucksSignalX3DH-Hybrid";
+  }
+
   // Derive shared secret via HKDF
   const sharedSecret = hkdf(
     dhConcat,
     null,
-    Buffer.from("BucksSignalX3DH", "utf8"),
+    Buffer.from(infoLabel, "utf8"),
     32,
   );
 
   return {
     sharedSecret,
     ephemeralPublicKey: ephemeral.publicKey.toString("base64"),
+    kemCiphertext,
   };
 }
 
@@ -388,9 +512,10 @@ function performX3DH(peerBundle) {
  * @param {string} peerIdentityKeyB64 - Peer's identity public key
  * @param {string} ephemeralKeyB64 - Peer's ephemeral public key
  * @param {number|null} oneTimePreKeyId - Which OTK was used (if any)
+ * @param {string|null} kemCiphertextB64 - Peer's ML-KEM-768 ciphertext (hybrid only)
  * @returns {Buffer} sharedSecret
  */
-function respondX3DH(peerIdentityKeyB64, ephemeralKeyB64, oneTimePreKeyId) {
+function respondX3DH(peerIdentityKeyB64, ephemeralKeyB64, oneTimePreKeyId, kemCiphertextB64 = null) {
   const peerIdentityKey = Buffer.from(peerIdentityKeyB64, "base64");
   const ephemeralKey = Buffer.from(ephemeralKeyB64, "base64");
 
@@ -422,7 +547,19 @@ function respondX3DH(peerIdentityKeyB64, ephemeralKeyB64, oneTimePreKeyId) {
     }
   }
 
-  return hkdf(dhConcat, null, Buffer.from("BucksSignalX3DH", "utf8"), 32);
+  // Hybrid PQC step: decapsulate the initiator's ML-KEM-768 ciphertext against
+  // our current signed pre-key's PQ secret key. Requires the PQ pre-key that
+  // was live when the initiator fetched our bundle — same rotation-race
+  // caveat that already applies to the classical signedPreKey.
+  let infoLabel = "BucksSignalX3DH";
+  if (kemCiphertextB64) {
+    const kemCt = Buffer.from(kemCiphertextB64, "base64");
+    const kemSs = mlKem768.decapsulate(kemCt, signedPreKey.pqKeyPair.secretKey);
+    dhConcat = Buffer.concat([dhConcat, Buffer.from(kemSs)]);
+    infoLabel = "BucksSignalX3DH-Hybrid";
+  }
+
+  return hkdf(dhConcat, null, Buffer.from(infoLabel, "utf8"), 32);
 }
 
 // ─── Double Ratchet Session State ───
@@ -498,9 +635,14 @@ function encryptMessage(peerId, plaintext) {
 
   // Derive message key from chain key using HKDF
   if (!session.sendChainKey) {
-    // If no send chain yet, derive from root
+    // If no send chain yet, derive from root.
+    // BUG FIX: Buffer.from(buffer, "base64") misinterprets raw Buffer bytes as
+    // a UTF-8 base64 string → garbage HKDF input. Use type-checked coercion.
+    const rootKeyBuf = Buffer.isBuffer(session.rootKey)
+      ? session.rootKey
+      : Buffer.from(session.rootKey, "base64");
     const derived = hkdf(
-      Buffer.from(session.rootKey, "base64") || session.rootKey,
+      rootKeyBuf,
       null,
       Buffer.from("BucksMsgKey", "utf8"),
       64,
@@ -576,15 +718,37 @@ function decryptMessage(peerId, envelope) {
           ? Buffer.from(session.rootKey, "base64")
           : session.rootKey;
 
-      const derived = hkdf(
+      // Receive-side DH ratchet step: derive new recvChainKey + intermediate rootKey.
+      const derivedRecv = hkdf(
         Buffer.concat([rootKeyBuf, dhResult]),
         null,
         Buffer.from("BucksRatchet", "utf8"),
         64,
       );
-      session.recvChainKey = derived.subarray(0, 32);
-      session.rootKey = derived.subarray(32, 64).toString("base64");
+      session.recvChainKey = derivedRecv.subarray(0, 32);
+      const interRootKey = derivedRecv.subarray(32, 64);
       session.recvCounter = 0;
+
+      // BUG FIX: complete the Double Ratchet by also generating a new local
+      // ratchet key pair and performing the send-side DH step. Without this the
+      // local sendRatchetKey is frozen at its initial value, the peer never sees
+      // a new ratchet key, their root key never advances via DH, and forward
+      // secrecy is broken after the first message chain.
+      const newRatchetKeyPair = generateKeyPair();
+      const dhSend = computeSharedSecret(newRatchetKeyPair.privateKey, peerRatchetKeyBuf);
+      const derivedSend = hkdf(
+        Buffer.concat([interRootKey, dhSend]),
+        null,
+        Buffer.from("BucksRatchet", "utf8"),
+        64,
+      );
+      session.sendChainKey = derivedSend.subarray(0, 32).toString("base64");
+      session.rootKey = derivedSend.subarray(32, 64).toString("base64");
+      session.sendRatchetKey = {
+        publicKey: newRatchetKeyPair.publicKey.toString("base64"),
+        privateKey: newRatchetKeyPair.privateKey.toString("base64"),
+      };
+      session.sendCounter = 0;
     } catch (e) {
       console.error("[Signal] DH ratchet step failed:", e.message);
     }

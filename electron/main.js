@@ -46,7 +46,9 @@ wrapConsole('debug');
 
 const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell } = require('electron');
 // app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('ignore-certificate-errors');
+// NOTE: never re-add `ignore-certificate-errors` — it disables TLS validation
+// for EVERY request. Invalid certs now go through the per-origin interstitial
+// in web-security.js (Chrome-style "proceed anyway", session-scoped).
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-webgl');
 const path = require('path');
@@ -125,7 +127,8 @@ function loadSettings() {
     httpsOnly: false,
     originAllowlist: [],
     clusterSecret: 'BUCKS_DEFAULT_CLUSTER',
-    clusterCidn: 'mainnet'
+    clusterCidn: 'mainnet',
+    onboardingSeen: false
   };
 
   try {
@@ -175,7 +178,7 @@ function createWindow(settings, opts = {}) {
     minHeight: 600,
     frame: !isMac, // Use standard frame for Mac if we want OS buttons, or false for custom
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    backgroundColor: isPrivate ? '#181024' : '#0a0f1f',
+    backgroundColor: isPrivate ? '#141414' : '#0a0a0a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -192,6 +195,12 @@ function createWindow(settings, opts = {}) {
   const tabWinId = win.id;
   win.on('closed', () => {
     try { require('./tab-manager').destroyTabsForWindow(tabWinId); } catch (_) {}
+    // BUG FIX: null out the mainWindow reference so IPC handlers (window-close,
+    // window-minimize, etc.) don't call methods on a destroyed BrowserWindow.
+    // The guard `mainWindow &&` is truthy even for destroyed windows, so without
+    // this, any IPC call after close throws an Electron "Object has been destroyed"
+    // error.
+    if (!isPrivate) mainWindow = null;
   });
 
   const fallbackDevUrl = 'http://localhost:3000';
@@ -290,6 +299,52 @@ function setupRequestFilters() {
         callback({});
       }
     );
+
+    // 3. CSP for the trusted shell document only (file://.../index.html).
+    // Deliberately scoped to just that one document — NOT bucks:// mini-apps
+    // (several of them, e.g. bucks-calc/notes/clock/converter/qr, rely on
+    // inline <script> blocks with no CSP of their own, so a shared strict
+    // policy would silently kill their JS) and NOT applied session-wide:
+    // WebContentsView tabs share these same sessions and must stay free to
+    // render arbitrary sites under their own (or no) CSP.
+    sess.webRequest.onHeadersReceived(
+      { urls: ['file://*/*'] },
+      (details, callback) => {
+        const isShellDoc = details.resourceType === 'mainFrame' && details.url.endsWith('/index.html');
+        if (!isShellDoc) return callback({ responseHeaders: details.responseHeaders });
+        const csp = [
+          "default-src 'self' bucks:",
+          // 'unsafe-inline' here is a deliberate, verified tradeoff, not an
+          // oversight: this codebase has ~95 inline onclick/onkeydown/etc.
+          // handlers (renderer.js, nexus-panel.js, messages-ui.js), many
+          // baked into innerHTML-inserted generative-UI cards. Empirically
+          // confirmed (a controlled Electron test replicating this exact
+          // policy) that WITHOUT unsafe-inline, both static and dynamically-
+          // inserted inline handlers are silently blocked — "Executing
+          // inline event handler violates ... script-src 'self'" — meaning
+          // product cards, checklist toggles, CID-copy, and the keyboard-
+          // accessibility handlers added this session were all non-functional
+          // under the policy as it shipped. No 'unsafe-eval' and no remote
+          // script origins are allowed, which is most of the real protection
+          // this header buys; converting all inline handlers to
+          // addEventListener (enabling a strict policy) is a larger future
+          // refactor, not done here.
+          "script-src 'self' 'unsafe-inline'",
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' https://fonts.gstatic.com",
+          "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://tileserver.memomaps.de https://*.tiles.openrailwaymap.org",
+          "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:* https://nominatim.openstreetmap.org https://api.open-meteo.com https://routing.openstreetmap.de https://router.project-osrm.org https://ipapi.co https://ipwho.is https://www.google.com https://ipfs.io https://*.bucks.network",
+          "frame-src 'self' bucks:",
+          "object-src 'none'",
+        ].join('; ');
+        callback({
+          responseHeaders: {
+            ...details.responseHeaders,
+            'Content-Security-Policy': [csp],
+          },
+        });
+      }
+    );
   }
 }
 
@@ -320,6 +375,41 @@ function setupIPC() {
   });
   ipcMain.on('show-download-in-folder', (_e, savePath) => {
     try { if (savePath) shell.showItemInFolder(savePath); } catch (e) { console.error(e); }
+  });
+
+  // ─── Durable shell storage ───
+  // Chromium (≥ ~115, incl. the 148 in Electron 42) treats the file:// shell
+  // as an opaque origin: its localStorage is EPHEMERAL and dies with the app.
+  // Bookmarks, history, profile, contacts, and session restore all live there,
+  // so preload.js hydrates localStorage from this store at boot and streams
+  // snapshots back. Main keeps the authoritative copy in memory (no read/write
+  // disk races) and persists it to userData/shell-storage.json.
+  const _shellStoreFile = () => path.join(app.getPath('userData'), 'shell-storage.json');
+  let _shellStoreCache = null;
+  let _shellStoreTimer = null;
+  ipcMain.on('get-app-version', (e) => {
+    e.returnValue = isInternalOrigin(e.sender) ? app.getVersion() : '';
+  });
+
+  ipcMain.on('shell-storage:load', (e) => {
+    if (!isInternalOrigin(e.sender)) { e.returnValue = {}; return; }
+    if (!_shellStoreCache) {
+      try { _shellStoreCache = JSON.parse(fs.readFileSync(_shellStoreFile(), 'utf8')) || {}; }
+      catch (_) { _shellStoreCache = {}; }
+    }
+    e.returnValue = _shellStoreCache;
+  });
+  ipcMain.on('shell-storage:save', (e, snapshot) => {
+    if (!isInternalOrigin(e.sender) || !snapshot || typeof snapshot !== 'object') return;
+    _shellStoreCache = snapshot;
+    clearTimeout(_shellStoreTimer);
+    _shellStoreTimer = setTimeout(() => {
+      try {
+        const tmp = _shellStoreFile() + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(_shellStoreCache), 'utf8');
+        fs.renameSync(tmp, _shellStoreFile());
+      } catch (err) { console.error('[ShellStorage] persist failed:', err.message); }
+    }, 250);
   });
 
   // Clear browsing data (cache, cookies, storage) — renderer clears its own history/bookmarks
@@ -651,10 +741,51 @@ function setupIPC() {
     }
   });
 
+  // Helper: DuckDuckGo HTML Search Scraper
+  async function ddgSearch(query, maxResults) {
+    const results = [];
+    try {
+      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      };
+      const response = await httpGet(ddgUrl, { headers });
+      const html = response.body;
+      
+      const resultRegex = /<a\s+class="result__a"\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a\s+class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<span\s+class="result__snippet"[^>]*>([\s\S]*?)<\/span>)/gi;
+      
+      let match;
+      while ((match = resultRegex.exec(html)) !== null && results.length < (maxResults || 5)) {
+        let link = match[1];
+        const title = stripHtml(match[2]).trim();
+        const snippet = stripHtml(match[3] || match[4] || '').trim();
+        
+        if (link.includes('uddg=')) {
+          const parts = link.split('uddg=');
+          if (parts[1]) {
+            link = decodeURIComponent(parts[1].split('&')[0]);
+          }
+        }
+        
+        if (link.startsWith('http') && !link.includes('duckduckgo.com')) {
+          results.push({
+            title,
+            snippet: snippet || 'Visit page for details.',
+            url: link,
+            source: new URL(link).hostname.replace('www.', '')
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[DDG Search Error]', err);
+    }
+    return results;
+  }
+
   // IPC: Google search + top results fetched
   ipcMain.handle('web-search', async (_e, { query, maxResults }) => {
     if (!isInternalOrigin(_e.sender)) return { error: 'Unauthorized' };
-    const results = [];
+    let results = [];
     let instant = null;
     try {
       const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
@@ -712,7 +843,17 @@ function setupIPC() {
         };
       }
 
-      // 4. Wikipedia Fallback if < 2 results
+      // 4. DuckDuckGo Fallback if < 2 results
+      if (results.length < 2) {
+        try {
+          const ddgResults = await ddgSearch(query, maxResults || 5);
+          if (ddgResults && ddgResults.length > 0) {
+            results = [...results, ...ddgResults];
+          }
+        } catch (_) {}
+      }
+
+      // 5. Wikipedia Fallback if still < 2 results
       if (results.length < 2) {
         try {
           const wikiQuery = encodeURIComponent(query.replace(/\s+/g, '_').slice(0, 60));
@@ -802,7 +943,11 @@ function setupIPFS() {
   });
 
   ipcMain.handle('ipfs-feed', async () => {
-    return ipfs.getFeed();
+    return ipfs.getFeed({ clusterOnly: true });
+  });
+
+  ipcMain.handle('ipfs-feed-global', async () => {
+    return ipfs.getFeed({ clusterOnly: false });
   });
 
   ipcMain.handle('ipfs-follow', async (_e, { peerId }) => {
@@ -815,6 +960,27 @@ function setupIPFS() {
 
   ipcMain.handle('ipfs-upvote', async (_e, { cid }) => {
     return await ipfs.upvoteContent(cid);
+  });
+
+  /* ─── Recommend / not-recommend — a pure network signal, INDEPENDENT of
+     pinning (a user can recommend without hosting, or host without
+     recommending). Pinning is handled separately below. ─── */
+  ipcMain.handle('cluster-vote', async (_e, { cid, direction }) => {
+    if (direction === 'down') return await ipfs.unrecommendContent(cid);
+    return await ipfs.recommendContent(cid);
+  });
+
+  ipcMain.handle('cluster-get-votes', async (_e, { cid }) => {
+    const soul = ipfs.getLocalSoul();
+    return { ...ipfs.getVoteCounts(cid), myVote: ipfs.getMyVote(cid, soul ? soul.soulId : null) };
+  });
+
+  /* ─── Pin / unpin — standalone "host this locally" toggle, no vote. ─── */
+  ipcMain.handle('cluster-pin', async (_e, { cid }) => {
+    return await ipfs.pinContent(cid);
+  });
+  ipcMain.handle('cluster-unpin', async (_e, { cid }) => {
+    return await ipfs.unpinContent(cid);
   });
 
   ipcMain.handle('ipfs-get', async (_e, { cid }) => {
@@ -838,6 +1004,58 @@ function setupIPFS() {
     return ipfs.searchDweb(query);
   });
 
+  /* ─── Cluster membership (invite-grown exclusive swarm) ───
+     No 'cluster-admit-request' or similar handler for anyone but the LOCAL
+     user to admit a peer — admission is always a direct call the renderer
+     makes on the user's own explicit "Add" click (see renderer.js), never
+     something driven by a remote message. */
+  const clusterMembership = require('./cluster-membership');
+  ipcMain.handle('cluster-my-identity', async () => clusterMembership.getMyIdentity());
+  ipcMain.handle('cluster-members', async () => clusterMembership.getMembers());
+  ipcMain.handle('cluster-discovered', async () => clusterMembership.getDiscovered());
+  ipcMain.handle('cluster-search', async (_e, { query }) => clusterMembership.search(query));
+  ipcMain.handle('cluster-admit', async (_e, { soulId, displayName }) => {
+    try {
+      return await clusterMembership.admitMember(soulId, { displayName });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  /* ─── Device sync (multi-device linking for one Soul) ───
+     Same pattern as cluster admission: linking is always a direct call the
+     renderer makes on the user's own explicit action (after a pairing flow
+     that exchanged soulIds), never driven by a remote message alone. */
+  const deviceSync = require('./device-sync');
+  ipcMain.handle('device-link-initiate', async (_e, { soulId }) => {
+    try {
+      return await deviceSync.initiateLinkDevice(soulId);
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('device-linked-list', async () => deviceSync.getLinkedDevices());
+  ipcMain.handle('device-link-pending', async () => deviceSync.getPendingLinks());
+  ipcMain.handle('device-sync-publish', async () => {
+    try {
+      return await deviceSync.publishStateSnapshot();
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+  ipcMain.handle('device-sync-pins', async () => deviceSync.getSyncedPins());
+
+  /* ─── Cluster-native updates (replaces GitHub electron-updater) ─── */
+  const clusterUpdater = require('./cluster-updater');
+  ipcMain.handle('cluster-update-pending', async () => clusterUpdater.getPendingUpdate());
+  ipcMain.handle('cluster-update-apply', async () => {
+    try {
+      return await clusterUpdater.applyPendingUpdate();
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   /* ─── P2P Encrypted Chat (Signal protocol over Gossipsub) ─── */
   const chatEngine = require('./chat-engine');
   ipcMain.handle('chat-send', (_e, { peerId, text, attachmentCid }) => chatEngine.sendMessage(peerId, text, attachmentCid || null));
@@ -848,6 +1066,32 @@ function setupIPFS() {
   ipcMain.handle('chat-own-bundle', () => chatEngine.getOwnBundle());
   ipcMain.handle('chat-process-bundle', (_e, { peerId, bundle }) => chatEngine.processPeerBundle(peerId, bundle));
   ipcMain.handle('chat-has-bundle', (_e, { peerId }) => chatEngine.hasPeerBundle(peerId));
+
+  /* ─── Local model discovery (GGUF files in userData/models) ─── */
+  ipcMain.handle('get-available-models', async () => {
+    try {
+      const modelsDir = path.join(app.getPath('userData'), 'models');
+      if (!fs.existsSync(modelsDir)) fs.mkdirSync(modelsDir, { recursive: true });
+      const files = fs.readdirSync(modelsDir).filter(f => f.endsWith('.gguf'));
+      return files.map(f => ({
+        id: f,
+        name: f.replace('.gguf', '').replace(/-/g, ' '),
+        size: (fs.statSync(path.join(modelsDir, f)).size / 1e9).toFixed(1) + ' GB',
+        downloaded: true,
+        path: path.join(modelsDir, f)
+      }));
+    } catch (_) { return []; }
+  });
+
+  ipcMain.handle('download-model', async (_e, { url, filename }) => {
+    try {
+      const modelsDir = path.join(app.getPath('userData'), 'models');
+      fs.mkdirSync(modelsDir, { recursive: true });
+      const dest = path.join(modelsDir, path.basename(String(filename)));
+      // Inform renderer — actual download should be kicked off by soul_engine.py
+      return { ok: true, path: dest, note: 'Use Soul Engine /models/select to trigger download.' };
+    } catch (e) { return { ok: false, error: e.message }; }
+  });
 
   /* ─── File Manager state & download handlers ─── */
   ipcMain.handle('file-manager-get', async () => {
@@ -861,6 +1105,36 @@ function setupIPFS() {
     } catch (e) {
       console.error('[FileManager] Failed to read file-manager.json:', e);
       return [];
+    }
+  });
+
+  /* Composer attachments.
+   * Attachments only become useful to the agent if the agent can actually
+   * open them. Its file tools are sandboxed to BUCKS_ROOT (the repo) by
+   * _safe_path, so attachments are written to a gitignored folder INSIDE that
+   * root and the agent is handed a relative path. It can then read_file them
+   * on demand — far better than dumping file bytes into an 8k-token prompt,
+   * and it lets the agent re-read or process the file across several steps. */
+  ipcMain.handle('composer-save-attachment', async (_e, { name, dataBase64 }) => {
+    try {
+      const repoRoot = path.resolve(__dirname, '..');
+      const dir = path.join(repoRoot, '.bucks-attachments');
+      fs.mkdirSync(dir, { recursive: true });
+
+      // Sanitise: basename only, no traversal, bounded length.
+      const safeName = path.basename(String(name || 'attachment'))
+        .replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'attachment';
+      const stamped = `${Date.now()}-${safeName}`;
+      const dest = path.join(dir, stamped);
+      if (!path.resolve(dest).startsWith(path.resolve(dir))) {
+        return { ok: false, error: 'invalid attachment path' };
+      }
+
+      fs.writeFileSync(dest, Buffer.from(String(dataBase64 || ''), 'base64'));
+      return { ok: true, relPath: `.bucks-attachments/${stamped}` };
+    } catch (err) {
+      console.error('[Composer] attachment save failed:', err.message);
+      return { ok: false, error: err.message };
     }
   });
 
@@ -1099,6 +1373,36 @@ async function startIpfsServer() {
 }
 
 /* ─── App lifecycle ─── */
+/* ─── External link handling (macOS open-url; fires when Bucks is the
+   default browser or a bucks:// link is clicked in another app). URLs that
+   arrive before the shell window exists are queued and flushed. ─── */
+const _pendingExternalUrls = [];
+function _deliverExternalUrl(url) {
+  const win = (typeof mainWindow !== 'undefined' && mainWindow && !mainWindow.isDestroyed())
+    ? mainWindow
+    : BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('index.html'));
+  if (win) {
+    win.webContents.send('open-external-url', { url });
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  } else {
+    _pendingExternalUrls.push(url);
+  }
+}
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  _deliverExternalUrl(url);
+});
+
+ipcMain.handle('set-default-browser', () => {
+  const ok = app.setAsDefaultProtocolClient('http') && app.setAsDefaultProtocolClient('https');
+  return { ok };
+});
+ipcMain.handle('is-default-browser', () => ({
+  http: app.isDefaultProtocolClient('http'),
+  https: app.isDefaultProtocolClient('https'),
+}));
+
 app.whenReady().then(async () => {
   // Lazy-load IPFS module after app is ready
   ipfs = require('./ipfs-node');
@@ -1125,11 +1429,27 @@ app.whenReady().then(async () => {
   setupIPC();
   // Tab hosting: WebContentsView-backed tabs (see tab-manager.js).
   require('./tab-manager').setupTabIPC();
+
+  // Agent document output: create_document / create_pdf (doc-factory.js).
+  require('./doc-factory').setupDocFactoryIPC();
   // Web permissions (geolocation, camera/mic, notifications, …) + Bluetooth.
   require('./permission-manager').setupPermissions();
+  // Network trust boundary: TLS interstitial, HTTP auth dialog, Chrome UA.
+  require('./web-security').setupWebSecurity();
+  // Chrome extensions: unpacked folders under ~/.bucks/extensions.
+  require('./extension-loader').loadUserExtensions();
   setupIPFS();
   startIpfsServer();
   createWindow(settings);
+
+  // Flush any external URLs that arrived before the shell was ready.
+  if (mainWindow) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        while (_pendingExternalUrls.length) _deliverExternalUrl(_pendingExternalUrls.shift());
+      }, 1500);
+    });
+  }
 
   ephemeralCommandCenter.createEphemeralWindow(mainWindow);
   ephemeralCommandCenter.setupEphemeralShortcuts();
@@ -1154,6 +1474,20 @@ app.whenReady().then(async () => {
 
   // ─── Phase 1.8: Context Menus ───
   app.on('web-contents-created', (event, contents) => {
+    // Lock down any <webview> tag the shell attaches (the file manager panel
+    // is the only current user, pointed at a fixed localhost src) so a future
+    // injected/compromised guest page can't request nodeIntegration, disable
+    // sandboxing, or swap in its own preload.
+    contents.on('will-attach-webview', (_event, webPreferences, params) => {
+      webPreferences.nodeIntegration = false;
+      webPreferences.contextIsolation = true;
+      webPreferences.sandbox = true;
+      webPreferences.webSecurity = true;
+      delete webPreferences.preload;
+      delete webPreferences.preloadURL;
+      params.allowpopups = false;
+    });
+
     contents.on('context-menu', (event, params) => {
       const { selectionText, isEditable, mediaType, linkURL, srcURL } = params;
       const menu = new Menu();
@@ -1299,13 +1633,32 @@ app.whenReady().then(async () => {
         console.error('[App] Chat engine failed to start:', err.message);
       }
 
-      // 6. Check for updates and notify (electron-updater boilerplate)
+      // 5b. Cluster membership (invite-grown exclusive swarm) — gates who
+      // counts as a trusted member on top of the open CIDN discovery layer.
       try {
-        const { autoUpdater } = require('electron-updater');
-        autoUpdater.checkForUpdatesAndNotify();
-        console.log('[App] Auto-updater check initiated.');
+        require('./cluster-membership').init(heliaNode, gossip);
+        console.log('[App] Cluster membership module started.');
       } catch (err) {
-        console.error('[App] Auto-updater failed to initialize:', err.message);
+        console.error('[App] Cluster membership failed to start:', err.message);
+      }
+
+      // 5c. Device sync (multi-device linking for one Soul) — mutual device
+      // attestation + pinned/followed state snapshot sync between a person's
+      // own linked installs. Independent of cluster membership.
+      try {
+        require('./device-sync').init(ipfs, heliaNode, gossip);
+        console.log('[App] Device sync module started.');
+      } catch (err) {
+        console.error('[App] Device sync failed to start:', err.message);
+      }
+
+      // 6. Check for updates via the cluster's own IPFS swarm (replaces the
+      // old GitHub-releases electron-updater path).
+      try {
+        await require('./cluster-updater').start(ipfs, mainWindow);
+        console.log('[App] Cluster updater started.');
+      } catch (err) {
+        console.error('[App] Cluster updater failed to start:', err.message);
       }
     }
   } catch (err) {
@@ -1335,5 +1688,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // BUG FIX: pass saved settings so homepage, adBlock, and cluster config are
+  // applied correctly when the window is reopened from the Dock (macOS).
+  if (BrowserWindow.getAllWindows().length === 0) createWindow(loadSettings());
 });

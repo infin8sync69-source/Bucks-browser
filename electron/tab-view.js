@@ -29,15 +29,20 @@
   // Overlay panels that slide OVER the content area. A native view would
   // otherwise paint above them, so their footprint is subtracted from the
   // view bounds ("push" behavior) — and full-screen overlays hide the view.
-  const SIDE_OVERLAYS = ['#wallet-sidebar', '#ipfs-sidebar', '#settings-panel'];
+  // The left dock + its web-mode reveal trigger MUST be here: they live at
+  // the left edge as shell DOM, and without reserving their footprint the
+  // native pane view paints straight over them, making the whole side nav
+  // un-hoverable / un-clickable in web & spatial-pane mode.
+  const SIDE_OVERLAYS = ['#left-dock-trigger', '.left-dock', '#wallet-sidebar', '#ipfs-sidebar', '#settings-panel'];
   // Dropdowns from the top bar (omnibox suggestions, find bar) push the
   // page down to stay visible — native views always paint above shell DOM.
   const TOP_OVERLAYS = ['#find-bar', '#omnibox-dropdown'];
-  // The global agent dock lives in the bottom band: its response zone
-  // (#nt-ephemeral-zone, home of #nav-chat-panel) and the omnibar suggestion
-  // dropdown rise upward over the stage, so their footprint is subtracted
-  // from the view's BOTTOM edge instead.
-  const BOTTOM_OVERLAYS = ['#nt-ephemeral-zone', '.command-suggestions-dropdown'];
+  // The omnibar suggestion dropdown rises upward over the stage from the
+  // bottom band, so its footprint is subtracted from the view's BOTTOM edge.
+  // (#nt-ephemeral-zone no longer pushes: over a web page the agent panel is
+  // an ephemeral overlay — renderer.js freezes the page into
+  // #page-freeze-backdrop and sets body.agent-freeze, which hides the view.)
+  const BOTTOM_OVERLAYS = ['.command-suggestions-dropdown'];
   const FULLSCREEN_OVERLAYS = ['#store-overlay'];
 
   function overlayVisible(el) {
@@ -129,6 +134,8 @@
       return window.bucksTabs.execJS(this.tabViewId, code, !!userGesture);
     }
     capturePageBase64() { return window.bucksTabs.capture(this.tabViewId); }
+    // Paint above sibling views (re-adding as last child raises — tab-manager).
+    raise() { return window.bucksTabs.setVisible(this.tabViewId, true); }
 
     _call(method, arg) {
       const p = this._ready.then(() => (arg !== undefined
@@ -144,6 +151,9 @@
       const visible = this.el.isConnected &&
         this.el.classList.contains('active') &&
         getComputedStyle(this.el).display !== 'none' &&
+        // Agent-panel overlay: the live page is swapped for a freeze-frame
+        // backdrop (renderer.js) so shell DOM can paint on top of "the page".
+        !document.body.classList.contains('agent-freeze') &&
         !FULLSCREEN_OVERLAYS.some((sel) => overlayVisible(document.querySelector(sel)));
 
       if (!visible) {
@@ -191,9 +201,12 @@
         window.bucksTabs.setBounds(this.tabViewId, bounds).catch(() => {});
         window.bucksTabs.setVisible(this.tabViewId, true).catch(() => {});
         // Match the spatial-stage CSS: 18px inset box in web mode, 32px
-        // rounded dashboard look otherwise.
+        // rounded dashboard look otherwise; panes (pane-manager.js) sit in a
+        // framed body whose bottom corners round at 10px.
+        const inPane = !!this.el.closest('.pane-body');
         window.bucksTabs.setBorderRadius(
-          this.tabViewId, document.body.classList.contains('web-mode') ? 18 : 32
+          this.tabViewId,
+          inPane ? 10 : document.body.classList.contains('web-mode') ? 18 : 32
         ).catch(() => {});
       }
     }

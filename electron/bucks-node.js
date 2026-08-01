@@ -416,10 +416,32 @@ function acceptTx(tx, { rebroadcast = true } = {}) {
 
 // ─── Persistence ───
 
+/**
+ * Atomic write: serialize to a temp file in the same directory, fsync it, then
+ * rename over the target. rename(2) is atomic on POSIX, so a crash/kill can
+ * never leave a half-written or zero-byte file behind.
+ *
+ * This is not theoretical: a plain writeFileSync here truncated chain.json to
+ * 0 bytes (observed in the wild), which silently wiped the entire local chain
+ * back to genesis on next launch. The same hazard applied to wallets.json,
+ * where the loss would be wallet seeds rather than replayable blocks.
+ */
+function writeFileAtomic(file, data) {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeFileSync(fd, data, "utf8");
+    fs.fsyncSync(fd); // flush to disk before the rename is observable
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
 function persistChain() {
   if (!DATA_DIR) return;
   try {
-    fs.writeFileSync(path.join(DATA_DIR, "chain.json"), JSON.stringify(chain), "utf8");
+    writeFileAtomic(path.join(DATA_DIR, "chain.json"), JSON.stringify(chain));
   } catch (e) {
     console.error("[BucksNode] Failed to persist chain:", e.message);
   }
@@ -437,7 +459,7 @@ function persistWallets() {
     seedEnc: sealJson(deviceKey, { seed: w.seed.toString("hex") }),
     mnemonicEnc: w.mnemonicEnc || null, // password-encrypted backup (optional)
   }));
-  fs.writeFileSync(walletsFile(), JSON.stringify(payload, null, 2), "utf8");
+  writeFileAtomic(walletsFile(), JSON.stringify(payload, null, 2));
 }
 
 function loadWallets() {
@@ -665,11 +687,17 @@ function init({ dataDir }) {
     fs.writeFileSync(keyFile, deviceKey.toString("hex"), { encoding: "utf8", mode: 0o600 });
   }
 
-  // Load chain
+  // Load chain. An empty/corrupt file is recoverable rather than fatal: blocks
+  // are replayable from genesis and re-syncable from peers over the chain
+  // gossip topic, so a damaged file is cleared instead of left to re-throw on
+  // every launch. (Writes are atomic now — see writeFileAtomic — so this
+  // should only ever trigger for files damaged by an older build.)
   const chainFile = path.join(DATA_DIR, "chain.json");
   if (fs.existsSync(chainFile)) {
     try {
-      const candidate = JSON.parse(fs.readFileSync(chainFile, "utf8"));
+      const raw = fs.readFileSync(chainFile, "utf8").trim();
+      if (!raw) throw new Error("chain file is empty (truncated by a non-atomic write)");
+      const candidate = JSON.parse(raw);
       const map = validateChain(candidate);
       if (map) {
         chain = candidate;
@@ -679,7 +707,8 @@ function init({ dataDir }) {
         console.error("[BucksNode] Persisted chain invalid — starting from genesis");
       }
     } catch (e) {
-      console.error("[BucksNode] Failed to load chain:", e.message);
+      console.warn(`[BucksNode] Discarding unreadable chain file (${e.message}) — starting from genesis; peers will re-sync.`);
+      try { fs.unlinkSync(chainFile); } catch (_) { /* best-effort cleanup */ }
     }
   }
 

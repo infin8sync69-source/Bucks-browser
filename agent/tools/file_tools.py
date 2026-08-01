@@ -1,94 +1,60 @@
 """
-File system tools for the Code Agent.
-Scoped to the Bucks project root for safety.
+Filesystem / git tools for the crewai code agent (see agents/code_agent.py).
+
+These are **thin crewai ``@tool`` wrappers only**. The actual behaviour lives in
+``tools/fs_impl.py``, which ``tools/registry.py`` also imports.
+
+Previously this module carried its own full implementations while
+``registry.py`` carried a second, separately-drifted set — and only
+``registry.py``'s copies were dispatched by the agent. A change made here
+therefore verified fine in isolation and still had zero effect on agent
+behaviour. Keep behaviour in ``fs_impl.py`` so both consumers stay in step.
 """
-import os
-import subprocess
-from pathlib import Path
+from __future__ import annotations
+
 from crewai.tools import tool
 
-BUCKS_ROOT = Path(os.environ.get("BUCKS_PROJECT_ROOT", Path.home() / "Desktop" / "bucks core"))
+from tools.fs_impl import (
+    BUCKS_ROOT,
+    safe_path as _safe_path,
+    read_file as _read_file,
+    write_file as _write_file,
+    list_directory as _list_directory,
+    git_status as _git_status,
+    git_diff as _git_diff,
+)
 
-
-def _safe_path(rel_or_abs: str) -> Path:
-    """Resolve path, keeping it inside BUCKS_ROOT.
-
-    Containment is checked with ``is_relative_to`` (real path components), not a
-    string prefix — a raw ``startswith`` lets a sibling like
-    ``/x/bucks core-evil`` slip past the guard for root ``/x/bucks core``.
-    ``resolve()`` collapses symlinks, so a link pointing out of root is rejected
-    here rather than followed.
-    """
-    p = Path(rel_or_abs)
-    if not p.is_absolute():
-        p = BUCKS_ROOT / p
-    p = p.resolve()
-    root = BUCKS_ROOT.resolve()
-    if p != root and not p.is_relative_to(root):
-        raise PermissionError(f"Path outside project root: {p}")
-    return p
+__all__ = [
+    "BUCKS_ROOT", "_safe_path",
+    "read_file", "write_file", "list_directory", "git_status", "git_diff",
+]
 
 
 @tool("read_file")
 def read_file(path: str) -> str:
     """Read the contents of a file in the Bucks project. Pass a relative or absolute path."""
-    try:
-        p = _safe_path(path)
-        return p.read_text(encoding="utf-8")
-    except Exception as e:
-        return f"Error reading {path}: {e}"
+    return _read_file(path)
 
 
 @tool("write_file")
 def write_file(path: str, content: str) -> str:
     """Write (overwrite) a file in the Bucks project. Pass relative path and full new content."""
-    try:
-        p = _safe_path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-        return f"Written {p.relative_to(BUCKS_ROOT)}"
-    except Exception as e:
-        return f"Error writing {path}: {e}"
+    return _write_file(path, content)
 
 
 @tool("list_directory")
 def list_directory(path: str = ".") -> str:
-    """List files and directories at the given path inside the Bucks project."""
-    try:
-        p = _safe_path(path)
-        entries = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name))
-        lines = []
-        for e in entries[:100]:
-            tag = "📁" if e.is_dir() else "📄"
-            lines.append(f"{tag} {e.name}")
-        return "\n".join(lines) or "(empty)"
-    except Exception as e:
-        return f"Error listing {path}: {e}"
+    """List files and directories (with sizes) at a path inside the Bucks project."""
+    return _list_directory(path)
 
 
 @tool("git_status")
 def git_status() -> str:
     """Get the current git status of the Bucks project."""
-    try:
-        result = subprocess.run(
-            ["git", "status", "--short"],
-            cwd=str(BUCKS_ROOT),
-            capture_output=True, text=True, timeout=10
-        )
-        return result.stdout or "Nothing to report."
-    except Exception as e:
-        return f"git status error: {e}"
+    return _git_status()
 
 
 @tool("git_diff")
 def git_diff() -> str:
     """Show unstaged changes in the Bucks project."""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--stat"],
-            cwd=str(BUCKS_ROOT),
-            capture_output=True, text=True, timeout=10
-        )
-        return result.stdout or "No changes."
-    except Exception as e:
-        return f"git diff error: {e}"
+    return _git_diff()

@@ -1,10 +1,49 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+/* ─── Durable shell storage ───
+   The file:// shell gets an OPAQUE origin in modern Chromium, so its
+   localStorage never survives a relaunch (bookmarks, history, profile,
+   session restore all silently reset). Hydrate from main's store before any
+   shell script runs, then stream snapshots back: a dirty-checked 1.5s poll
+   (prototype patching can't cross the contextIsolation boundary) plus an
+   immediate flush on pagehide. Main keeps the authoritative in-memory copy. */
+(function persistShellStorage() {
+  try {
+    const saved = ipcRenderer.sendSync('shell-storage:load') || {};
+    for (const [k, v] of Object.entries(saved)) {
+      // Keep in-session values (a reload mid-session is newer than the file).
+      if (localStorage.getItem(k) === null) {
+        try { localStorage.setItem(k, v); } catch (_) {}
+      }
+    }
+    let lastSent = '';
+    const flush = () => {
+      const out = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        out[k] = localStorage.getItem(k);
+      }
+      const json = JSON.stringify(out);
+      if (json !== lastSent) {
+        lastSent = json;
+        ipcRenderer.send('shell-storage:save', out);
+      }
+    };
+    setInterval(flush, 1500);
+    window.addEventListener('pagehide', flush);
+  } catch (e) {
+    console.error('[Preload] shell storage persistence failed:', e);
+  }
+})();
+
 const bucksAPI = {
   /* ─── Window Controls ─── */
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
+
+  /* ─── App info ─── */
+  appVersion: ipcRenderer.sendSync('get-app-version'),
 
   /* ─── Settings ─── */
   getSettings: () => ipcRenderer.invoke('get-settings'),
@@ -23,6 +62,10 @@ const bucksAPI = {
   /* ─── Core browser ─── */
   openPrivateWindow: () => ipcRenderer.send('open-private-window'),
   clearBrowsingData: (opts) => ipcRenderer.invoke('clear-browsing-data', opts),
+  onOpenExternalUrl: (callback) => ipcRenderer.on('open-external-url', (_e, data) => callback(data)),
+  setDefaultBrowser: () => ipcRenderer.invoke('set-default-browser'),
+  isDefaultBrowser: () => ipcRenderer.invoke('is-default-browser'),
+  listExtensions: () => ipcRenderer.invoke('extensions:list'),
 
   /* ─── Wallet RPC (proxied through main process) ─── */
   walletRPC: (params) => ipcRenderer.invoke('wallet-rpc', params),
@@ -34,14 +77,42 @@ const bucksAPI = {
   ipfsPeers: () => ipcRenderer.invoke('ipfs-peers'),
   ipfsPublish: (content, metadata) => ipcRenderer.invoke('ipfs-publish', { content, metadata }),
   ipfsFeed: () => ipcRenderer.invoke('ipfs-feed'),
+  ipfsFeedGlobal: () => ipcRenderer.invoke('ipfs-feed-global'),
   ipfsFollow: (peerId) => ipcRenderer.invoke('ipfs-follow', { peerId }),
   ipfsUnfollow: (peerId) => ipcRenderer.invoke('ipfs-unfollow', { peerId }),
   ipfsUpvote: (cid) => ipcRenderer.invoke('ipfs-upvote', { cid }),
+  clusterVote: (cid, direction) => ipcRenderer.invoke('cluster-vote', { cid, direction }),
+  clusterGetVotes: (cid) => ipcRenderer.invoke('cluster-get-votes', { cid }),
+  clusterPin: (cid) => ipcRenderer.invoke('cluster-pin', { cid }),
+  clusterUnpin: (cid) => ipcRenderer.invoke('cluster-unpin', { cid }),
   ipfsGet: (cid) => ipcRenderer.invoke('ipfs-get', { cid }),
   ipfsUnpin: (cid) => ipcRenderer.invoke('ipfs-unpin', { cid }),
   ipfsStorageStats: () => ipcRenderer.invoke('ipfs-storage-stats'),
   ipfsPublishDweb: (name, cid, title, desc) => ipcRenderer.invoke('ipfs-publish-dweb', { name, cid, title, desc }),
   ipfsSearchDweb: (query) => ipcRenderer.invoke('ipfs-search-dweb', { query }),
+
+  /* ─── Cluster membership ─── */
+  clusterMyIdentity: () => ipcRenderer.invoke('cluster-my-identity'),
+  clusterMembers: () => ipcRenderer.invoke('cluster-members'),
+  clusterDiscovered: () => ipcRenderer.invoke('cluster-discovered'),
+  clusterSearch: (query) => ipcRenderer.invoke('cluster-search', { query }),
+  clusterAdmit: (soulId, displayName) => ipcRenderer.invoke('cluster-admit', { soulId, displayName }),
+
+  /* ─── Device sync (multi-device linking for one Soul) ─── */
+  deviceLinkInitiate: (soulId) => ipcRenderer.invoke('device-link-initiate', { soulId }),
+  deviceLinkedList: () => ipcRenderer.invoke('device-linked-list'),
+  deviceLinkPending: () => ipcRenderer.invoke('device-link-pending'),
+  deviceSyncPublish: () => ipcRenderer.invoke('device-sync-publish'),
+  deviceSyncPins: () => ipcRenderer.invoke('device-sync-pins'),
+
+  /* Composer attachments — written inside BUCKS_ROOT so the agent's
+     sandboxed read_file can open them by path. */
+  composerSaveAttachment: (name, dataBase64) =>
+    ipcRenderer.invoke('composer-save-attachment', { name, dataBase64 }),
+  clusterUpdatePending: () => ipcRenderer.invoke('cluster-update-pending'),
+  clusterUpdateApply: () => ipcRenderer.invoke('cluster-update-apply'),
+  onClusterUpdateAvailable: (cb) => ipcRenderer.on('cluster-update-available', (_e, manifest) => cb(manifest)),
+  onClusterUpdateRestarting: (cb) => ipcRenderer.on('cluster-update-restarting', (_e, manifest) => cb(manifest)),
 
   /* ─── File Manager API ─── */
   fileManagerGet: () => ipcRenderer.invoke('file-manager-get'),
@@ -69,6 +140,10 @@ const bucksAPI = {
   getMemoryUsage: () => ipcRenderer.invoke('get-memory-usage'),
   sendTelemetry: (event, data) => ipcRenderer.send('send-telemetry', { event, data }),
   showWallet: process.env.BUCKS_SHOW_WALLET === '1',
+
+  /* ─── Local model discovery (Soul Engine IPC fallback) ─── */
+  getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
+  downloadModel: (url, filename) => ipcRenderer.invoke('download-model', { url, filename }),
 };
 
 // ── Project NEXUS — Agentic Interface API ─────────────────────────────────────
@@ -169,6 +244,7 @@ const bucksTabs = {
   stopFind: (tabId, action) => ipcRenderer.invoke('tabs:stopFind', { tabId, action }),
   execJS: (tabId, code, userGesture) => ipcRenderer.invoke('tabs:execJS', { tabId, code, userGesture }),
   capture: (tabId) => ipcRenderer.invoke('tabs:capture', { tabId }),
+  printToPDF: (tabId, title) => ipcRenderer.invoke('tabs:printToPDF', { tabId, title }),
   getURL: (tabId) => ipcRenderer.invoke('tabs:getURL', { tabId }),
   onEvent: (cb) => {
     const handler = (_e, evt) => cb(evt);
@@ -183,10 +259,18 @@ const bucksTabs = {
 };
 
 // STRIDE: Tampering Mitigation - Freeze the APIs to prevent prototype pollution
+// Agent document output (doc-factory.js): files land in ~/Documents/Bucks.
+const bucksDocs = {
+  create: (title, content, format) => ipcRenderer.invoke('docs:create', { title, content, format }),
+  createPdf: (title, content) => ipcRenderer.invoke('docs:createPdf', { title, content }),
+};
+
 Object.freeze(bucksAPI);
 Object.freeze(nexusAPI);
 Object.freeze(bucksTabs);
+Object.freeze(bucksDocs);
 
 contextBridge.exposeInMainWorld('bucksAPI', bucksAPI);
 contextBridge.exposeInMainWorld('nexusAPI', nexusAPI);
 contextBridge.exposeInMainWorld('bucksTabs', bucksTabs);
+contextBridge.exposeInMainWorld('bucksDocs', bucksDocs);

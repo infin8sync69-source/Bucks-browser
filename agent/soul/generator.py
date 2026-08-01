@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import serialization
 
 from .frozen import FrozenMemory
 
-_SOUL_DIR = Path(os.path.expanduser("~/.bucks"))
+_SOUL_DIR = Path(os.getenv("BUCKS_HOME", os.path.expanduser("~/.bucks")))
 _SOUL_KEY_FILE = _SOUL_DIR / "agent_soul_key.pem"
 _SOUL_FILE = _SOUL_DIR / "agent_soul.json"
 
