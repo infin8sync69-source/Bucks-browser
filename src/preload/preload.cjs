@@ -1,0 +1,151 @@
+'use strict';
+// Bucks Browser — preload for the chrome window (ui/).
+// This file is the ONLY bridge between the SvelteKit chrome and the main process.
+// Everything exposed here is documented in docs/IPC-CONTRACT.md. Keep the two in sync.
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
+
+/** Subscribe to a main → renderer event. Returns an unsubscribe function. */
+const subscribe = (channel, callback) => {
+  const handler = (_event, ...args) => callback(...args);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+};
+
+const api = Object.freeze({
+  platform: process.platform,
+  versions: Object.freeze({
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+  }),
+
+  app: Object.freeze({
+    /** @returns {Promise<{ name: string, version: string, userData: string }>} */
+    info: () => invoke('bucks:app:info'),
+    /** Keyboard shortcuts routed through the native menu: ({ action: string }) */
+    onShortcut: (cb) => subscribe('bucks:app:shortcut', cb),
+  }),
+
+  window: Object.freeze({
+    minimize: () => invoke('bucks:window:minimize'),
+    /** Toggles maximize / restore. */
+    maximize: () => invoke('bucks:window:maximize'),
+    close: () => invoke('bucks:window:close'),
+    isMaximized: () => invoke('bucks:window:is-maximized'),
+    /** (isMaximized: boolean) */
+    onMaximized: (cb) => subscribe('bucks:window:maximized', cb),
+  }),
+
+  tabs: Object.freeze({
+    /** Create a web content view for an existing renderer-side tab id. */
+    create: (id, url) => invoke('bucks:tabs:create', { id, url }),
+    navigate: (id, url) => invoke('bucks:tabs:navigate', { id, url }),
+    close: (id) => invoke('bucks:tabs:close', { id }),
+    /** Show this tab's view (and hide the others). Pass null to hide all views. */
+    activate: (id) => invoke('bucks:tabs:activate', { id }),
+    back: (id) => invoke('bucks:tabs:back', { id }),
+    forward: (id) => invoke('bucks:tabs:forward', { id }),
+    reload: (id) => invoke('bucks:tabs:reload', { id }),
+    stop: (id) => invoke('bucks:tabs:stop', { id }),
+    /** @returns {Promise<TabState | null>} */
+    getState: (id) => invoke('bucks:tabs:get-state', { id }),
+    /** Where web content should be drawn, in CSS px of the chrome window: { x, y, width, height } */
+    setContentBounds: (bounds) => invoke('bucks:tabs:set-content-bounds', bounds),
+    /** Hide/show the active view (used while chrome overlays/modals are open). */
+    setContentVisible: (visible) => invoke('bucks:tabs:set-content-visible', { visible }),
+    /** @returns {Promise<string>} PNG data URL thumbnail of the tab. */
+    capture: (id) => invoke('bucks:tabs:capture', { id }),
+    /** Extract readable text of the page (for the agent). @returns {Promise<{ title: string, text: string, url: string }>} */
+    extractText: (id) => invoke('bucks:tabs:extract-text', { id }),
+    /** (state: TabState) */
+    onUpdated: (cb) => subscribe('bucks:tabs:updated', cb),
+    /** ({ openerId: string | null, url: string, disposition: string }) — renderer decides whether to open a tab. */
+    onOpenRequest: (cb) => subscribe('bucks:tabs:open-request', cb),
+    /** ({ id }) — the page closed itself (window.close()) or crashed beyond recovery. */
+    onClosed: (cb) => subscribe('bucks:tabs:closed', cb),
+  }),
+
+  ipfs: Object.freeze({
+    /** @returns {Promise<IpfsStatus>} */
+    status: () => invoke('bucks:ipfs:status'),
+    /** (Re)start the embedded node. */
+    start: () => invoke('bucks:ipfs:start'),
+    stop: () => invoke('bucks:ipfs:stop'),
+    /** @returns {Promise<{ peer_id: string, addresses: string[], agent_version: string }>} */
+    nodeInfo: () => invoke('bucks:ipfs:node-info'),
+    /** @returns {Promise<IpfsAddResult>} */
+    add: ({ fileName, mimeType, dataBase64 }) => invoke('bucks:ipfs:add', { fileName, mimeType, dataBase64 }),
+    /** @returns {Promise<IpfsAddResult>} */
+    addText: (content, fileName) => invoke('bucks:ipfs:add-text', { content, fileName }),
+    /** @returns {Promise<string>} base64 of the content (capped by maxBytes, default 8 MiB). */
+    cat: (path, opts) => invoke('bucks:ipfs:cat', { path, ...(opts || {}) }),
+    /** @returns {Promise<Array<{ name: string, cid: string, size: number, type: 'file' | 'dir' | 'unknown' }>>} */
+    ls: (path) => invoke('bucks:ipfs:ls', { path }),
+    pinAdd: (cid) => invoke('bucks:ipfs:pin-add', { cid }),
+    pinRm: (cid) => invoke('bucks:ipfs:pin-rm', { cid }),
+    /** @returns {Promise<Array<{ cid: string, pin_type: string }>>} */
+    pinLs: () => invoke('bucks:ipfs:pin-ls'),
+    /** @returns {Promise<Array<{ peer: string, addr: string, latency?: string }>>} */
+    peers: () => invoke('bucks:ipfs:peers'),
+    /** @returns {Promise<{ repo_size: number, storage_max: number, num_objects: number, peers: number, bw?: { rate_in: number, rate_out: number, total_in: number, total_out: number } }>} */
+    stats: () => invoke('bucks:ipfs:stats'),
+    /** Resolve an IPNS name / DNSLink to an /ipfs/ path. @returns {Promise<string>} */
+    resolve: (name) => invoke('bucks:ipfs:resolve', { name }),
+    /** Map an ipfs:// or ipns:// URL to an HTTP gateway URL (local node when ready, else public gateway). */
+    gatewayUrlFor: (url) => invoke('bucks:ipfs:gateway-url-for', { url }),
+    /** Normalise a CID / ipfs url (CIDv0 → CIDv1 base32). @returns {Promise<string>} */
+    normalizeUrl: (url) => invoke('bucks:ipfs:normalize-url', { url }),
+    /** (status: IpfsStatus) */
+    onStatus: (cb) => subscribe('bucks:ipfs:status', cb),
+  }),
+
+  settings: Object.freeze({
+    /** @returns {Promise<Settings>} */
+    get: () => invoke('bucks:settings:get'),
+    /** Deep-merges a partial patch. @returns {Promise<Settings>} */
+    set: (patch) => invoke('bucks:settings:set', patch),
+    /** (settings: Settings) */
+    onChange: (cb) => subscribe('bucks:settings:changed', cb),
+  }),
+
+  downloads: Object.freeze({
+    /** @returns {Promise<DownloadItem[]>} */
+    list: () => invoke('bucks:downloads:list'),
+    open: (id) => invoke('bucks:downloads:open', { id }),
+    showInFolder: (id) => invoke('bucks:downloads:show-in-folder', { id }),
+    cancel: (id) => invoke('bucks:downloads:cancel', { id }),
+    clear: () => invoke('bucks:downloads:clear'),
+    /** (item: DownloadItem) */
+    onEvent: (cb) => subscribe('bucks:downloads:event', cb),
+  }),
+
+  agent: Object.freeze({
+    /** @returns {Promise<{ online: boolean, provider: string, model?: string, providers: string[] }>} */
+    status: () => invoke('bucks:agent:status'),
+    /** @returns {Promise<AgentResult>} */
+    query: ({ prompt, currentUrl, currentTitle, tabId }) => invoke('bucks:agent:query', { prompt, currentUrl, currentTitle, tabId }),
+    feedback: ({ taskId, score, correction }) => invoke('bucks:agent:feedback', { taskId, score, correction }),
+    /** @returns {Promise<string[]>} models available for the current provider */
+    listModels: () => invoke('bucks:agent:list-models'),
+  }),
+
+  wallet: Object.freeze({
+    /** Proxied HTTP call to the configured Bucks node. @returns {Promise<any>} parsed JSON */
+    rpc: ({ method, path, body }) => invoke('bucks:wallet:rpc', { method, path, body }),
+  }),
+
+  security: Object.freeze({
+    /** @returns {Promise<{ blockedRequests: number, httpsUpgrades: number, adBlockReady: boolean }>} */
+    stats: () => invoke('bucks:security:stats'),
+  }),
+
+  shell: Object.freeze({
+    /** Open http(s)/mailto URLs in the OS default handler. */
+    openExternal: (url) => invoke('bucks:shell:open-external', { url }),
+  }),
+});
+
+contextBridge.exposeInMainWorld('bucks', api);

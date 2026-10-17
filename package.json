@@ -1,0 +1,37 @@
+{
+  "name": "bucks-browser",
+  "productName": "Bucks Browser",
+  "version": "2.0.0",
+  "description": "Bucks Browser — a decentralised, IPFS-native web browser",
+  "main": "src/main/index.js",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "Bucks",
+  "homepage": "https://github.com/infin8sync69-source/Bucks-browser",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix ui install --no-audit --no-fund",
+    "dev": "node scripts/dev.mjs",
+    "start": "npm run build:ui && electron .",
+    "build:ui": "npm --prefix ui run build",
+    "check": "npm --prefix ui run check && node scripts/check-main.mjs",
+    "test": "node --test test/unit",
+    "test:e2e": "node --test test/e2e",
+    "fetch:kubo": "node scripts/fetch-kubo.mjs",
+    "dist": "npm run build:ui && npm run fetch:kubo && electron-builder",
+    "dist:linux": "npm run build:ui && npm run fetch:kubo -- --platform linux && electron-builder --linux",
+    "dist:win": "npm run build:ui && npm run fetch:kubo -- --platform win32 && electron-builder --win",
+    "dist:mac": "npm run build:ui && npm run fetch:kubo -- --platform darwin && electron-builder --mac"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.1",
+    "multiformats": "^14.0.5"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
+  }
+}
