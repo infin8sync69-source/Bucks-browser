@@ -26,6 +26,11 @@ const log = createLogger('main');
 /** Web content (tabs) lives in its own persistent session, isolated from the chrome. */
 export const WEB_PARTITION = 'persist:bucks-web';
 
+// Allow tests and power users to isolate a profile: BUCKS_USER_DATA=/path
+if (process.env.BUCKS_USER_DATA) {
+  app.setPath('userData', process.env.BUCKS_USER_DATA);
+}
+
 registerSchemePrivileges();
 
 // Single instance: a second launch focuses the existing window.

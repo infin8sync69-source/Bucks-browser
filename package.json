@@ -28,10 +28,13 @@
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.20.1",
-    "multiformats": "^14.0.5"
+    "extract-zip": "^2.0.1",
+    "multiformats": "^14.0.5",
+    "tar": "^7.5.22"
   },
   "devDependencies": {
     "electron": "^44.9.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.64.1"
   }
 }
