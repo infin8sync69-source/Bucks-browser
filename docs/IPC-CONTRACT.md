@@ -20,7 +20,8 @@ This document is the single source of truth for how the three layers talk to eac
 │  ├ downloads.js       will-download → bucks:downloads:*                   │
 │  ├ menu.js            native menu + accelerators → bucks:app:shortcut     │
 │  ├ context-menu.js    right-click menus on web content                    │
-│  ├ agent/bridge.js    bucks:agent:* (offline | remote | ollama providers) │
+│  ├ agent/bridge.js    bucks:agent:* (offline|remote|ollama|soul providers)│
+│  ├ agent/soul-engine.js  Soul Engine sidecar supervisor (agent/, Python) │
 │  ├ wallet/proxy.js    bucks:wallet:rpc → configured Bucks node            │
 │  └ shell.js           bucks:shell:open-external                           │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -97,6 +98,35 @@ interface AgentResult {
   evaluation: string;          // natural-language answer
   cid?: string | null; task_id?: string | null;
   a2ui?: { type: string; url?: string; action?: string; content?: string; [k: string]: any } | null;
+  components?: UiComponent[];  // soul provider: cards, sanitised in main; render as text only
+  followups?: string[];        // soul provider: suggested next questions (≤ 4)
+  tools?: string[];            // soul provider: tools the agent used
+}
+
+// Generative-UI card (src/main/agent/genui.js). Strings are bounded; every url is http(s), ipfs or ipns.
+type UiComponent =
+  | { component: 'answer'; title: string; text: string }
+  | { component: 'list'; title: string; items: { title: string; subtitle: string; url: string }[] }
+  | { component: 'table'; title: string; columns: string[]; rows: string[][] }
+  | { component: 'stats'; title: string; stats: { label: string; value: string; delta: string }[] }
+  | { component: 'chart'; title: string; kind: 'line' | 'bar' | 'pie'; series: { label: string; value: number }[] }
+  | { component: 'timeline'; title: string; events: { date: string; title: string; text: string }[] }
+  | { component: 'checklist'; title: string; items: { text: string; done: boolean }[] }
+  | { component: 'accordion'; title: string; items: { heading: string; text: string }[] }
+  | { component: 'code'; title: string; language: string; code: string }
+  | { component: 'weather'; title: string; place: string; current: {…}; days: {…}[] }
+  | { component: 'links'; title: string; actions: ({ label: string; url: string } | { label: string; query: string })[] };
+
+interface SoulStatus {
+  state: 'idle' | 'unavailable' | 'installing' | 'starting' | 'loading' | 'ready' | 'error' | 'stopped';
+  message: string;             // human-readable, says what to do when not ready
+  url: string | null;          // http://127.0.0.1:<port> while running (the token never leaves main)
+  backend: 'edge' | 'ollama' | 'nim' | 'litai';
+  model: string | null;
+  mode: string | null;         // the engine's /health mode
+  python: string | null;       // interpreter in use
+  agentDir: string | null;     // folder with soul_engine.py
+  dataDir: string;             // <userData>/soul-engine (data, venv, workspace, .env for API keys)
 }
 
 interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
@@ -138,10 +168,13 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | ipfs | `bucks:ipfs:normalize-url` `{ url }` → canonical ipfs:// url |
 | settings | `bucks:settings:get` → `Settings`; `bucks:settings:set` `(patch)` → `Settings`; event `bucks:settings:changed` `(Settings)` |
 | downloads | `bucks:downloads:list` → `DownloadItem[]`; `open` / `show-in-folder` / `cancel` `{ id }`; `clear`; event `bucks:downloads:event` `(DownloadItem)` |
-| agent | `bucks:agent:status` → `{ online, provider, model?, providers }` |
+| agent | `bucks:agent:status` → `{ online, provider, model?, detail?, providers }` (`detail`: why the soul provider cannot answer) |
 | agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId }` → `AgentResult` |
 | agent | `bucks:agent:feedback` `{ taskId, score, correction }` |
 | agent | `bucks:agent:list-models` → `string[]` |
+| agent | `bucks:agent:soul-status` → `SoulStatus`; event `bucks:agent:soul-status` `(SoulStatus)` |
+| agent | `bucks:agent:soul-start` / `soul-stop` → `SoulStatus` |
+| agent | `bucks:agent:soul-install` → `SoulStatus` (creates `<userData>/soul-engine/venv`, installs the engine's packages, then starts it) |
 | wallet | `bucks:wallet:rpc` `{ method, path, body }` → parsed JSON (throws on network / non-2xx) |
 | security | `bucks:security:stats` → `{ blockedRequests, httpsUpgrades, adBlockReady }` |
 | shell | `bucks:shell:open-external` `{ url }` (http, https, mailto only) |
@@ -171,7 +204,10 @@ installAppMenu({ getMainWindow, tabs })
 installContextMenu({ tabs, getMainWindow })
 installDownloads({ session, settings, getMainWindow })
 registerShellIpc()
-createAgent({ settings, tabs, kubo })
+createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
+   → soul { start(), stop(), restart(), install(), status(): SoulStatus, onStatus(cb), isReady(),
+            isRunning(), connection(): { url, token } | null, engineDir }
+createAgent({ settings, tabs, kubo, soul })
 createWalletProxy({ settings })
 createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)
 ```

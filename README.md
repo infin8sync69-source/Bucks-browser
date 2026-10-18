@@ -23,8 +23,10 @@ with privacy-protective defaults turned on.
   and a deny-by-default permission policy (camera, microphone, location, notifications and
   device access are refused). Every tab is a sandboxed Chromium renderer, with Chromium's
   per-site process isolation.
-- **Built-in assistant.** An address-bar agent that can run on offline rules, a Bucks agent server
-  or a local Ollama model.
+- **Built-in assistant.** An address-bar agent that can run on offline rules, a Bucks agent server,
+  a local Ollama model, or the **Soul Engine**: the full Bucks agent (web research, IPFS tools,
+  answers with tables, charts and checklists), which Bucks runs on your computer with an
+  on-device model by default.
 - **Wallet.** A wallet page that signs in the interface and talks to a Bucks node over HTTP.
 
 ## Install on Linux (test build)
@@ -123,8 +125,14 @@ The assistant in the address bar can use one of three providers, chosen in Setti
 | `offline` (default) | Deterministic rules: open a URL, search the web, open the wallet, IPFS, settings or downloads pages | Nothing |
 | `remote` | A Bucks agent server, called over HTTP (`POST <url>/api/v1/swarm/task`) | A running server; default URL `http://localhost:3000` |
 | `ollama` | A local language model through [Ollama](https://ollama.com) | Ollama running; default `http://127.0.0.1:11434`, model `llama3.2` |
+| `soul` | The Soul Engine from [`agent/`](agent/README.md), started and stopped by Bucks: a tool-using agent whose answers can include cards and follow-up questions | Python 3.10+; **Install** in Settings creates a private environment for it |
 
 If the chosen provider cannot be reached, the assistant says so and falls back to the offline rules.
+
+The Soul Engine runs as a separate process on a loopback port, with a token that is new at every
+start, so web pages cannot use it. Its model backend is chosen in Settings: the embedded on-device
+model (default; the weights download once), Ollama, or NVIDIA NIM / Lightning AI with your own
+key (your questions then leave the device; Settings says so). Its data stays in your profile.
 
 ## Wallet
 
@@ -141,6 +149,7 @@ system's keychain is the first roadmap item, so treat this wallet as experimenta
 src/main/        Electron main process (ES modules): window, tabs, protocols, Kubo, security, agent, wallet
 src/preload/     The sandboxed preload script that exposes window.bucks to the interface
 ui/              The browser interface (SvelteKit single-page app), served to the window as bucks://app/
+agent/           The Soul Engine (Python, FastAPI): the agent behind the "soul" provider
 scripts/         install-linux.sh and install-macos.sh (source installers), dev.mjs (developer runner),
                  fetch-kubo.mjs (download Kubo), check-main.mjs (syntax check)
 test/            unit tests (node --test) and the Playwright smoke test
@@ -156,6 +165,8 @@ electron-builder.yml    packaging configuration
   and the main process.
 - [docs/BUILDING.md](docs/BUILDING.md) covers building and releasing.
 - [docs/DEVICES.md](docs/DEVICES.md) explains pairing computers and sending files between them.
+- [docs/ALIGNMENT.md](docs/ALIGNMENT.md) maps the older "Bucks Core" app (buckscore `Bucks-App/`) onto
+  this repository: what has moved here, what is planned, and what was left behind on purpose.
 
 ## Roadmap
 
@@ -171,6 +182,10 @@ This is a rewrite. The earlier implementations are kept in Git under the tag
 - `legacy_v1/bucks-native-browser/`: a native C++ prototype using Qt WebEngine.
 
 To look at it: `git checkout archive/pre-electron-rewrite`, or `git show archive/pre-electron-rewrite:<path>`.
+
+The Electron "Bucks Core" v1.1.0 that bucks.global installed lives in the
+[buckscore](https://github.com/infin8sync69-source/buckscore) repository under `Bucks-App/`. Its
+Soul Engine is now `agent/` here; [docs/ALIGNMENT.md](docs/ALIGNMENT.md) lists the rest.
 
 ## License
 
