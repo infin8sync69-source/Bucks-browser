@@ -19,11 +19,33 @@ say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(uname -s)" = "Linux" ] || die "this script is for Linux. See docs/BUILDING.md for other systems."
-for tool in git node npm; do
-  command -v "$tool" >/dev/null 2>&1 || die "$tool is required. Install it with your package manager, then run this again."
-done
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' \
-  || die "Node.js 20 or newer is required (found $(node -v))."
+# Prints the command that installs a package with this system's package manager.
+install_hint() {
+  if command -v apt-get >/dev/null 2>&1; then echo "sudo apt-get install -y $1"
+  elif command -v dnf >/dev/null 2>&1; then echo "sudo dnf install -y $1"
+  elif command -v pacman >/dev/null 2>&1; then echo "sudo pacman -S --noconfirm $1"
+  elif command -v zypper >/dev/null 2>&1; then echo "sudo zypper install -y $1"
+  else echo "install $1 with your package manager"
+  fi
+}
+
+# Report every missing prerequisite at once, so the user can fix them in one go.
+missing=0
+if ! command -v git >/dev/null 2>&1; then
+  printf '\033[1;31merror:\033[0m git is not installed. Install it with: %s\n' "$(install_hint git)" >&2
+  missing=1
+fi
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  printf '\033[1;31merror:\033[0m Node.js 20 or newer and npm are not installed. The simplest route is nvm: https://github.com/nvm-sh/nvm (then run: nvm install 22)\n' >&2
+  missing=1
+elif ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)'; then
+  printf '\033[1;31merror:\033[0m Node.js 20 or newer is required (found %s). The simplest route is nvm: https://github.com/nvm-sh/nvm (then run: nvm install 22)\n' "$(node -v)" >&2
+  missing=1
+fi
+if [ "$missing" -ne 0 ]; then
+  echo "Fix the problems above, then run the install command again." >&2
+  exit 1
+fi
 
 if [ -d "$DEST/.git" ]; then
   say "Updating $DEST to the latest $BRANCH"
