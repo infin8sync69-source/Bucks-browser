@@ -91,7 +91,7 @@ test('ipfs:// end to end through the embedded node', { timeout: NODE_TIMEOUT + 6
 
     // CIDv0 typed by a user must be normalised to CIDv1 base32 by the tab manager.
     const v0 = await page.evaluate(() => window.bucks.ipfs.normalizeUrl('ipfs://QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB/x'));
-    assert.equal(v0, 'ipfs://bafybeibml5uieyxa5tufngvg7fgwbkwvlsuntwbxgtskoqynbt7wlchmfm/x');
+    assert.equal(v0, 'ipfs://bafybeiasb5vpmaounyilfuxbd3lryvosl4yefqrfahsb2esg46q6tu6y5q/x');
 
     // Pinning round-trip
     await page.evaluate((cid) => window.bucks.ipfs.pinAdd(cid), added.cid);
