@@ -3,6 +3,9 @@
     import { cubicOut, elasticOut } from "svelte/easing";
     import { swarmStore } from "./swarmStore";
     import { browserStore } from "./stores";
+    import { settingsStore } from "./settingsStore";
+    import { onMount } from "svelte";
+    import { pushOverlay, popOverlay } from "./uiState";
     import { INTENT_LABELS } from "./intentMatcher";
     import type { IntentType } from "./intentMatcher";
     import { X, Navigation, Search, Zap, Globe, Package, MapPin, Newspaper, Code2, Cloud } from "lucide-svelte";
@@ -48,13 +51,17 @@
 
     // weather
     let weatherLoc    = $state("Current Location");
-    let weatherLoading= $state(false);
-    let weatherData   = $state<{ temp: number; condition: string; humidity: number; wind: number } | null>(null);
 
     let nearbyQuery  = $state("");
     let productQuery = $state("");
     $effect(() => { nearbyQuery  = data?.query ?? ""; });
     $effect(() => { productQuery = data?.query ?? ""; });
+
+    // The widget is a full-screen modal: hide the native web view while it is mounted.
+    onMount(() => {
+        pushOverlay();
+        return popOverlay;
+    });
 
     // ── helpers ──────────────────────────────────────────────────────────────
     const intentMeta = $derived(INTENT_LABELS[type as NonNullable<IntentType>] ?? null);
@@ -133,43 +140,18 @@
     }
 
     // ── weather ───────────────────────────────────────────────────────────────
-    const WMO_CODES: Record<number, string> = {
-        0: "Clear Sky", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
-        45: "Foggy", 48: "Icy Fog", 51: "Light Drizzle", 53: "Drizzle", 55: "Heavy Drizzle",
-        61: "Light Rain", 63: "Rain", 65: "Heavy Rain", 71: "Light Snow", 73: "Snow", 75: "Heavy Snow",
-        80: "Rain Showers", 81: "Heavy Showers", 95: "Thunderstorm", 96: "Hail Storm",
-    };
-
-    async function checkWeather() {
-        weatherLoading = true;
-        weatherData = null;
-        try {
-            const loc = weatherLoc.trim() || "London";
-            const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=en&format=json`);
-            const geoJson = await geoRes.json();
-            const place = geoJson.results?.[0];
-            if (!place) throw new Error("Location not found");
-            const { latitude, longitude } = place;
-            const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&wind_speed_unit=kmh&timezone=auto`);
-            const wxJson = await wxRes.json();
-            const cur = wxJson.current;
-            weatherData = {
-                temp: Math.round(cur.temperature_2m),
-                condition: WMO_CODES[cur.weather_code] ?? "Unknown",
-                humidity: cur.relative_humidity_2m,
-                wind: Math.round(cur.wind_speed_10m),
-            };
-        } catch {
-            weatherData = { temp: 0, condition: "Unavailable", humidity: 0, wind: 0 };
-        } finally {
-            weatherLoading = false;
-        }
+    // The chrome may only talk to local services (CSP), so the forecast is a web search.
+    function checkWeather() {
+        const loc = weatherLoc.trim();
+        const q = !loc || loc === "Current Location" ? "weather" : `weather in ${loc}`;
+        browserStore.createTab(settingsStore.searchUrl(q));
+        close();
     }
 
     function openIpfs() { browserStore.createOrFocusTab("bucks://ipfs"); close(); }
-    function searchProduct() { browserStore.createTab(`https://duckduckgo.com/?q=${encodeURIComponent(productQuery + " buy")}`); close(); }
-    function searchNearby() { browserStore.createTab(`https://duckduckgo.com/?q=${encodeURIComponent(nearbyQuery + " near me")}`); close(); }
-    function searchNews() { browserStore.createTab(`https://duckduckgo.com/?q=${encodeURIComponent((data?.query ?? text ?? "news") + " latest news")}`); close(); }
+    function searchProduct() { browserStore.createTab(settingsStore.searchUrl(productQuery + " buy")); close(); }
+    function searchNearby() { browserStore.createTab(settingsStore.searchUrl(nearbyQuery + " near me")); close(); }
+    function searchNews() { browserStore.createTab(settingsStore.searchUrl((data?.query ?? text ?? "news") + " latest news")); close(); }
 
     // accent colour per widget type
     const ACCENT: Record<string, string> = {
@@ -371,32 +353,15 @@
                 <!-- WEATHER -->
                 {:else if type === "weather_check"}
                     <div class="space-y-3">
-                        {#if weatherData}
-                            <div class="bg-gradient-to-br from-sky-500/10 to-blue-700/5 border border-sky-500/15 rounded-2xl p-5 text-center" in:scale={{ duration: 380, easing: cubicOut, start: 0.95 }}>
-                                <p class="text-6xl mb-3">🌤️</p>
-                                <p class="text-4xl font-light text-white tracking-tight">{weatherData.temp}°C</p>
-                                <p class="text-[12px] text-sky-300/70 mt-2">{weatherData.condition}</p>
-                                <div class="flex justify-center gap-5 mt-4 text-[11px] text-white/30">
-                                    <span>💧 {weatherData.humidity}%</span>
-                                    <span>💨 {weatherData.wind} km/h</span>
-                                </div>
-                            </div>
-                        {:else}
                             <div class="relative">
                                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs">📍</span>
                                 <input bind:value={weatherLoc} placeholder="City or location"
                                     class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-8 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-sky-500/40 transition-colors" />
                             </div>
-                            <button onclick={checkWeather} disabled={weatherLoading}
+                            <button onclick={checkWeather}
                                 class="w-full bg-sky-500/12 hover:bg-sky-500/20 border border-sky-500/25 text-sky-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all flex items-center justify-center gap-2">
-                                {#if weatherLoading}
-                                    <div class="w-3.5 h-3.5 border border-sky-400/40 border-t-sky-400 rounded-full animate-spin"></div>
-                                    Checking…
-                                {:else}
-                                    🌤️ Check Weather
-                                {/if}
+                                🌤️ Search Weather
                             </button>
-                        {/if}
                     </div>
 
                 <!-- IPFS -->

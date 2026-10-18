@@ -181,3 +181,35 @@ test('handler never throws: a kubo that explodes yields a 500 page', async () =>
   assert.equal(res.status, 500);
   assert.match(await res.text(), /boom/);
 });
+
+test('handler: a gateway redirect that points back at the same ipfs:// URL is followed, never looped', async (t) => {
+  let calls = 0;
+  const flaky = await fakeGateway(t, {
+    [`/ipfs/${CID}/`]: (req, res) => {
+      calls += 1;
+      if (calls === 1) {
+        // like ipfs.io bouncing a path request to the subdomain origin of the same content
+        res.writeHead(301, { location: `http://${req.headers.host}/ipfs/${CID}/` });
+        res.end();
+      } else {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('followed');
+      }
+    },
+  });
+  const handler = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: flaky.base }), settings: settings() });
+  const res = await handler(new Request(`ipfs://${CID}/`));
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), 'followed');
+  assert.equal(flaky.seen.length, 2);
+
+  // a gateway that redirects to itself forever is cut off after a few hops and surfaced as a redirect
+  const loop = await fakeGateway(t, {
+    '*': (req, res) => { res.writeHead(301, { location: `http://${req.headers.host}/ipfs/${CID}/` }); res.end(); },
+  });
+  const handler2 = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: loop.base }), settings: settings() });
+  const res2 = await handler2(new Request(`ipfs://${CID}/`));
+  assert.equal(res2.status, 301);
+  assert.equal(res2.headers.get('location'), `ipfs://${CID}/`);
+  assert.equal(loop.seen.length, 4);
+});

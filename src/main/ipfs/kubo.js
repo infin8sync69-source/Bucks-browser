@@ -202,13 +202,14 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
   const logFile = path.join(userData, 'logs', 'kubo.log');
 
   const listeners = new Set();
+  const startsExternal = (settings.get?.()?.ipfs?.mode) === 'external';
   let status = {
     state: 'idle',
-    source: 'embedded_kubo',
+    source: startsExternal ? 'external_api' : 'embedded_kubo',
     message: 'IPFS node has not been started.',
     api_url: null,
     gateway_url: null,
-    embedded: true,
+    embedded: !startsExternal,
     version: null,
     peer_id: null,
   };
@@ -497,7 +498,8 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       version: ver?.Version || null,
       peer_id: ident?.ID || null,
     });
-    if (!embedded) startExternalHealthCheck(client);
+    // External nodes and adopted daemons have no child process to watch: poll their API instead.
+    if (!child) startExternalHealthCheck(client);
   }
 
   function clearRestartTimer() {
@@ -582,7 +584,15 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
         throw e;
       }
     }
-    await becomeReady({ apiUrl, gatewayUrl, embedded: true, source: 'embedded_kubo', message: 'Embedded IPFS node is ready.' });
+    try {
+      await becomeReady({ apiUrl, gatewayUrl, embedded: true, source: 'embedded_kubo', message: 'Embedded IPFS node is ready.' });
+    } catch (e) {
+      // The API answered once but version/id failed: do not leave a half-started daemon behind.
+      const proc = child;
+      child = null;
+      await killChild(proc);
+      throw e;
+    }
   }
 
   async function startExternal(cfg) {

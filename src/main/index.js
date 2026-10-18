@@ -18,7 +18,8 @@ import { registerShellIpc } from './shell.js';
 import { installSecurity } from './security/index.js';
 import { createAgent } from './agent/bridge.js';
 import { createWalletProxy } from './wallet/proxy.js';
-import { uiDist, preloadPath, resourcesDir, userDataDir } from './paths.js';
+import { registerUpdater } from './updater.js';
+import { appRoot, uiDist, preloadPath, resourcesDir, userDataDir } from './paths.js';
 import { createLogger, initFileLogging } from './log.js';
 
 const log = createLogger('main');
@@ -85,6 +86,7 @@ app.whenReady().then(async () => {
   installDownloads({ session: webSession, settings, getMainWindow });
   registerShellIpc();
 
+  registerUpdater({ root: appRoot, getMainWindow });
   createAgent({ settings, tabs, kubo });
   createWalletProxy({ settings });
 

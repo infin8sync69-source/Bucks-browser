@@ -142,6 +142,19 @@ const api = Object.freeze({
     stats: () => invoke('bucks:security:stats'),
   }),
 
+  updater: Object.freeze({
+    /** @returns {Promise<UpdateStatus>} local checkout state, no network. */
+    status: () => invoke('bucks:updater:status'),
+    /** Fetches the remote branch. @returns {Promise<UpdateStatus>} */
+    check: () => invoke('bucks:updater:check'),
+    /** Pulls, installs dependencies and rebuilds. @returns {Promise<{ updated: boolean, from?: string, to?: string, subject?: string, message: string }>} */
+    install: () => invoke('bucks:updater:install'),
+    /** Relaunches the app so the new code runs. */
+    restart: () => invoke('bucks:updater:restart'),
+    /** ({ step: 'pull' | 'deps' | 'build', state: 'running' | 'done' | 'failed', message: string }) */
+    onProgress: (cb) => subscribe('bucks:updater:progress', cb),
+  }),
+
   shell: Object.freeze({
     /** Open http(s)/mailto URLs in the OS default handler. */
     openExternal: (url) => invoke('bucks:shell:open-external', { url }),

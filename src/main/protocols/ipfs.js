@@ -21,6 +21,7 @@ const FORWARDED_RESPONSE_HEADERS = [
 const LOWERCASE_CIDV0 = /^qm[a-z0-9]{44}$/;
 const IPNS_NAME = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_SELF_REDIRECTS = 3;
 
 /* ───────────────────────────── pure helpers ───────────────────────────── */
 
@@ -60,6 +61,13 @@ export function rewriteLocation(location, scheme) {
   // relative redirect (rare): keep it relative so Chromium resolves it against the ipfs:// URL
   void scheme;
   return loc;
+}
+
+/** True when `rewritten` (an ipfs:// / ipns:// URL) addresses the same scheme, host, path and query as `parsed`. */
+function isSameTarget(rewritten, parsed) {
+  const r = parseIpfsUrl(rewritten);
+  return Boolean(r) && r.scheme === parsed.scheme && r.host.toLowerCase() === parsed.host.toLowerCase()
+    && r.pathname === (parsed.pathname || '/') && r.search === (parsed.search || '');
 }
 
 function escapeHtml(s) {
@@ -160,12 +168,12 @@ function forwardedHeaders(request) {
   return h;
 }
 
-async function proxy(request, parsed, gatewayBase, { isLocal }) {
+async function proxy(request, parsed, gatewayBase, { isLocal, upstreamOverride = null, hops = 0 }) {
   const method = request.method.toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') {
     return htmlResponse(renderErrorPage({ title: 'Method not allowed', message: `${escapeHtml(method)} is not supported for ${parsed.scheme}:// URLs.` }), 405, { Allow: 'GET, HEAD' });
   }
-  const upstreamUrl = buildUpstreamUrl(gatewayBase, parsed);
+  const upstreamUrl = upstreamOverride || buildUpstreamUrl(gatewayBase, parsed);
   // The timeout only covers the response headers: once they are in, the body streams for as
   // long as it takes (large files), and Chromium cancels the stream if the tab goes away.
   const ctrl = new AbortController();
@@ -204,8 +212,17 @@ async function proxy(request, parsed, gatewayBase, { isLocal }) {
   }
   if (REDIRECT_STATUSES.has(upstream.status)) {
     const loc = upstream.headers.get('location');
-    if (loc) headers.set('location', rewriteLocation(loc, parsed.scheme));
     try { await upstream.body?.cancel(); } catch { /* ignore */ }
+    if (loc) {
+      const rewritten = rewriteLocation(loc, parsed.scheme);
+      // Public gateways bounce path requests to their subdomain origin (ipfs.io/ipfs/<cid>/ →
+      // <cid>.ipfs.dweb.link/). Rewritten, that is the very URL being served, so handing it to
+      // Chromium would loop forever: follow such self-redirects here instead.
+      if (hops < MAX_SELF_REDIRECTS && /^https?:\/\//i.test(loc) && isSameTarget(rewritten, parsed)) {
+        return proxy(request, parsed, gatewayBase, { isLocal, upstreamOverride: new URL(loc, upstreamUrl).toString(), hops: hops + 1 });
+      }
+      headers.set('location', rewritten);
+    }
     return new Response(null, { status: upstream.status, headers });
   }
   const noBody = method === 'HEAD' || upstream.status === 204 || upstream.status === 304;

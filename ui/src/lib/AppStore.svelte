@@ -8,8 +8,16 @@
         type MiniApp, type Category
     } from './homeStore';
     import { get } from 'svelte/store';
+    import { onMount } from 'svelte';
+    import { pushOverlay, popOverlay } from './uiState';
 
     let { onclose = () => {} }: { onclose?: () => void } = $props();
+
+    // Full-screen overlay: hide the native web view while the store is open.
+    onMount(() => {
+        pushOverlay();
+        return popOverlay;
+    });
 
     // ── Scroll state for parallax ─────────────────────────────────────────────
     let scrollEl: HTMLDivElement;

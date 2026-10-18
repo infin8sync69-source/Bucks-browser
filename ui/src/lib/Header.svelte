@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, tick } from "svelte";
     import { browserStore, activeTab } from "$lib/stores";
     import {
         LayoutGrid,
@@ -11,35 +12,56 @@
         Bookmark,
         Clock,
         Wallet,
-        Moon,
+        Download,
+        Globe,
+        Sparkles,
+        Minus,
+        Square,
+        Copy,
     } from "lucide-svelte";
     import AppStore from "./AppStore.svelte";
     import { scale } from "svelte/transition";
     import { cubicOut } from "svelte/easing";
-    import { Window } from "@tauri-apps/api/window";
-
-    const appWindow = new Window("main");
+    import { bucks, hasBridge, isMac } from "./bridge";
+    import { settingsStore } from "./settingsStore";
+    import { focusOmniboxRequest, pushOverlay, popOverlay } from "./uiState";
 
     let isSettingsOpen = $state(false);
     let storeOpen = $state(false);
     let urlInput = $state("");
     let urlInputEl = $state<HTMLInputElement | null>(null);
+    let omniboxFocused = $state(false);
+    let showSuggestions = $state(false);
+    let suggestions = $state<string[]>([]);
+    let isMaximized = $state(false);
+    /** favicon URLs that failed to load, so the fallback glyph is shown instead */
+    let brokenFavicons = $state<Record<string, boolean>>({});
 
-    // Search engine URLs — read from settings (live, so switching mid-session works)
-    const SEARCH_ENGINES: Record<string, string> = {
-        duckduckgo: "https://duckduckgo.com/?q=",
-        google:     "https://google.com/search?q=",
-        brave:      "https://search.brave.com/search?q=",
-        bing:       "https://bing.com/search?q=",
-    };
-    function getSearchUrl(q: string): string {
-        const engine = (typeof localStorage !== "undefined"
-            ? localStorage.getItem("bucks_search_engine") : null) ?? "duckduckgo";
-        const base = SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo;
-        return base + encodeURIComponent(q);
-    }
+    const showWindowControls = !isMac;
 
+    // ── window controls (win32 / linux) ───────────────────────────────────────
+    onMount(() => {
+        bucks.window.isMaximized().then((v) => (isMaximized = v)).catch(() => {});
+        return bucks.window.onMaximized((v) => (isMaximized = v));
+    });
+
+    // ── overlays: the native web view is hidden while a dropdown covers it ─────
+    $effect(() => {
+        if (!isSettingsOpen) return;
+        pushOverlay();
+        return popOverlay;
+    });
+    $effect(() => {
+        if (!(showSuggestions && suggestions.length > 0)) return;
+        pushOverlay();
+        return popOverlay;
+    });
+
+    // ── keyboard ──────────────────────────────────────────────────────────────
+    // Inside Bucks Browser the native menu owns the accelerators and forwards them as
+    // shortcut events (handled in the store). This handler only serves the plain-browser mock.
     function handleGlobalKey(e: KeyboardEvent) {
+        if (hasBridge) return;
         const mod = e.metaKey || e.ctrlKey;
         if (!mod) return;
         if (e.key === "t") {
@@ -51,15 +73,53 @@
             if (id) browserStore.closeTab(id);
         } else if (e.key === "l") {
             e.preventDefault();
-            urlInputEl?.focus();
-            urlInputEl?.select();
+            focusOmnibox();
         } else if (e.key === "r") {
             e.preventDefault();
             browserStore.refresh();
         }
     }
-    let showSuggestions = $state(false);
-    let suggestions = $state<string[]>([]);
+
+    function focusOmnibox() {
+        urlInputEl?.focus();
+        urlInputEl?.select();
+    }
+
+    // The 'focus-omnibox' shortcut (and 'new-tab') bump a counter in the UI state store.
+    let lastFocusRequest = $focusOmniboxRequest;
+    $effect(() => {
+        const n = $focusOmniboxRequest;
+        if (n === lastFocusRequest) return;
+        lastFocusRequest = n;
+        void tick().then(focusOmnibox);
+    });
+
+    // ── omnibox text follows the active tab ───────────────────────────────────
+    // A page that updates while the user is typing must not clobber their input.
+    let syncedTabId = "";
+    let appliedUrl = "";
+    $effect(() => {
+        const tab = $activeTab;
+        if (!tab) return;
+        const idChanged = tab.id !== syncedTabId;
+        if (idChanged || (tab.url !== appliedUrl && !omniboxFocused)) {
+            urlInput = tab.url === "bucks://newtab" ? "" : tab.url;
+            appliedUrl = tab.url;
+            if (idChanged) showSuggestions = false;
+        }
+        syncedTabId = tab.id;
+    });
+
+    const canGoBack = $derived(
+        !!$activeTab &&
+            (($activeTab.type === "external" && !!$activeTab.canGoBack) ||
+                $activeTab.historyBack.length > 0),
+    );
+    const canGoForward = $derived(
+        !!$activeTab &&
+            (($activeTab.type === "external" && !!$activeTab.canGoForward) ||
+                $activeTab.historyForward.length > 0),
+    );
 
     // Common search suggestions
     const commonSuggestions = [
@@ -71,13 +131,6 @@
         "reddit.com"
     ];
 
-    $effect(() => {
-        if ($activeTab) {
-            urlInput =
-                $activeTab.url === "bucks://newtab" ? "" : $activeTab.url;
-        }
-    });
-
     function updateSuggestions() {
         const input = urlInput.trim().toLowerCase();
         if (!input) {
@@ -87,21 +140,14 @@
         }
 
         // Filter suggestions based on input
-        const filtered = commonSuggestions.filter(s => 
+        const filtered = commonSuggestions.filter(s =>
             s.toLowerCase().includes(input)
         );
 
         // Add dynamic suggestions
-        if (input.includes(".")) {
-            // Looks like domain pattern, suggest common TLDs
-            const parts = input.split(".");
-            if (parts.length === 1) {
-                filtered.push(`${input}.com`);
-                filtered.push(`${input}.org`);
-                filtered.push(`${input}.net`);
-            }
-        } else if (!input.includes(" ")) {
-            // Suggest as search keywords too
+        if (!input.includes(".") && !input.includes(" ")) {
+            // A single word: offer the usual TLDs, then search
+            filtered.push(`${input}.com`, `${input}.org`, `${input}.net`);
             if (filtered.length < 3) {
                 filtered.push(`Search for "${input}"`);
             }
@@ -120,45 +166,52 @@
         showSuggestions = false;
     }
 
+    /**
+     * Turn omnibox text into a URL: bucks://, http(s)/file/ipfs/ipns URLs pass through unchanged
+     * (the main process normalises CIDs and reports the canonical URL back), bare hosts get
+     * http(s)://, absolute paths become file:// URLs and anything else is a search.
+     */
+    function resolveInput(input: string): string {
+        if (/^(bucks:\/\/|https?:\/\/|file:\/\/|ipfs:\/\/|ipns:\/\/)/i.test(input)) return input;
+        if (/^localhost(:\d+)?($|[/?#])/i.test(input)) return `http://${input}`;
+        if (/^\d+\.\d+\.\d+\.\d+(:\d+)?($|[/?#])/.test(input)) return `http://${input}`;
+        // Bare CID (v0 "Qm…" or v1 base32 "b…"), optionally followed by a path
+        if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})(\/\S*)?$/.test(input)) return `ipfs://${input}`;
+        // Domain names (has TLD and no spaces)
+        if (/^[\w-]+(\.[\w-]+)+([/:?#].*)?$/.test(input) && !input.includes(" ")) return `https://${input}`;
+        // Absolute file paths only; "~/x" and "./x" cannot be resolved without a home directory
+        if (/^\/[^\s]*$/.test(input)) return `file://${input}`;
+        if (/^[a-zA-Z]:[\\/][^\s]*$/.test(input)) return `file:///${input.replace(/\\/g, "/")}`;
+        return settingsStore.searchUrl(input);
+    }
+
     function handleUrlSubmit(e: Event) {
         e.preventDefault();
         const input = urlInput.trim();
         if (!input) return;
-
-        let targetUrl = "";
-
-        // Check for protocol schemes first
-        if (/^(https?:\/\/|file:\/\/|ipfs:\/\/|ipns:\/\/)/i.test(input)) {
-            targetUrl = input;
-        }
-        // Check for localhost and port numbers
-        else if (/^localhost(:\d+)?($|\/)/i.test(input)) {
-            targetUrl = `http://${input}`;
-        }
-        // Check for IP addresses
-        else if (/^\d+\.\d+\.\d+\.\d+/.test(input)) {
-            targetUrl = /^\d+\.\d+\.\d+\.\d+:\d+/.test(input)
-                ? `http://${input}`
-                : `http://${input}`;
-        }
-        // Check for domain names (has TLD and no spaces)
-        else if (/^[\w-]+(\.[\w-]+)+([/:?#].*)?$/.test(input) && !input.includes(" ")) {
-            targetUrl = input.startsWith("http") ? input : `https://${input}`;
-        }
-        // Check if it looks like a file path
-        else if (/^(\/|~|\.\.?\/)/.test(input)) {
-            targetUrl = `file://${input.startsWith("/") ? input : process.env.HOME + "/" + input}`;
-        }
-        // Otherwise, treat as a search query using the selected search engine
-        else {
-            targetUrl = getSearchUrl(input);
-        }
+        showSuggestions = false;
+        const targetUrl = resolveInput(input);
 
         if ($browserStore.activeTabId) {
             browserStore.navigateActiveTab(targetUrl);
         } else {
             browserStore.createTab(targetUrl);
         }
+        urlInputEl?.blur();
+    }
+
+    function onOmniboxKeydown(e: KeyboardEvent) {
+        if (e.key === "Escape") {
+            showSuggestions = false;
+            const tab = $activeTab;
+            urlInput = !tab || tab.url === "bucks://newtab" ? "" : tab.url;
+            urlInputEl?.blur();
+        }
+    }
+
+    function goTo(url: string) {
+        isSettingsOpen = false;
+        browserStore.navigateActiveTab(url);
     }
 </script>
 

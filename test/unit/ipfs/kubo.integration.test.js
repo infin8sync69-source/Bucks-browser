@@ -37,6 +37,7 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
   process.env.BUCKS_KUBO_BIN = binary;
   t.after(() => { if (prevEnv === undefined) delete process.env.BUCKS_KUBO_BIN; else process.env.BUCKS_KUBO_BIN = prevEnv; });
 
+  const exitListenersBefore = process.listenerCount('exit');
   const childrenBefore = countResources('ChildProcess');
   const timersBefore = countResources('Timeout');
 
@@ -149,7 +150,7 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
 
   assert.equal(countResources('ChildProcess'), childrenBefore, 'no child process handle left behind');
   assert.ok(countResources('Timeout') <= timersBefore + 1, 'no stray kubo timers'); // +1: this test's own timeout
-  assert.equal(process.listenerCount('exit'), process.listenerCount('exit'), 'exit listeners cleaned up with the child');
+  assert.equal(process.listenerCount('exit'), exitListenersBefore, 'exit listeners cleaned up with the child');
 });
 
 test('embedded Kubo: a second start() after stop() reuses the persisted ports and repo', { skip: haveBinary ? false : 'no Kubo binary (set BUCKS_KUBO_BIN)', timeout: 180_000 }, async (t) => {
@@ -172,4 +173,66 @@ test('embedded Kubo: a second start() after stop() reuses the persisted ports an
   const pid = kubo.pid();
   await kubo.stop();
   assert.equal(isAlive(pid), false);
+});
+
+test('embedded Kubo: a killed daemon is restarted automatically; an external-mode client attaches without owning the node', { skip: haveBinary ? false : 'no Kubo binary (set BUCKS_KUBO_BIN)', timeout: 180_000 }, async (t) => {
+  const userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-kubo-it3-'));
+  const prevEnv = process.env.BUCKS_KUBO_BIN;
+  process.env.BUCKS_KUBO_BIN = binary;
+  t.after(() => { if (prevEnv === undefined) delete process.env.BUCKS_KUBO_BIN; else process.env.BUCKS_KUBO_BIN = prevEnv; });
+  const kubo = createKubo({ settings: fakeSettings, userData, resourcesDir: path.join(userData, 'no-resources'), getMainWindow: () => null, log: quietLog });
+  t.after(() => kubo.stop());
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+
+  const first = await kubo.start();
+  const oldPid = kubo.pid();
+  const seen = [];
+  kubo.onStatus((s) => seen.push(s));
+  process.kill(oldPid, 'SIGKILL');
+
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline && !(seen.some((s) => s.state === 'error') && kubo.isReady())) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  const crash = seen.find((s) => s.state === 'error');
+  assert.ok(crash, 'a crash is reported as state "error"');
+  assert.match(crash.message, /IPFS daemon exited unexpectedly .*restarting in 2s \(attempt 1\/3\)/);
+  assert.equal(crash.api_url, null);
+  assert.equal(kubo.isReady(), true, 'node is back after the automatic restart');
+  assert.notEqual(kubo.pid(), oldPid);
+  assert.equal(kubo.status().api_url, first.api_url);
+  assert.equal(kubo.status().peer_id, first.peer_id);
+
+  // external mode against the node we just restarted
+  const external = createKubo({
+    settings: { get: () => ({ ipfs: { mode: 'external', externalApiUrl: `${first.api_url}/`, publicGateway: 'https://ipfs.io', preferredGateway: 'local' } }), onChange: () => () => {} },
+    userData: path.join(userData, 'external-profile'),
+    resourcesDir: path.join(userData, 'no-resources'),
+    getMainWindow: () => null,
+    log: quietLog,
+  });
+  assert.equal(external.status().source, 'external_api');
+  const attached = await external.start();
+  assert.equal(attached.state, 'ready');
+  assert.equal(attached.source, 'external_api');
+  assert.equal(attached.embedded, false);
+  assert.equal(attached.api_url, first.api_url);
+  assert.equal(attached.gateway_url, first.gateway_url);
+  assert.equal(attached.peer_id, first.peer_id);
+  assert.equal((await external.stop()).message, 'Disconnected from the external IPFS node.');
+  assert.equal((await kubo.rpc.id()).ID, first.peer_id, 'stopping the external client must not shut the node down');
+
+  // external node unreachable → clear error status, start() rejects
+  const dead = createKubo({
+    settings: { get: () => ({ ipfs: { mode: 'external', externalApiUrl: 'http://127.0.0.1:9' } }), onChange: () => () => {} },
+    userData: path.join(userData, 'dead-profile'),
+    resourcesDir: path.join(userData, 'no-resources'),
+    getMainWindow: () => null,
+    log: quietLog,
+  });
+  await assert.rejects(dead.start(), /Kubo RPC 'version' failed/);
+  assert.equal(dead.status().state, 'error');
+  assert.equal(dead.isReady(), false);
+
+  await kubo.stop();
 });
