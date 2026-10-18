@@ -123,6 +123,38 @@ test('shareableAddrs drops loopback, unspecified, link-local, relay and certhash
   assert.deepEqual(shareableAddrs([`/ip4/127.0.0.1/tcp/1/p2p/${A}`]), []);
 });
 
+test('shareableAddrs puts the LAN address first and keeps it under the cap (Kubo sorts addrs as strings)', () => {
+  // What `ipfs id` returns on an Ubuntu laptop with Docker: sorted, so docker0 comes before Wi-Fi.
+  const id = [
+    '/ip4/10.8.0.6/tcp/40785',
+    '/ip4/100.101.102.103/tcp/40785',
+    '/ip4/127.0.0.1/tcp/40785',
+    '/ip4/172.17.0.1/tcp/40785',
+    '/ip4/172.17.0.1/udp/40785/quic-v1',
+    '/ip4/192.168.1.20/udp/40785/quic-v1',
+    '/ip4/192.168.1.20/tcp/40785',
+    '/ip4/192.168.122.1/tcp/40785',
+    '/ip4/203.0.113.7/tcp/40785',
+    '/ip6/2001:db8::5/tcp/40785',
+  ].map((a) => `${a}/p2p/${A}`);
+  assert.deepEqual(shareableAddrs(id), [
+    '/ip4/192.168.1.20/tcp/40785',
+    '/ip4/192.168.1.20/udp/40785/quic-v1',
+    '/ip4/10.8.0.6/tcp/40785',
+    '/ip4/100.101.102.103/tcp/40785',
+    '/ip4/203.0.113.7/tcp/40785',
+    '/ip6/2001:db8::5/tcp/40785',
+    '/ip4/192.168.122.1/tcp/40785',
+    '/ip4/172.17.0.1/tcp/40785',
+    '/ip4/172.17.0.1/udp/40785/quic-v1',
+  ]);
+  // Many bridges sorted first must not push the LAN address past the 16-address cap.
+  const bridges = Array.from({ length: 20 }, (_, i) => `/ip4/172.${18 + (i % 10)}.${i}.1/tcp/40785`);
+  const capped = shareableAddrs([...bridges, '/ip4/192.168.1.20/tcp/40785']);
+  assert.equal(capped.length, 16);
+  assert.equal(capped[0], '/ip4/192.168.1.20/tcp/40785');
+});
+
 test('parsePairInput accepts a peer id or a /p2p multiaddr', () => {
   assert.deepEqual(parsePairInput(A), { peerId: A, addrs: [] });
   assert.deepEqual(parsePairInput(`  ${A_K51} `), { peerId: A, addrs: [] });

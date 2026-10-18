@@ -151,7 +151,9 @@ function isUnusableAddr(addr) {
  * (127.0.0.0/8, ::1), unspecified and link-local IPv6, relay (/p2p-circuit) addresses and
  * /certhash/ addresses (webtransport / webrtc-direct: their certificate hashes rotate, which would
  * churn the stored pairing and Peering config; tcp and quic-v1 cover direct connections), with
- * the /p2p suffix stripped, deduped, at most 16.
+ * the /p2p suffix stripped, deduped, ordered best first (see addrRank) and capped at 16.
+ * Kubo returns its addresses sorted as strings, which would put a Docker / VM bridge such as
+ * 172.17.0.1 ahead of the Wi-Fi address; the UI shows addrs[0] as the pairing address.
  * @param {unknown} idAddresses  e.g. (await rpc.id()).Addresses
  * @returns {string[]}
  */
@@ -164,9 +166,43 @@ export function shareableAddrs(idAddresses) {
     const a = stripP2p(raw);
     if (!isValidAddr(a) || isLoopbackAddr(a) || isUnusableAddr(a) || out.includes(a)) continue;
     out.push(a);
-    if (out.length >= MAX_ADDRS) break;
   }
-  return out;
+  // Array.prototype.sort is stable: equal ranks keep Kubo's order.
+  return out
+    .map((a, i) => ({ a, i, r: addrRank(a) }))
+    .sort((x, y) => x.r - y.r || x.i - y.i)
+    .slice(0, MAX_ADDRS)
+    .map((x) => x.a);
+}
+
+/**
+ * How likely another computer on the user's network can dial this address (lower is better):
+ * home/office LAN IPv4 (192.168/16, 10/8, 172.16/12) first, then CGNAT / Tailscale (100.64/10),
+ * public IPv4, IPv6; within a rank, TCP before UDP. An IPv4 address ending in .1 is ranked after
+ * all of these: on a laptop it is almost always a bridge the machine itself hosts (docker0
+ * 172.17.0.1, libvirt 192.168.122.1, VMware / Parallels host networks), which no other computer
+ * can reach, whereas DHCP gives the gateway's .1 to the router.
+ * @param {string} addr  multiaddr without /p2p
+ * @returns {number}
+ */
+export function addrRank(addr) {
+  const transport = /\/tcp\//.test(addr) ? 0 : 1;
+  const m = /^\/ip4\/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(\/|$)/.exec(addr);
+  let rank;
+  if (m) {
+    const [a, b, , d] = m.slice(1, 5).map(Number);
+    if (a === 192 && b === 168) rank = 0;
+    else if (a === 10) rank = 1;
+    else if (a === 172 && b >= 16 && b <= 31) rank = 2;
+    else if (a === 100 && b >= 64 && b <= 127) rank = 3;
+    else rank = 4;
+    if (rank <= 3 && d === 1) rank += 10;
+  } else if (/^\/ip6\//i.test(addr)) {
+    rank = 5;
+  } else {
+    rank = 6; // dns4 / dns6 / dnsaddr and anything else
+  }
+  return rank * 2 + transport;
 }
 
 /**

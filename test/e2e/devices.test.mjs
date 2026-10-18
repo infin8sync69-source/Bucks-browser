@@ -57,8 +57,7 @@ function processesUsing(userData) {
   return found;
 }
 
-async function launch(tag) {
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), `bucks-e2e-dev-${tag}-`));
+async function launch(tag, userData = fs.mkdtempSync(path.join(os.tmpdir(), `bucks-e2e-dev-${tag}-`))) {
   const errors = [];
   const app = await electron.launch({
     cwd: root,
@@ -135,15 +134,29 @@ test('two Bucks installs pair over Kubo peering + pubsub and send a file', { tim
       for (const a of p.addrs) assert.ok(!a.includes('/p2p/'), `addrs must not carry /p2p: ${a}`);
     }
 
-    // A pairs with B using peerId + addrs; B pairs back with the pasted pairing-address form.
+    // A pairs with B (peerId + addrs). That connects the nodes, so B hears A's presence and lists it
+    // as discovered (untrusted) before B pairs back, as docs/DEVICES.md describes.
     const afterA = await A.page.evaluate((p) => window.bucks.devices.pair(p), { peerId: stB.self.peerId, name: 'macbook-air', addrs: pb.addrs });
     assert.equal(afterA.paired.length, 1);
     assert.equal(afterA.paired[0].peerId, stB.self.peerId);
-    const pasted = `${pa.addrs[0]}/p2p/${stA.self.peerId}`;
-    const afterB = await B.page.evaluate((peerId) => window.bucks.devices.pair({ peerId }), pasted);
+    assert.deepEqual([...afterA.paired[0].addrs].sort(), [...pb.addrs].sort());
+    const discoveredOnB = await waitFor(
+      () => B.page.evaluate((id) => window.bucks.devices.status().then((s) => s.discovered.find((d) => d.peerId === id) || null), stA.self.peerId),
+      { timeout: PEER_TIMEOUT, interval: 1000, label: 'B lists A as discovered' },
+    );
+    assert.equal(discoveredOnB.name, 'linux-laptop');
+    assert.equal(discoveredOnB.platform, process.platform);
+    if (!pa.loopback) assert.deepEqual([...discoveredOnB.addrs].sort(), [...pa.addrs].sort());
+    const beforeB = await B.page.evaluate(() => window.bucks.devices.status());
+    assert.equal(beforeB.paired.length, 0);
+    assert.equal(beforeB.received.length, 0);
+
+    // B pairs back with A's peerId + addrs (no name: it comes from A's presence).
+    const afterB = await B.page.evaluate((p) => window.bucks.devices.pair(p), { peerId: stA.self.peerId, addrs: pa.addrs });
     assert.equal(afterB.paired.length, 1);
     assert.equal(afterB.paired[0].peerId, stA.self.peerId);
-    assert.ok(afterB.paired[0].addrs.includes(pa.addrs[0]), `B stored A's addr without /p2p: ${JSON.stringify(afterB.paired[0].addrs)}`);
+    assert.ok(afterB.paired[0].addrs.includes(pa.addrs[0]), `B stored A's addr: ${JSON.stringify(afterB.paired[0].addrs)}`);
+    assert.ok(!afterB.discovered.some((d) => d.peerId === stA.self.peerId), 'a paired device leaves the discovered list');
 
     // Pairings are persisted in settings.ipfs.peers.
     const settingsA = await A.page.evaluate(() => window.bucks.settings.get());
@@ -159,7 +172,7 @@ test('two Bucks installs pair over Kubo peering + pubsub and send a file', { tim
     assert.equal(onA.paired[0].name, 'macbook-air');
     assert.equal(onA.paired[0].platform, process.platform);
     assert.equal(onB.paired[0].platform, process.platform);
-    assert.equal(onB.paired[0].name, 'linux-laptop', 'B learns the name from A\'s presence when paired by address');
+    assert.equal(onB.paired[0].name, 'linux-laptop', 'B learns the name from A\'s presence');
 
     // A adds a small HTML page and offers it to its devices.
     const title = 'Bucks Devices E2E';
@@ -211,14 +224,57 @@ test('two Bucks installs pair over Kubo peering + pubsub and send a file', { tim
     await row.getByRole('button', { name: 'Open shared.html in a new tab' }).waitFor({ timeout: 5000 });
     await B.page.screenshot({ path: path.join(ARTIFACTS, 'devices-B-received.png') });
 
+    // B quits (the laptop lid closes); A sends another file meanwhile. When B starts again with the
+    // same profile, the pairing comes back from settings + Peering.Peers and A's re-announced
+    // outbox delivers the share B missed.
+    const firstB = devices[1];
+    assert.deepEqual(firstB.errors, [], 'B console errors before restart');
+    // B also turns on auto-pin (Settings > Devices); it must survive the restart and pin on arrival.
+    const autoPinSettings = await firstB.page.evaluate(() => window.bucks.settings.set({ devices: { autoPin: true } }));
+    assert.equal(autoPinSettings.devices.autoPin, true);
+    assert.equal(autoPinSettings.ipfs.peers.length, 1, 'a devices patch must not drop the pairings');
+    await firstB.app.close();
+    await waitFor(() => (processesUsing(firstB.userData).length === 0 ? true : null), { timeout: 15_000, label: 'B fully exited' });
+    const html2 = '<!doctype html><title>second</title><p>sent while B was off</p>';
+    const added2 = await A.page.evaluate((content) => window.bucks.ipfs.addText(content, 'second.html'), html2);
+    await A.page.evaluate((s) => window.bucks.devices.share(s), { cid: added2.cid, name: 'second.html', size: Buffer.byteLength(html2) });
+    const B2 = await launch('B', firstB.userData);
+    devices[1] = B2;
+    await waitNodeReady(B2);
+    const restarted = await B2.page.evaluate(() => window.bucks.devices.status());
+    assert.equal(restarted.self.peerId, stB.self.peerId, 'B keeps its peer ID across restarts');
+    assert.deepEqual(restarted.paired.map((p) => p.peerId), [stA.self.peerId], 'B keeps its pairing across restarts');
+    assert.ok(restarted.received.some((r) => r.cid === added.cid), 'B keeps its received list across restarts');
+    const got2 = await waitFor(
+      () => B2.page.evaluate((cid) => window.bucks.devices.status().then((s) => {
+        const r = s.received.find((x) => x.cid === cid);
+        return r && s.paired[0]?.online && s.paired[0]?.connected ? r : null;
+      }), added2.cid),
+      { timeout: PEER_TIMEOUT, interval: 1000, label: 'restarted B reconnects and gets the share sent while it was off' },
+    );
+    assert.equal(got2.from, stA.self.peerId);
+    await waitFor(
+      () => B2.page.evaluate((cid) => Promise.all([window.bucks.devices.status(), window.bucks.ipfs.pinLs()]).then(([s, pins]) =>
+        s.received.find((x) => x.cid === cid)?.pinned === true && pins.some((p) => p.cid === cid)), added2.cid),
+      { timeout: PEER_TIMEOUT, interval: 1000, label: 'auto-pin pins the share on B' },
+    );
+    const cat2 = await B2.page.evaluate((cid) => window.bucks.ipfs.cat(cid), added2.cid);
+    assert.equal(Buffer.from(cat2, 'base64').toString('utf8'), html2);
+    const afterRestartB = await B2.page.evaluate(() => window.bucks.devices.status());
+    assert.equal(afterRestartB.received.filter((r) => r.cid === added.cid).length, 1, 'the first share is not duplicated by re-announcement');
+    await waitFor(
+      () => A.page.evaluate(() => window.bucks.devices.status()).then((s) => (s.paired[0]?.online && s.paired[0]?.connected ? s : null)),
+      { timeout: PEER_TIMEOUT, interval: 1000, label: 'A sees the restarted B online + connected' },
+    );
+
     // Unpair on both sides.
     const unA = await A.page.evaluate((id) => window.bucks.devices.unpair(id), stB.self.peerId);
-    const unB = await B.page.evaluate((id) => window.bucks.devices.unpair(id), stA.self.peerId);
+    const unB = await devices[1].page.evaluate((id) => window.bucks.devices.unpair(id), stA.self.peerId);
     assert.equal(unA.paired.length, 0);
     assert.equal(unB.paired.length, 0);
     assert.equal(unA.error, null, `A unpair error: ${unA.error}`);
     assert.equal(unB.error, null, `B unpair error: ${unB.error}`);
-    const settingsB = await B.page.evaluate(() => window.bucks.settings.get());
+    const settingsB = await devices[1].page.evaluate(() => window.bucks.settings.get());
     assert.deepEqual(settingsB.ipfs.peers, []);
 
     for (const d of devices) assert.deepEqual(d.errors, [], `${d.tag} console errors`);
