@@ -113,6 +113,18 @@ test('two Bucks installs pair over Kubo peering + pubsub and send a file', { tim
     assert.equal(stA.error, null, `A devices error: ${stA.error}`);
     assert.equal(stB.error, null, `B devices error: ${stB.error}`);
 
+    // The leftover-process check at the end must be able to see each app's processes.
+    if (process.platform === 'linux') {
+      for (const d of devices) {
+        const mainLog = fs.readFileSync(path.join(d.userData, 'logs', 'main.log'), 'utf8');
+        const kuboPid = Number([...mainLog.matchAll(/ipfs daemon started \(pid (\d+)\)/g)].pop()?.[1]);
+        assert.ok(kuboPid > 0, `${d.tag}: Kubo daemon pid not found in main.log`);
+        const live = processesUsing(d.userData);
+        assert.ok(live.includes(d.app.process().pid), `${d.tag}: Electron main process not detected`);
+        assert.ok(live.includes(kuboPid), `${d.tag}: Kubo daemon ${kuboPid} not detected`);
+      }
+    }
+
     await A.page.evaluate((n) => window.bucks.devices.rename(n), 'linux-laptop');
     await B.page.evaluate((n) => window.bucks.devices.rename(n), 'macbook-air');
 
