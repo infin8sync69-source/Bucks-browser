@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeCid, normalizeIpnsName, isCid, normalizeIpfsUrl, parseIpfsUrl, toGatewayUrl } from '../../../src/main/ipfs/cid.js';
+import { normalizeCid, normalizeIpnsName, isCid, isPeerId, normalizeIpfsUrl, parseIpfsUrl, toGatewayUrl } from '../../../src/main/ipfs/cid.js';
 
+// Every expected value below was computed with multiformats (CID.parse(...).toV1().toString(base)),
+// not guessed. CIDV0 → CIDV1 / CIDV1_B58 share one sha2-256 multihash; PEER_ID → K51 is the same
+// ed25519 identity multihash as a bare base58btc peer id and as a base36 CIDv1 libp2p-key.
 const CIDV0 = 'QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB';
-const CIDV1 = 'bafybeibml5uieyxa5tufngvg7fgwbkwvlsuntwbxgtskoqynbt7wlchmfm';
-// same multihash as CIDV1 but base58btc-encoded CIDv1
-const CIDV1_B58 = 'zdj7WiLB6JF4v7PPCPG1MgX5hHxuyHnaqRh9jQ1zgj4Bz9w5p';
+const CIDV1 = 'bafybeiasb5vpmaounyilfuxbd3lryvosl4yefqrfahsb2esg46q6tu6y5q';
+const CIDV1_B58 = 'zdj7WWeQ43G6JJvLWQWZpyHuAMq6uYWRjkBXFad11vE2LHhQ7';
 const PEER_ID = '12D3KooWBwSVa1Cm2m4K1gX5QcdJJhbkC9YD4YcFw8yR1VyXG6z8';
-const K51 = 'k51qzi5uqu5dkkciu33khkzbcmxtyhn376i1e83tya8kuy7z9euedzyr5nhoew';
+const K51 = 'k51qzi5uqu5dgyvmvgql0nj58n4xnp7e3od4z635hhljqrxqifa7bpdb52zrod';
+// legacy RSA-style peer id (sha2-256 multihash, Qm…) → base36 libp2p-key CID starts with k2k4
+const QM_PEER_K2K4 = 'k2k4r8jv7wf2wizyu2zao33iv1f3gg57gu4kxrgjw975a47avoiijb3g';
 
 test('CIDv0 → CIDv1 base32', () => {
   const out = normalizeCid(CIDV0);
@@ -65,8 +69,23 @@ test('normalizeIpfsUrl: non-ipfs urls and empty host pass through', () => {
 test('IPNS peer id 12D3Koo… → k51… base36', () => {
   const out = normalizeIpnsName(PEER_ID);
   assert.match(out, /^k51[a-z0-9]+$/);
+  assert.equal(out, K51);
   assert.equal(normalizeIpnsName(out), out); // idempotent
   assert.equal(normalizeIpnsName(K51), K51);
+  assert.equal(normalizeIpnsName(` ${PEER_ID} `), K51);
+  // legacy Qm… peer ids are libp2p keys too (never confused with a CIDv0 of content)
+  assert.equal(normalizeIpnsName(CIDV0), QM_PEER_K2K4);
+  assert.equal(normalizeIpnsName(QM_PEER_K2K4), QM_PEER_K2K4);
+});
+
+test('isPeerId recognises every textual form and rejects DNSLink names', () => {
+  assert.equal(isPeerId(PEER_ID), true);
+  assert.equal(isPeerId(K51), true);
+  assert.equal(isPeerId(CIDV0), true);
+  assert.equal(isPeerId(CIDV1), false); // dag-pb content CID, not a key
+  assert.equal(isPeerId('en.wikipedia-on-ipfs.org'), false);
+  assert.equal(isPeerId('12D3KooWnotreallyapeerid'), false);
+  assert.equal(isPeerId(''), false);
 });
 
 test('IPNS DNSLink name is lowercased and ipns urls normalise', () => {

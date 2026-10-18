@@ -2,8 +2,12 @@
 import { CID } from 'multiformats/cid';
 import { base32 } from 'multiformats/bases/base32';
 import { base36 } from 'multiformats/bases/base36';
+import { base58btc } from 'multiformats/bases/base58';
+import * as Digest from 'multiformats/hashes/digest';
 
 const LIBP2P_KEY_CODEC = 0x72;
+/** Bare base58btc peer ids: 12D3Koo… (ed25519, identity multihash) and the legacy Qm… form. */
+const BARE_PEER_ID = /^(1|Qm)[1-9A-HJ-NP-Za-km-z]{40,}$/;
 
 /** CIDv0 (Qm…) and any CIDv1 → CIDv1 base32 string, so it survives case-insensitive URL hosts. */
 export function normalizeCid(cidStr) {
@@ -11,10 +15,39 @@ export function normalizeCid(cidStr) {
   return cid.toV1().toString(base32);
 }
 
-/** IPNS name: peer IDs (12D3Koo…, Qm…) → base36 CIDv1 libp2p-key; DNSLink names pass through lowercased. */
+/**
+ * Decode a bare base58btc-encoded peer id (12D3Koo…, Qm…) into its multihash.
+ * Returns null when the string is not a complete, well-formed multihash.
+ */
+function decodeBarePeerId(str) {
+  if (!BARE_PEER_ID.test(str)) return null;
+  try {
+    const bytes = base58btc.baseDecode(str);
+    const mh = Digest.decode(bytes);
+    return mh.bytes.length === bytes.length ? mh : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the string is a libp2p peer id in any of its textual forms (12D3Koo…, Qm…, k51…, bafzaa…). */
+export function isPeerId(str) {
+  const s = String(str || '').trim();
+  if (decodeBarePeerId(s)) return true;
+  try {
+    const cid = CID.parse(s);
+    return cid.version === 1 && cid.code === LIBP2P_KEY_CODEC;
+  } catch {
+    return false;
+  }
+}
+
+/** IPNS name: peer IDs (12D3Koo…, Qm…, k51…) → base36 CIDv1 libp2p-key; DNSLink names pass through lowercased. */
 export function normalizeIpnsName(name) {
-  const trimmed = name.trim();
+  const trimmed = String(name ?? '').trim();
   if (!trimmed) return trimmed;
+  const bare = decodeBarePeerId(trimmed);
+  if (bare) return CID.createV1(LIBP2P_KEY_CODEC, bare).toString(base36);
   try {
     const cid = CID.parse(trimmed);
     if (cid.code === LIBP2P_KEY_CODEC || cid.version === 0) {

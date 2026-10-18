@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { buildUpstreamUrl, rewriteLocation, renderErrorPage, createIpfsHandler } from '../../../src/main/protocols/ipfs.js';
 import { parseIpfsUrl } from '../../../src/main/ipfs/cid.js';
 
-const CID = 'bafybeibml5uieyxa5tufngvg7fgwbkwvlsuntwbxgtskoqynbt7wlchmfm';
+const CID = 'bafybeiasb5vpmaounyilfuxbd3lryvosl4yefqrfahsb2esg46q6tu6y5q'; // QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB as CIDv1
 
 test('buildUpstreamUrl', () => {
   assert.equal(buildUpstreamUrl('http://127.0.0.1:8080', parseIpfsUrl(`ipfs://${CID}/a/b.txt?x=1#h`)), `http://127.0.0.1:8080/ipfs/${CID}/a/b.txt?x=1`);
@@ -80,4 +81,103 @@ test('handler: 503 refresh page while initializing, 502 when the gateway is unre
   const r2 = await dead(new Request(`ipfs://${CID}/`));
   assert.equal(r2.status, 502);
   assert.match(await r2.text(), /local IPFS gateway did not respond/);
+});
+
+/* ---------- proxying against a fake path gateway ---------- */
+
+/** Start a tiny HTTP server that records requests and replies per path. Closed via t.after. */
+async function fakeGateway(t, routes) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, method: req.method, headers: req.headers });
+    const route = routes[req.url.split('?')[0]] || routes['*'];
+    if (!route) { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('nope'); return; }
+    route(req, res);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => server.close(r)));
+  return { base: `http://127.0.0.1:${server.address().port}`, seen };
+}
+
+test('handler: streams from the local gateway, forwards request headers, copies response headers', async (t) => {
+  const gw = await fakeGateway(t, {
+    [`/ipfs/${CID}/a.txt`]: (req, res) => {
+      const body = 'hello ipfs';
+      if (req.headers.range === 'bytes=0-4') {
+        res.writeHead(206, { 'content-type': 'text/plain', 'content-range': 'bytes 0-4/10', 'content-length': '5', etag: '"abc"', 'x-ipfs-path': `/ipfs/${CID}/a.txt`, 'set-cookie': 'nope=1' });
+        res.end(body.slice(0, 5));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/plain', 'content-length': String(body.length), 'cache-control': 'public, max-age=29030400, immutable', etag: '"abc"' });
+      res.end(body);
+    },
+  });
+  const handler = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: gw.base }), settings: settings() });
+
+  const full = await handler(new Request(`ipfs://${CID}/a.txt?x=1`, { headers: { accept: 'text/plain', 'if-none-match': '"zzz"' } }));
+  assert.equal(full.status, 200);
+  assert.equal(await full.text(), 'hello ipfs');
+  assert.equal(full.headers.get('content-type'), 'text/plain');
+  assert.equal(full.headers.get('cache-control'), 'public, max-age=29030400, immutable');
+  assert.equal(gw.seen[0].url, `/ipfs/${CID}/a.txt?x=1`);
+  assert.equal(gw.seen[0].headers.accept, 'text/plain');
+  assert.equal(gw.seen[0].headers['if-none-match'], '"zzz"');
+  assert.equal(gw.seen[0].headers['accept-encoding'], 'identity');
+
+  const ranged = await handler(new Request(`ipfs://${CID}/a.txt`, { headers: { range: 'bytes=0-4' } }));
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers.get('content-range'), 'bytes 0-4/10');
+  assert.equal(ranged.headers.get('x-ipfs-path'), `/ipfs/${CID}/a.txt`);
+  assert.equal(ranged.headers.get('set-cookie'), null); // not on the copy list
+  assert.equal(await ranged.text(), 'hello');
+
+  const head = await handler(new Request(`ipfs://${CID}/a.txt`, { method: 'HEAD' }));
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), '');
+  assert.equal(gw.seen.at(-1).method, 'HEAD');
+});
+
+test('handler: gateway redirects are rewritten back to ipfs://, 504 becomes the not-found page', async (t) => {
+  const gw = await fakeGateway(t, {
+    [`/ipfs/${CID}/dir`]: (_req, res) => { res.writeHead(301, { location: `/ipfs/${CID}/dir/` }); res.end(); },
+    [`/ipfs/${CID}/slow`]: (_req, res) => { res.writeHead(504, { 'content-type': 'text/plain' }); res.end('gateway timeout'); },
+    '/ipns/example.com/': (_req, res) => { res.writeHead(302, { location: `http://127.0.0.1:1/ipfs/${CID}/x/` }); res.end(); },
+  });
+  const handler = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: gw.base }), settings: settings() });
+
+  const redirect = await handler(new Request(`ipfs://${CID}/dir`));
+  assert.equal(redirect.status, 301);
+  assert.equal(redirect.headers.get('location'), `ipfs://${CID}/dir/`);
+
+  const abs = await handler(new Request('ipns://example.com/'));
+  assert.equal(abs.status, 302);
+  assert.equal(abs.headers.get('location'), `ipfs://${CID}/x/`);
+
+  const slow = await handler(new Request(`ipfs://${CID}/slow`));
+  assert.equal(slow.status, 504);
+  assert.match(await slow.text(), /Content not found on the IPFS network/);
+});
+
+test('handler: public gateway when the node is stopped or preferredGateway=public', async (t) => {
+  const pub = await fakeGateway(t, { '*': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`public:${req.url}`); } });
+  const local = await fakeGateway(t, { '*': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`local:${req.url}`); } });
+
+  const stopped = createIpfsHandler({ kubo: fakeKubo('stopped'), settings: settings({ publicGateway: `${pub.base}/` }) });
+  assert.equal(await (await stopped(new Request(`ipfs://${CID}/p`))).text(), `public:/ipfs/${CID}/p`);
+
+  const prefersPublic = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base, preferredGateway: 'public' }) });
+  assert.equal(await (await prefersPublic(new Request(`ipfs://${CID}/q`))).text(), `public:/ipfs/${CID}/q`);
+
+  const prefersLocal = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base }) });
+  assert.equal(await (await prefersLocal(new Request(`ipfs://${CID}/r`))).text(), `local:/ipfs/${CID}/r`);
+  assert.equal(local.seen.length, 1);
+  assert.equal(pub.seen.length, 2);
+});
+
+test('handler never throws: a kubo that explodes yields a 500 page', async () => {
+  const broken = { isReady: () => { throw new Error('boom'); }, gatewayUrl: () => null, status: () => ({ state: 'error', message: 'x' }) };
+  const handler = createIpfsHandler({ kubo: broken, settings: settings() });
+  const res = await handler(new Request(`ipfs://${CID}/`));
+  assert.equal(res.status, 500);
+  assert.match(await res.text(), /boom/);
 });

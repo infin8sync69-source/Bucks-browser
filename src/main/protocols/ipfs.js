@@ -10,7 +10,7 @@ import { createLogger } from '../log.js';
 
 const log = createLogger('ipfs-protocol');
 
-const UPSTREAM_HEADERS_TIMEOUT_MS = 60_000;
+const UPSTREAM_HEADERS_TIMEOUT_MS = 60_000; // Kubo's own gateway timeout is 60 s for content not found on the network
 const FORWARDED_REQUEST_HEADERS = ['range', 'accept', 'if-none-match', 'if-modified-since'];
 const FORWARDED_RESPONSE_HEADERS = [
   'content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified',
@@ -166,13 +166,18 @@ async function proxy(request, parsed, gatewayBase, { isLocal }) {
     return htmlResponse(renderErrorPage({ title: 'Method not allowed', message: `${escapeHtml(method)} is not supported for ${parsed.scheme}:// URLs.` }), 405, { Allow: 'GET, HEAD' });
   }
   const upstreamUrl = buildUpstreamUrl(gatewayBase, parsed);
+  // The timeout only covers the response headers: once they are in, the body streams for as
+  // long as it takes (large files), and Chromium cancels the stream if the tab goes away.
+  const ctrl = new AbortController();
+  const headersTimer = setTimeout(() => ctrl.abort(new DOMException('Upstream headers timed out', 'TimeoutError')), UPSTREAM_HEADERS_TIMEOUT_MS);
+  headersTimer.unref?.();
   let upstream;
   try {
     upstream = await fetch(upstreamUrl, {
       method,
       headers: forwardedHeaders(request),
       redirect: 'manual',
-      signal: AbortSignal.timeout(UPSTREAM_HEADERS_TIMEOUT_MS),
+      signal: ctrl.signal,
     });
   } catch (e) {
     if (e?.name === 'TimeoutError') return htmlResponse(notFoundPage(parsed), 504);
@@ -183,6 +188,8 @@ async function proxy(request, parsed, gatewayBase, { isLocal }) {
       message: 'Reload to try again. If the problem persists, restart the IPFS node from <a href="bucks://ipfs">bucks://ipfs</a>.',
       detail: reason,
     }), 502);
+  } finally {
+    clearTimeout(headersTimer);
   }
 
   if (upstream.status === 504 || upstream.status === 502) {

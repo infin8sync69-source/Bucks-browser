@@ -1,6 +1,7 @@
 // Native application menu. Its main job is to own the keyboard accelerators: each one is
 // forwarded to the chrome as 'bucks:app:shortcut' { action } (the renderer owns the tab model),
-// except zoom (applied directly to the active web contents as well) and devtools (main only).
+// Zoom and devtools are applied here as well (only main can reach a tab's web contents); the
+// action is still emitted so the chrome can react (e.g. update a zoom indicator).
 
 import { app, Menu, shell } from 'electron';
 import { createLogger } from './log.js';
@@ -40,9 +41,11 @@ export function buildMenuTemplate({ platform = process.platform, emit, tabs, get
 
   const toggleDevTools = () => {
     const wc = tabs.getActiveWebContents() || getMainWindow()?.webContents;
-    if (!wc || wc.isDestroyed()) return;
-    if (wc.isDevToolsOpened()) wc.closeDevTools();
-    else wc.openDevTools({ mode: 'detach' });
+    if (wc && !wc.isDestroyed()) {
+      if (wc.isDevToolsOpened()) wc.closeDevTools();
+      else wc.openDevTools({ mode: 'detach' });
+    }
+    emit('toggle-devtools');
   };
 
   const settingsItem = item('Settings…', 'CmdOrCtrl+,', 'open-settings');

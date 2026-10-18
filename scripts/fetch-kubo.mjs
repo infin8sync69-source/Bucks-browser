@@ -4,7 +4,7 @@
 // electron-builder ${os} macro (linux | win | mac).
 //
 //   node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64]
-//                               [--version vX.Y.Z] [--all-arch] [--force]
+//                               [--version vX.Y.Z] [--all-arch] [--force] [--skip-checksum]
 //
 // Set KUBO_DIST_URL to download from a mirror. HTTPS_PROXY is honoured on Node ≥ 22.21 by
 // re-executing with NODE_USE_ENV_PROXY=1 (no proxy library needed).
@@ -48,14 +48,16 @@ const { values: opts } = parseArgs({
     version: { type: 'string' },
     'all-arch': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
+    'skip-checksum': { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
   strict: true,
 });
 
 if (opts.help) {
-  console.log(`Usage: node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64] [--version vX.Y.Z] [--all-arch] [--force]
-Downloads Kubo from ${distBaseUrl()} into resources/kubo/<os>-<arch>/ (os = linux | win | mac).`);
+  console.log(`Usage: node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64] [--version vX.Y.Z] [--all-arch] [--force] [--skip-checksum]
+Downloads Kubo from ${distBaseUrl()} into resources/kubo/<os>-<arch>/ (os = linux | win | mac).
+Every archive is verified against its published .sha512; --skip-checksum only proceeds with a warning (mirrors without checksums).`);
   process.exit(0);
 }
 
@@ -104,6 +106,7 @@ async function main() {
         arch: t.arch,
         version,
         destDir: t.dir,
+        requireChecksum: !opts['skip-checksum'],
         log: { info: (m) => console.log(`  ${m}`), warn: (m) => console.warn(`  warning: ${m}`) },
         onProgress: (received, total) => {
           if (!total || !process.stdout.isTTY) return;

@@ -18,10 +18,12 @@ const API_POLL_INTERVAL_MS = 500;
 const RESTART_BACKOFF_MS = [2000, 5000, 15_000];
 const MAX_RESTARTS = RESTART_BACKOFF_MS.length;
 const STABLE_RESET_MS = 120_000;
+const EXTERNAL_HEALTH_INTERVAL_MS = 30_000;
 const KUBO_LOG_MAX_BYTES = 5 * 1024 * 1024;
 const OUTPUT_TAIL_LINES = 40;
 const DEFAULT_PUBLIC_GATEWAY = 'https://ipfs.io';
 const DEFAULT_EXTERNAL_API = 'http://127.0.0.1:5001';
+const DEFAULT_SWARM_ADDRS = ['/ip4/0.0.0.0/tcp/4001', '/ip6/::/tcp/4001', '/ip4/0.0.0.0/udp/4001/quic-v1', '/ip6/::/udp/4001/quic-v1'];
 
 /* ───────────────────────────── pure helpers (unit-tested) ───────────────────────────── */
 
@@ -58,21 +60,22 @@ export function multiaddrToHttpUrl(addr) {
 }
 
 /**
- * Apply Bucks' opinionated settings to a Kubo config object (idempotent, returns a copy).
- * Addresses.NoAnnounce / AppendAnnounce and everything else are left untouched.
+ * Apply Bucks' port assignments to a Kubo config object (idempotent, returns a copy).
+ * API and Gateway are bound to loopback on the reserved ports; every Swarm listen address
+ * keeps its transport but moves to the reserved swarm port so the embedded node never
+ * fights a user's own Kubo over 4001. Everything else (profile, datastore, …) is untouched.
  * @param {object} config  parsed <repo>/config
- * @param {{ apiPort: number, gatewayPort: number }} ports
+ * @param {{ apiPort: number, gatewayPort: number, swarmPort?: number }} ports
  */
-export function applyBucksConfig(config, { apiPort, gatewayPort }) {
+export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort }) {
   const out = structuredClone(config || {});
   out.Addresses = { ...(out.Addresses || {}) };
   out.Addresses.API = `/ip4/127.0.0.1/tcp/${apiPort}`;
   out.Addresses.Gateway = `/ip4/127.0.0.1/tcp/${gatewayPort}`;
-  out.Gateway = { ...(out.Gateway || {}), NoFetch: false, ExposeRoutingAPI: false };
-  out.Swarm = { ...(out.Swarm || {}) };
-  out.Swarm.ConnMgr = { ...(out.Swarm.ConnMgr || {}), LowWater: 50, HighWater: 200 };
-  out.Datastore = { ...(out.Datastore || {}), StorageMax: '20GB' };
-  out.API = { ...(out.API || {}), HTTPHeaders: {} };
+  if (Number.isInteger(swarmPort)) {
+    const swarm = Array.isArray(out.Addresses.Swarm) && out.Addresses.Swarm.length ? out.Addresses.Swarm : DEFAULT_SWARM_ADDRS;
+    out.Addresses.Swarm = [...new Set(swarm.map((a) => String(a).replace(/\/(tcp|udp)\/\d+/, `/$1/${swarmPort}`)))];
+  }
   return out;
 }
 
@@ -86,7 +89,7 @@ export function candidateBinaryPaths({ env = process.env, resourcesDir, userData
   const out = [];
   if (env.BUCKS_KUBO_BIN) out.push(env.BUCKS_KUBO_BIN);
   if (resourcesDir) {
-    out.push(path.join(resourcesDir, 'kubo', bin)); // packaged layout
+    out.push(path.join(resourcesDir, 'kubo', bin)); // packaged layout (extraResources → resources/kubo/)
     try {
       out.push(path.join(resourcesDir, 'kubo', `${builderOsName(platform)}-${arch}`, bin)); // dev layout
     } catch { /* unsupported platform: skip the dev layout */ }
@@ -133,10 +136,6 @@ function isPortFree(port) {
   });
 }
 
-function isAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
-}
-
 /** Append-only log with a single rotation at `maxBytes` (kubo.log → kubo.log.1). */
 class RotatingLog {
   constructor(file, maxBytes = KUBO_LOG_MAX_BYTES) {
@@ -147,11 +146,16 @@ class RotatingLog {
   }
 
   open() {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    try { this.size = fs.statSync(this.file).size; } catch { this.size = 0; }
-    if (this.size > this.maxBytes) this.rotateFiles();
-    this.stream = fs.createWriteStream(this.file, { flags: 'a' });
-    this.stream.on('error', () => {});
+    if (this.stream) return;
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      try { this.size = fs.statSync(this.file).size; } catch { this.size = 0; }
+      if (this.size > this.maxBytes) this.rotateFiles();
+      this.stream = fs.createWriteStream(this.file, { flags: 'a' });
+      this.stream.on('error', () => {});
+    } catch {
+      this.stream = null; // logging is best-effort
+    }
   }
 
   rotateFiles() {
@@ -183,7 +187,7 @@ class RotatingLog {
 /**
  * Create the Kubo runtime supervisor.
  * @param {{
- *   settings: { get: () => any, onChange: (cb: Function) => Function },
+ *   settings: { get: () => any, onChange?: (cb: Function) => Function },
  *   userData: string,
  *   resourcesDir: string,
  *   getMainWindow?: () => any,
@@ -213,7 +217,6 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
   let rpc = null;
   /** @type {import('node:child_process').ChildProcess|null} */
   let child = null;
-  let adoptedPid = null; // daemon we reuse but did not spawn (no pid available)
   let binaryPath = null;
   let startPromise = null;
   let stopPromise = null;
@@ -221,6 +224,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
   let restartAttempts = 0;
   let restartTimer = null;
   let stableTimer = null;
+  let healthTimer = null;
   let outputTail = [];
   const kuboLog = new RotatingLog(logFile);
 
@@ -243,27 +247,31 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     }
   }
 
-  function initializing(message) {
-    setStatus({ state: 'initializing', message, version: null, peer_id: null });
+  function initializing(message, extra = {}) {
+    setStatus({ state: 'initializing', message, api_url: null, gateway_url: null, version: null, peer_id: null, ...extra });
   }
+
+  const OFFLINE = { api_url: null, gateway_url: null, version: null, peer_id: null };
 
   function ipfsSettings() {
     const s = settings.get?.() || {};
     return { ...(s.ipfs || {}) };
   }
 
-  /* ---------- runtime.json (ports) ---------- */
+  /* ---------- runtime.json (reserved ports, installed version) ---------- */
 
   async function loadRuntime() {
     try {
       const j = JSON.parse(await fsp.readFile(runtimeFile, 'utf8'));
+      const port = (v) => (Number.isInteger(v) && v > 0 && v < 65536 ? v : null);
       return {
-        apiPort: Number.isInteger(j.apiPort) ? j.apiPort : null,
-        gatewayPort: Number.isInteger(j.gatewayPort) ? j.gatewayPort : null,
+        apiPort: port(j.apiPort),
+        gatewayPort: port(j.gatewayPort),
+        swarmPort: port(j.swarmPort),
         version: typeof j.version === 'string' ? j.version : null,
       };
     } catch {
-      return { apiPort: null, gatewayPort: null, version: null };
+      return { apiPort: null, gatewayPort: null, swarmPort: null, version: null };
     }
   }
 
@@ -274,19 +282,19 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     await fsp.rename(tmp, runtimeFile);
   }
 
+  /** Make sure every reserved port is set, distinct and currently free; re-reserve the ones that are not. */
   async function ensurePorts(rt) {
     let changed = false;
-    for (const key of ['apiPort', 'gatewayPort']) {
-      if (!rt[key] || !(await isPortFree(rt[key]))) {
-        const fresh = await reservePort();
+    const taken = new Set();
+    for (const key of ['apiPort', 'gatewayPort', 'swarmPort']) {
+      if (!rt[key] || taken.has(rt[key]) || !(await isPortFree(rt[key]))) {
+        let fresh;
+        do { fresh = await reservePort(); } while (taken.has(fresh));
         if (rt[key]) log.warn(`${key} ${rt[key]} is busy, re-reserved ${fresh}`);
         rt[key] = fresh;
         changed = true;
       }
-    }
-    if (rt.apiPort === rt.gatewayPort) {
-      rt.gatewayPort = await reservePort();
-      changed = true;
+      taken.add(rt[key]);
     }
     if (changed) await saveRuntime(rt);
     return rt;
@@ -310,19 +318,24 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       version = FALLBACK_KUBO_VERSION;
     }
     let lastPct = -1;
-    const installed = await downloadKubo({
-      version,
-      destDir: binDir,
-      log,
-      onProgress: (received, total) => {
-        if (!total) return;
-        const pct = Math.floor((received / total) * 100);
-        if (pct !== lastPct && (pct % 5 === 0 || pct === 100)) {
-          lastPct = pct;
-          initializing(`Downloading IPFS node… ${pct}%`);
-        }
-      },
-    });
+    let installed;
+    try {
+      installed = await downloadKubo({
+        version,
+        destDir: binDir,
+        log,
+        onProgress: (received, total) => {
+          if (!total) return;
+          const pct = Math.floor((received / total) * 100);
+          if (pct !== lastPct && (pct % 5 === 0 || pct === 100)) {
+            lastPct = pct;
+            initializing(`Downloading IPFS node… ${pct}%`);
+          }
+        },
+      });
+    } catch (e) {
+      throw new Error(`Could not download the IPFS node (Kubo ${version}): ${e.message}. Check your network connection, or place a Kubo binary at ${path.join(binDir, kuboBinaryName())} (or set BUCKS_KUBO_BIN).`);
+    }
     const rt = await loadRuntime();
     await saveRuntime({ ...rt, version });
     return installed;
@@ -352,13 +365,19 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     if (fs.existsSync(path.join(repoDir, 'config'))) return;
     initializing('Initializing IPFS repository…');
     await fsp.mkdir(repoDir, { recursive: true });
-    await runIpfs(['init', '--profile=lowpower', '--empty-repo=false']);
+    await runIpfs(['init', '--profile=lowpower', '--empty-repo=true']);
   }
 
   async function patchConfig(rt) {
     const file = path.join(repoDir, 'config');
-    const current = JSON.parse(await fsp.readFile(file, 'utf8'));
+    let current;
+    try {
+      current = JSON.parse(await fsp.readFile(file, 'utf8'));
+    } catch (e) {
+      throw new Error(`The IPFS repository config at ${file} is unreadable (${e.message}). Delete the ${repoDir} folder to start over.`);
+    }
     const next = applyBucksConfig(current, rt);
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
     const tmp = `${file}.bucks.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(next, null, 2));
     await fsp.rename(tmp, file);
@@ -395,7 +414,6 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     const gatewayUrl = (await readRepoAddrFile('gateway')) || (rt.gatewayPort ? `http://127.0.0.1:${rt.gatewayPort}` : null);
     if (!gatewayUrl) return false;
     log.info(`Adopting already-running IPFS daemon at ${apiUrl}`);
-    adoptedPid = null;
     child = null;
     await becomeReady({ apiUrl, gatewayUrl, embedded: true, source: 'embedded_kubo', message: 'Embedded IPFS node is ready (reused running daemon).' });
     return true;
@@ -422,7 +440,17 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       log.error('ipfs daemon spawn error:', e.message);
       outputTail.push(`spawn error: ${e.message}`);
     });
-    proc.on('exit', (code, signal) => onChildExit(proc, code, signal));
+    // Last resort: never leave an orphan daemon behind when the host process exits.
+    const onHostExit = () => {
+      if (!childExited(proc)) {
+        try { process.platform === 'win32' ? forceKill(proc) : proc.kill('SIGTERM'); } catch { /* ignore */ }
+      }
+    };
+    process.once('exit', onHostExit);
+    proc.on('exit', (code, signal) => {
+      process.off('exit', onHostExit);
+      onChildExit(proc, code, signal);
+    });
     log.info(`ipfs daemon started (pid ${proc.pid}), repo ${repoDir}`);
     return proc;
   }
@@ -455,7 +483,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     const client = new KuboRpc(apiUrl);
     const [ver, ident] = await Promise.all([client.version(), client.id()]);
     rpc = client;
-    restartTimerClear();
+    clearRestartTimer();
     clearTimeout(stableTimer);
     stableTimer = setTimeout(() => { restartAttempts = 0; }, STABLE_RESET_MS);
     stableTimer.unref?.();
@@ -469,10 +497,34 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       version: ver?.Version || null,
       peer_id: ident?.ID || null,
     });
+    if (!embedded) startExternalHealthCheck(client);
   }
 
-  function restartTimerClear() {
+  function clearRestartTimer() {
     if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+  }
+
+  function clearHealthTimer() {
+    if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  }
+
+  /** Node went away while ready: enter 'error' and schedule a restart with backoff (3 attempts). */
+  function scheduleRestart(reason) {
+    rpc = null;
+    clearTimeout(stableTimer);
+    clearHealthTimer();
+    if (restartAttempts >= MAX_RESTARTS) {
+      setStatus({ state: 'error', message: `${reason}; gave up after ${MAX_RESTARTS} restarts. Start it again from bucks://ipfs.`, ...OFFLINE });
+      return;
+    }
+    const delay = RESTART_BACKOFF_MS[restartAttempts];
+    restartAttempts += 1;
+    setStatus({ state: 'error', message: `${reason}; restarting in ${delay / 1000}s (attempt ${restartAttempts}/${MAX_RESTARTS}).`, ...OFFLINE });
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      kubo.start().catch((e) => log.error('IPFS auto-restart failed:', e.message));
+    }, delay);
+    restartTimer.unref?.();
   }
 
   function onChildExit(proc, code, signal) {
@@ -481,34 +533,24 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     log.warn(`ipfs daemon exited (code ${code}, signal ${signal})`);
     if (stopRequested || status.state === 'stopped') return; // stop() handles state
     if (status.state !== 'ready') return; // the start() wait loop reports this
-    rpc = null;
-    clearTimeout(stableTimer);
     const tail = outputTail.slice(-3).join(' | ');
-    if (restartAttempts >= MAX_RESTARTS) {
-      setStatus({
-        state: 'error',
-        message: `IPFS daemon keeps crashing (code ${code ?? signal}); gave up after ${MAX_RESTARTS} restarts. ${tail}`.trim(),
-        api_url: null, gateway_url: null, version: null, peer_id: null,
-      });
-      return;
-    }
-    const delay = RESTART_BACKOFF_MS[restartAttempts];
-    restartAttempts += 1;
-    setStatus({
-      state: 'error',
-      message: `IPFS daemon exited unexpectedly (code ${code ?? signal}); restarting in ${delay / 1000}s (attempt ${restartAttempts}/${MAX_RESTARTS}). ${tail}`.trim(),
-      api_url: null, gateway_url: null, version: null, peer_id: null,
-    });
-    restartTimer = setTimeout(() => {
-      restartTimer = null;
-      kubo.start().catch((e) => log.error('IPFS auto-restart failed:', e.message));
-    }, delay);
-    restartTimer.unref?.();
+    scheduleRestart(`IPFS daemon exited unexpectedly (code ${code ?? signal})${tail ? `: ${tail}` : ''}`);
+  }
+
+  function startExternalHealthCheck(client) {
+    clearHealthTimer();
+    healthTimer = setInterval(async () => {
+      if (rpc !== client || status.state !== 'ready') { clearHealthTimer(); return; }
+      if (await apiAnswers(client.apiUrl)) return;
+      if (rpc !== client || status.state !== 'ready') return;
+      log.warn(`external IPFS node at ${client.apiUrl} stopped answering`);
+      scheduleRestart(`Lost the connection to the IPFS node at ${client.apiUrl}`);
+    }, EXTERNAL_HEALTH_INTERVAL_MS);
+    healthTimer.unref?.();
   }
 
   async function startEmbedded() {
-    initializing('Locating IPFS binary…');
-    setStatus({ source: 'embedded_kubo', embedded: true });
+    initializing('Locating IPFS binary…', { source: 'embedded_kubo', embedded: true });
     binaryPath = await locateBinary();
     log.info(`Using Kubo binary ${binaryPath}`);
     kuboLog.open();
@@ -529,8 +571,9 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
         await waitForApi(child, apiUrl);
         break;
       } catch (e) {
-        await killChild(child);
+        const proc = child;
         child = null;
+        await killChild(proc);
         if (attempt === 0 && isLockError(e.output || e.message) && !(await apiAnswers(apiUrl))) {
           log.warn('Stale repo.lock detected; clearing it and retrying once');
           await clearStaleLock();
@@ -544,7 +587,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
 
   async function startExternal(cfg) {
     const apiUrl = String(cfg.externalApiUrl || process.env.BUCKS_IPFS_API_URL || DEFAULT_EXTERNAL_API).trim().replace(/\/+$/, '');
-    setStatus({ state: 'initializing', source: 'external_api', embedded: false, message: `Connecting to IPFS node at ${apiUrl}…`, version: null, peer_id: null });
+    initializing(`Connecting to IPFS node at ${apiUrl}…`, { source: 'external_api', embedded: false });
     const client = new KuboRpc(apiUrl, { timeoutMs: 10_000 });
     await client.version();
     let gatewayUrl;
@@ -595,7 +638,8 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
 
   async function doStop() {
     stopRequested = true;
-    restartTimerClear();
+    clearRestartTimer();
+    clearHealthTimer();
     clearTimeout(stableTimer);
     if (startPromise) await startPromise.catch(() => {});
 
@@ -615,12 +659,11 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     }
     if (proc) await killChild(proc);
     child = null;
-    adoptedPid = null;
     kuboLog.close();
     setStatus({
       state: 'stopped',
       message: embedded ? 'IPFS node stopped.' : 'Disconnected from the external IPFS node.',
-      api_url: null, gateway_url: null, version: null, peer_id: null,
+      ...OFFLINE,
     });
   }
 
@@ -631,7 +674,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     start() {
       if (startPromise) return startPromise;
       if (status.state === 'ready' && rpc) return Promise.resolve({ ...status });
-      restartTimerClear();
+      clearRestartTimer();
       startPromise = (async () => {
         if (stopPromise) await stopPromise.catch(() => {});
         stopRequested = false;
@@ -642,10 +685,10 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
         } catch (e) {
           rpc = null;
           if (stopRequested) {
-            setStatus({ state: 'stopped', message: 'IPFS node stopped.', api_url: null, gateway_url: null, version: null, peer_id: null });
+            setStatus({ state: 'stopped', message: 'IPFS node stopped.', ...OFFLINE });
           } else {
             log.error('IPFS start failed:', e.message);
-            setStatus({ state: 'error', message: e.message || String(e), api_url: null, gateway_url: null, version: null, peer_id: null });
+            setStatus({ state: 'error', message: e.message || String(e), ...OFFLINE });
           }
           throw e;
         }
@@ -663,14 +706,17 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       return stopPromise;
     },
 
+    /** stop() followed by a fresh start() with the crash counter reset. */
     async restart() {
       await kubo.stop();
       restartAttempts = 0;
       return kubo.start();
     },
 
+    /** Snapshot of the current IpfsStatus (see docs/IPC-CONTRACT.md). */
     status: () => ({ ...status }),
 
+    /** Subscribe to status changes; returns an unsubscribe function. */
     onStatus(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
@@ -678,11 +724,12 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
 
     apiUrl: () => status.api_url,
     gatewayUrl: () => status.gateway_url,
+    /** The live RPC client while the node is ready, else null. */
     get rpc() { return rpc; },
     isReady: () => status.state === 'ready' && rpc !== null,
 
     /** Pid of the spawned daemon (null when not running or when an existing daemon was adopted). */
-    pid: () => (child && !childExited(child) ? child.pid : adoptedPid),
+    pid: () => (child && !childExited(child) ? child.pid : null),
 
     /** Path of the repo (useful for diagnostics). */
     repoPath: () => repoDir,
@@ -713,14 +760,6 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       kubo.restart().catch((e) => log.error('IPFS restart failed:', e.message));
     });
   }
-
-  // Last resort: never leave an orphan daemon behind when the host process exits.
-  const onProcessExit = () => {
-    if (child && !childExited(child)) {
-      try { process.platform === 'win32' ? forceKill(child) : child.kill('SIGTERM'); } catch { /* ignore */ }
-    }
-  };
-  process.once('exit', onProcessExit);
 
   return kubo;
 }

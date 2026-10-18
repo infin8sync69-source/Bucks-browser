@@ -40,6 +40,60 @@ function toNumber(v, fallback = 0) {
 }
 
 /**
+ * An AbortSignal that fires with a TimeoutError after `ms` (and mirrors `outer` when given).
+ * Unlike AbortSignal.timeout() the timer is ref'd and must be released by the caller, so a
+ * finished request never leaves a stray timer behind and a pending one keeps the loop alive.
+ */
+function timeoutSignal(ms, outer) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new DOMException(`Timed out after ${ms} ms`, 'TimeoutError')), ms);
+  const onOuterAbort = () => ctrl.abort(outer.reason);
+  if (outer) {
+    if (outer.aborted) onOuterAbort();
+    else outer.addEventListener('abort', onOuterAbort, { once: true });
+  }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    clearTimeout(timer);
+    outer?.removeEventListener('abort', onOuterAbort);
+  };
+  return { signal: ctrl.signal, release };
+}
+
+/** Wrap a Response so `release` runs once its body is fully read, errored or cancelled. */
+function releaseWhenConsumed(res, release) {
+  if (!res.body) {
+    release();
+    return res;
+  }
+  const reader = res.body.getReader();
+  const body = new ReadableStream({
+    async pull(controller) {
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch (e) {
+        release();
+        throw e;
+      }
+      if (chunk.done) {
+        release();
+        controller.close();
+      } else {
+        controller.enqueue(chunk.value);
+      }
+    },
+    cancel(reason) {
+      release();
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+/**
  * Minimal, dependency-free client for the Kubo RPC API.
  *
  * @example
@@ -73,35 +127,35 @@ export class KuboRpc {
   }
 
   /**
-   * Low-level call. Returns the raw Response (already checked for 2xx).
+   * Low-level call. Returns the raw Response (already checked for 2xx). The timeout covers
+   * the headers and the body: it is released as soon as the body has been fully read or
+   * cancelled, so a finished call never keeps a timer (and the event loop) alive.
    * @param {string} cmd
    * @param {{ args?: any[], query?: object, body?: any, timeoutMs?: number, signal?: AbortSignal }} [opts]
    */
   async request(cmd, { args = [], query = {}, body, timeoutMs, signal } = {}) {
     const url = this.commandUrl(cmd, args, query);
-    const signals = [AbortSignal.timeout(timeoutMs ?? this.timeoutMs)];
-    if (signal) signals.push(signal);
+    const ms = timeoutMs ?? this.timeoutMs;
+    const { signal: abortSignal, release } = timeoutSignal(ms, signal);
     let res;
     try {
-      res = await this.fetchImpl(url, {
-        method: 'POST',
-        body,
-        signal: AbortSignal.any(signals),
-      });
+      res = await this.fetchImpl(url, { method: 'POST', body, signal: abortSignal });
     } catch (e) {
+      release();
       const name = e?.name || '';
-      if (name === 'TimeoutError') throw new Error(`Kubo RPC '${cmd}' timed out after ${timeoutMs ?? this.timeoutMs} ms`);
+      if (name === 'TimeoutError') throw new Error(`Kubo RPC '${cmd}' timed out after ${ms} ms`);
       if (name === 'AbortError') throw new Error(`Kubo RPC '${cmd}' aborted`);
       throw new Error(`Kubo RPC '${cmd}' failed: ${e?.cause?.message || e?.message || String(e)}`);
     }
     if (!res.ok) {
-      const msg = await errorMessageFrom(res);
+      let msg;
+      try { msg = await errorMessageFrom(res); } finally { release(); }
       const err = new Error(`Kubo RPC '${cmd}' failed (${res.status}): ${msg}`);
       err.status = res.status;
       err.kuboMessage = msg;
       throw err;
     }
-    return res;
+    return releaseWhenConsumed(res, release);
   }
 
   /** Call a command and parse the JSON body. */

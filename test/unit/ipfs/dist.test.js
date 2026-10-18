@@ -184,10 +184,16 @@ test('downloadKubo: tar.gz download, sha512 verification, extraction, chmod', as
   );
   assert.equal(fs.existsSync(path.join(work, 'out2', 'ipfs')), false);
 
-  // missing checksum file → warning, install proceeds
-  const warnings = [];
+  // missing checksum file → refused by default (never install an unverified binary) …
   const noSum = serve({ 'kubo_v9.9.9_linux-amd64.tar.gz': archiveBytes });
-  await downloadKubo({ platform: 'linux', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, 'out3'), fetchImpl: noSum.fetchImpl, baseUrl: 'https://dist.example/kubo', log: { warn: (m) => warnings.push(m) } });
+  await assert.rejects(
+    downloadKubo({ platform: 'linux', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, 'out3'), fetchImpl: noSum.fetchImpl, baseUrl: 'https://dist.example/kubo' }),
+    /No checksum available .*refusing to install an unverified binary/,
+  );
+  assert.equal(fs.existsSync(path.join(work, 'out3', 'ipfs')), false);
+  // … unless the caller opts out, which only warns
+  const warnings = [];
+  await downloadKubo({ platform: 'linux', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, 'out3'), fetchImpl: noSum.fetchImpl, baseUrl: 'https://dist.example/kubo', requireChecksum: false, log: { warn: (m) => warnings.push(m) } });
   assert.ok(warnings.some((w) => /No checksum available/.test(w)));
   assert.ok(fs.existsSync(path.join(work, 'out3', 'ipfs')));
 
@@ -207,7 +213,7 @@ test('downloadKubo: windows zip archives are extracted to ipfs.exe', async (t) =
     { name: 'kubo/ipfs.exe', data: exe },
   ]);
   const s = serve({ 'kubo_v9.9.9_windows-amd64.zip': zipBytes });
-  const installed = await downloadKubo({ platform: 'win32', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, 'out'), fetchImpl: s.fetchImpl, baseUrl: 'https://dist.example/kubo' });
+  const installed = await downloadKubo({ platform: 'win32', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, 'out'), fetchImpl: s.fetchImpl, baseUrl: 'https://dist.example/kubo', requireChecksum: false });
   assert.equal(installed, path.join(work, 'out', 'ipfs.exe'));
   assert.deepEqual(await fsp.readFile(installed), exe);
 });
@@ -221,7 +227,7 @@ test('downloadKubo: archive without the binary fails clearly', async (t) => {
   await tar.c({ gzip: true, file: archive, cwd: path.join(work, 'src') }, ['kubo']);
   const s = serve({ 'kubo_v9.9.9_darwin-arm64.tar.gz': await fsp.readFile(archive) });
   await assert.rejects(
-    downloadKubo({ platform: 'darwin', arch: 'arm64', version: 'v9.9.9', destDir: path.join(work, 'out'), fetchImpl: s.fetchImpl, baseUrl: 'https://dist.example/kubo' }),
+    downloadKubo({ platform: 'darwin', arch: 'arm64', version: 'v9.9.9', destDir: path.join(work, 'out'), fetchImpl: s.fetchImpl, baseUrl: 'https://dist.example/kubo', requireChecksum: false }),
     /did not contain kubo\/ipfs/,
   );
 });

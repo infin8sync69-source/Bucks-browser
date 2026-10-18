@@ -427,7 +427,11 @@ export function createTabManager({ getMainWindow, webSession, settings, security
   const manager = {
     /** Create the view for a renderer-side tab id and start loading `url`. */
     create(id, url) {
-      if (tabs.has(id)) return manager.navigate(id, url);
+      const existing = tabs.get(id);
+      if (existing) {
+        if (!existing.wc.isDestroyed()) return manager.navigate(id, url);
+        forget(existing); // stale entry: the web contents died before 'destroyed' was observed
+      }
       const target = prepareChromeUrl(id, url);
       if (target === null) return placeholderState(id, IPFS_HOME_URL);
       const tab = createView(id, target);
@@ -549,10 +553,18 @@ export function createTabManager({ getMainWindow, webSession, settings, security
       requireTab(id).wc.setZoomLevel(0);
     },
 
-    /** @returns {number} Chromium find request id */
-    findInPage(id, text, { forward = true, findNext = false } = {}) {
+    /**
+     * Find text in the page; results arrive on the web contents' 'found-in-page' event.
+     * @param {string} id
+     * @param {string} text
+     * @param {{ forward?: boolean, newSession?: boolean, matchCase?: boolean }} [opts]
+     *   newSession: true (default) starts a new find session for `text`; false steps to the
+     *   next/previous match of the current session. (Electron's `findNext` flag has this meaning.)
+     * @returns {number} Chromium find request id
+     */
+    findInPage(id, text, { forward = true, newSession = true, matchCase = false } = {}) {
       if (typeof text !== 'string' || !text) throw new Error('Search text is required');
-      return requireTab(id).wc.findInPage(text, { forward: !!forward, findNext: !!findNext });
+      return requireTab(id).wc.findInPage(text, { forward: !!forward, findNext: !!newSession, matchCase: !!matchCase });
     },
     stopFindInPage(id, action = 'clearSelection') {
       requireTab(id).wc.stopFindInPage(action);

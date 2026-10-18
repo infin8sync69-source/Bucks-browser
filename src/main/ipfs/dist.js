@@ -146,7 +146,8 @@ async function findFile(dir, name) {
  * @param {{
  *   platform?: string, arch?: string, version: string, destDir: string,
  *   fetchImpl?: typeof fetch, log?: { info?: Function, warn?: Function }, baseUrl?: string,
- *   onProgress?: (received: number, total: number) => void
+ *   onProgress?: (received: number, total: number) => void,
+ *   requireChecksum?: boolean   // default true: a missing <archive>.sha512 aborts the install
  * }} opts
  * @returns {Promise<string>} absolute path to <destDir>/ipfs[.exe]
  */
@@ -159,6 +160,7 @@ export async function downloadKubo({
   log = {},
   baseUrl,
   onProgress,
+  requireChecksum = true,
 }) {
   if (!destDir) throw new Error('downloadKubo: destDir is required');
   const info = (...a) => log.info?.(...a);
@@ -170,14 +172,20 @@ export async function downloadKubo({
     info(`Downloading ${asset.url}`);
     await downloadToFile(fetchImpl, asset.url, archivePath, { onProgress });
 
-    // Integrity: dist.ipfs.tech publishes <archive>.sha512 next to every asset.
+    // Integrity: dist.ipfs.tech publishes <archive>.sha512 next to every asset. A missing or
+    // unparsable checksum is fatal unless the caller explicitly opts out (requireChecksum: false).
     let expected = null;
+    let checksumProblem = null;
     try {
       const res = await fetchImpl(asset.sha512Url, { signal: AbortSignal.timeout(30_000) });
-      if (res.ok) expected = parseChecksumFile(await res.text());
-      else warn(`No checksum available for ${asset.archiveName} (HTTP ${res.status}); skipping verification`);
+      if (res.ok) {
+        expected = parseChecksumFile(await res.text());
+        if (!expected) checksumProblem = `${asset.sha512Url} did not contain a SHA-512 digest`;
+      } else {
+        checksumProblem = `No checksum available for ${asset.archiveName} (HTTP ${res.status} from ${asset.sha512Url})`;
+      }
     } catch (e) {
-      warn(`Could not fetch checksum for ${asset.archiveName}: ${e.message}; skipping verification`);
+      checksumProblem = `Could not fetch the checksum for ${asset.archiveName}: ${e.message}`;
     }
     if (expected) {
       const actual = await sha512OfFile(archivePath);
@@ -185,6 +193,10 @@ export async function downloadKubo({
         throw new Error(`SHA-512 mismatch for ${asset.archiveName}: expected ${expected.slice(0, 16)}…, got ${actual.slice(0, 16)}…`);
       }
       info('Checksum verified');
+    } else if (requireChecksum) {
+      throw new Error(`${checksumProblem}; refusing to install an unverified binary`);
+    } else {
+      warn(`${checksumProblem}; skipping verification`);
     }
 
     const extractDir = path.join(work, 'extract');

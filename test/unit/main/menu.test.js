@@ -55,6 +55,9 @@ test('every accelerator emits a contract action (linux/windows)', () => {
     assert.ok(CONTRACT_ACTIONS.has(action));
   }
   assert.ok(byAccel.F12 && byAccel['CmdOrCtrl+Shift+I'], 'devtools accelerators present');
+  emitted.length = 0;
+  byAccel.F12.click();
+  assert.deepEqual(emitted, ['toggle-devtools'], 'devtools emits the contract action even without a web contents');
   assert.deepEqual(tabs.calls, [['zoomIn', 'a'], ['zoomOut', 'a'], ['zoomReset', 'a']], 'zoom applied to the active tab as well');
   assert.ok(items.some((i) => i.role === 'copy') && items.some((i) => i.role === 'paste'), 'edit roles');
   assert.ok(items.some((i) => i.role === 'quit'));
@@ -78,10 +81,12 @@ test('devtools toggles the active tab, else the chrome window', () => {
   const tabWc = wc('tab');
   let active = tabWc;
   const tabs = { ...fakeTabs('a'), getActiveWebContents: () => active };
-  const template = buildMenuTemplate({ platform: 'linux', emit: () => {}, tabs, getMainWindow: () => ({ webContents: wc('chrome') }) });
+  const emitted = [];
+  const template = buildMenuTemplate({ platform: 'linux', emit: (a) => emitted.push(a), tabs, getMainWindow: () => ({ webContents: wc('chrome') }) });
   const dev = flatten(template).find((i) => i.accelerator === 'F12');
   dev.click();
   active = null;
   dev.click();
   assert.deepEqual(opened, [['tab', 'detach'], ['chrome', 'detach']]);
+  assert.deepEqual(emitted, ['toggle-devtools', 'toggle-devtools']);
 });
