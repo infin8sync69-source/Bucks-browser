@@ -21,7 +21,7 @@
             icon: KeyRound,
             goal: "Create one universal DID/profile on device and make every user action signable.",
             tasks: [
-                "Move DID/keypair creation into the Tauri desktop shell.",
+                "Move DID/keypair creation into the Electron main process or an OS keychain.",
                 "Store private keys in OS-secured storage, never in plain localStorage.",
                 "Represent profile updates as signed events with payload hash and signature.",
             ],
@@ -95,7 +95,7 @@
     ];
 
     const stack = [
-        { label: "Desktop", value: "Tauri + SvelteKit" },
+        { label: "Desktop", value: "Electron + SvelteKit" },
         { label: "Identity", value: "DID + signed events" },
         { label: "Storage", value: "Local DB + IPFS CIDs" },
         { label: "Network", value: "libp2p topics + relays" },

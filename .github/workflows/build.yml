@@ -1,0 +1,203 @@
+name: Build
+
+# check   : static checks and unit tests (ubuntu)
+# build   : installers for Linux x64, Windows x64, macOS arm64 and macOS x64
+# release : on a v* tag, attach every installer to a GitHub release
+#
+# Builds are UNSIGNED. To add signing later, provide these as repository secrets and expose
+# them to the "Build installer" step (electron-builder reads them automatically):
+#   Windows : CSC_LINK, CSC_KEY_PASSWORD
+#   macOS   : CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+# and remove "identity: null" from electron-builder.yml. See docs/BUILDING.md.
+
+on:
+  push:
+    branches: [master, electron-main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a tagged release build half way through.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: read
+
+env:
+  # electron-builder downloads the Electron build for the TARGET architecture itself
+  # (needed for the macOS x64 build on an arm64 runner), so skip the npm postinstall download.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+  # Keep the download caches inside the workspace so actions/cache can find them on every OS.
+  ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+  ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+
+jobs:
+  check:
+    name: Check and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check the chrome and syntax-check the main process
+        run: npm run check
+
+      # The Kubo integration tests skip themselves when no Kubo binary is present.
+      - name: Unit tests
+        run: npm test
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: check
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            platform: linux
+            arch: x64
+            builder_platform: --linux
+          - name: win-x64
+            os: windows-latest
+            platform: win32
+            arch: x64
+            builder_platform: --win
+          - name: mac-arm64
+            os: macos-latest
+            platform: darwin
+            arch: arm64
+            builder_platform: --mac
+          - name: mac-x64
+            os: macos-latest
+            platform: darwin
+            arch: x64
+            builder_platform: --mac
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      # Installer file names come from package.json, so a mismatch would publish a wrong version.
+      - name: Check the tag matches the app version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the version $version in package.json"
+            exit 1
+          fi
+
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/electron
+            .cache/electron-builder
+          key: builder-${{ matrix.name }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            builder-${{ matrix.name }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the chrome (SvelteKit)
+        run: npm run build:ui
+
+      - name: Fetch the Kubo binary for ${{ matrix.platform }}-${{ matrix.arch }}
+        run: node scripts/fetch-kubo.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Build installer
+        shell: bash
+        run: npx electron-builder ${{ matrix.builder_platform }} --${{ matrix.arch }} --publish never
+
+      - name: List build output
+        shell: bash
+        run: ls -la release
+
+      # Boots the unpacked app under a virtual display and waits for the embedded Kubo node
+      # (found in resources/kubo/ of the package) to report ready. --no-sandbox is only for
+      # this CI run: Chromium's sandbox needs setuid/user-namespace support the runner may lack.
+      - name: Smoke-test the packaged app
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          userdata="$(mktemp -d)"
+          BUCKS_USER_DATA="$userdata" BUCKS_DEBUG=1 \
+            xvfb-run -a release/linux-unpacked/bucks-browser --no-sandbox > smoke.log 2>&1 &
+          ready=0
+          for _ in $(seq 1 90); do
+            if grep -q "status → ready" smoke.log; then ready=1; break; fi
+            sleep 1
+          done
+          pkill -f "release/linux-unpacked/bucks-browser" || true
+          sleep 2
+          pkill -f "linux-unpacked/resources/kubo/ipfs" || true
+          cat smoke.log
+          if [ "$ready" != 1 ]; then
+            echo "::error::The packaged app did not reach a ready IPFS node within 90 s"
+            exit 1
+          fi
+          grep -q "Using Kubo binary .*linux-unpacked/resources/kubo/ipfs" smoke.log
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: bucks-${{ matrix.name }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: ${{ github.ref_type == 'tag' && 90 || 14 }}
+
+  release:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bucks-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -la artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          # v2.1.0-rc.1 style tags are marked as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

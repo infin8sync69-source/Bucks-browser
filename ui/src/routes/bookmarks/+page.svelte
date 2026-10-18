@@ -91,8 +91,8 @@
                     </div>
                     <p class="text-[10px] text-white/20 shrink-0">{formatDate(b.addedAt)}</p>
                     <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onclick={() => startEdit(b)} class="p-1.5 rounded-lg hover:bg-white/10 text-white/30 hover:text-white/70 transition-colors text-[11px]">✎</button>
-                        <button onclick={() => remove(b.id)} class="p-1.5 rounded-lg hover:bg-red-500/15 text-white/25 hover:text-red-400 transition-colors">
+                        <button onclick={() => startEdit(b)} aria-label="Rename bookmark" title="Rename" class="p-1.5 rounded-lg hover:bg-white/10 text-white/30 hover:text-white/70 transition-colors text-[11px]">✎</button>
+                        <button onclick={() => remove(b.id)} aria-label="Remove bookmark" title="Remove" class="p-1.5 rounded-lg hover:bg-red-500/15 text-white/25 hover:text-red-400 transition-colors">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                             </svg>

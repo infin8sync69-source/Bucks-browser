@@ -118,10 +118,12 @@ export function normalizeExternalUrl(url: string): string {
 
 function routeTo(url: string) {
     if (typeof window === 'undefined') return;
-    if (url === 'bucks://newtab') { void goto('/'); return; }
-    if (url.startsWith('bucks://')) { void goto(url.replace('bucks://', '/')); return; }
+    // keepFocus: SvelteKit would otherwise blur the omnibox after every navigation.
+    const opts = { keepFocus: true };
+    if (url === 'bucks://newtab') { void goto('/', opts); return; }
+    if (url.startsWith('bucks://')) { void goto(url.replace('bucks://', '/'), opts); return; }
     // External URL — the placeholder (ContentArea) lives in the layout, any route will do.
-    void goto('/');
+    void goto('/', opts);
 }
 
 function processUrl(url: string) {

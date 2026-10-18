@@ -458,6 +458,33 @@ function legacySignatureHash(tx: BucksTransaction, inputIndex: number): Uint8Arr
     return doubleSha256(withSighash);
 }
 
+// ─── DER signature encoding ───
+/** Encode one unsigned big-endian integer as a DER INTEGER (minimal length, positive). */
+function derInteger(bytes: Uint8Array): Uint8Array {
+    let start = 0;
+    while (start < bytes.length - 1 && bytes[start] === 0) start++;
+    const trimmed = bytes.subarray(start);
+    const pad = trimmed[0] & 0x80 ? 1 : 0;
+    const out = new Uint8Array(2 + pad + trimmed.length);
+    out[0] = 0x02;
+    out[1] = pad + trimmed.length;
+    out.set(trimmed, 2 + pad);
+    return out;
+}
+
+/** Convert a 64-byte compact ECDSA signature (r || s) to DER (SEQUENCE { r, s }). */
+export function compactToDer(compact: Uint8Array): Uint8Array {
+    if (compact.length !== 64) throw new Error(`Expected a 64-byte compact signature, got ${compact.length} bytes`);
+    const r = derInteger(compact.subarray(0, 32));
+    const s = derInteger(compact.subarray(32));
+    const out = new Uint8Array(2 + r.length + s.length);
+    out[0] = 0x30;
+    out[1] = r.length + s.length; // always < 128 for secp256k1 (max 70)
+    out.set(r, 2);
+    out.set(s, 2 + r.length);
+    return out;
+}
+
 // ─── Sign Transaction (matches transaction.cpp signInput) ───
 export async function signTransaction(
     tx: BucksTransaction,
@@ -468,8 +495,10 @@ export async function signTransaction(
 
     for (let i = 0; i < signed.inputs.length; i++) {
         const hash = legacySignatureHash(tx, i);
-        const sig: any = await secp.signAsync(hash, privateKey, { lowS: true });
-        const derSig = sig.toBytes('der');
+        // `hash` is already the double-SHA256 signature hash, so noble must not hash it again.
+        // noble-secp256k1 v3 only emits the 64-byte compact form; the node expects DER.
+        const compact: Uint8Array = await secp.signAsync(hash, privateKey, { lowS: true, prehash: false });
+        const derSig = compactToDer(compact);
 
         // Append SIGHASH_ALL byte
         const scriptSig = new Uint8Array(derSig.length + 1);

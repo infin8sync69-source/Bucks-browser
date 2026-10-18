@@ -189,6 +189,8 @@
                     {#each apps as app, i}
                         {@const installed = isInstalled(app.id)}
                         <div
+                            role="group"
+                            aria-label={app.name}
                             draggable="true"
                             ondragstart={(e) => startDrag(e, app)}
                             ondragend={endDrag}

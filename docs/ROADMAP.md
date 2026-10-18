@@ -1,5 +1,69 @@
 # Bucks Desktop Super App: Phased Implementation Setup
 
+## Status (Oct 2026)
+
+The desktop app was rewritten on Electron. The phases further down were written for the earlier
+Tauri app and are kept as the product plan: read "the Tauri desktop app" in Phase 1 as "the
+Electron desktop app". They are mostly not built yet: the interface has a DID login and static
+overview pages for the super app and the phases (`bucks://superapp`, `bucks://implementation`), but
+no signed-event store, provider modes, search index or dispatch. The rewrite described next is the
+platform they will be built on.
+
+### Done in this rewrite
+
+- **Shell.** Electron 44, a frameless chrome window, and one `WebContentsView` per external tab with
+  the tab list owned by the interface (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+- **IPFS.** `ipfs://` and `ipns://` served by protocol handlers that stream from a local Kubo
+  node, with CIDv0 to CIDv1 normalisation and one web origin per CID. Public-gateway fallback.
+- **Kubo sidecar.** Locate or download (SHA-512 verified), init, configure, spawn, health check,
+  restart after crashes, clean shutdown; reuse of a running daemon; external-node mode; the
+  `bucks://ipfs` dashboard (status, add, browse, pin).
+- **Security.** HTTPS-only upgrades, EasyList/EasyPrivacy blocking, third-party cookie blocking,
+  deny-by-default permissions, sandboxed renderers, a locked-down `bucks://` protocol.
+- **Browser features.** Downloads, native menu and shortcuts, context menus, window state, settings.
+- **Agent.** Offline rules, a remote Bucks agent server and Ollama, with automatic fallback to the
+  offline rules.
+- **Wallet.** An origin-gated proxy from the interface to a Bucks node over HTTP.
+- **Packaging.** `electron-builder.yml` with installers for Linux (AppImage, deb), Windows (NSIS and
+  portable) and macOS (dmg, zip) bundling Kubo; GitHub Actions for checks, builds and tagged
+  releases; developer runner `scripts/dev.mjs`. Builds are unsigned.
+- **Tests.** Unit tests for the pure logic of each module, and a Playwright smoke test that boots
+  the app, starts Kubo and loads an `ipfs://` page.
+
+### Next
+
+1. **OS keychain for wallet keys.** Keys and the DID are in the interface's `localStorage`,
+   unencrypted. Move them behind Electron's `safeStorage` (Keychain, DPAPI, libsecret) so main holds
+   the encrypted blob and the interface asks to sign. This is also Phase 1's "OS-secured storage".
+2. **Hosting layer.** Use IPFS Cluster or a pinning-service API so published content stays
+   available when the user's own machine is off (Phase 5 and the pinning node role in Phase 6).
+3. **`bucks://` name resolution via the Bucks chain.** Today `bucks://` only serves the app's own
+   pages (`bucks://app`, plus the interface's internal routes). Human-readable names should resolve to a CID
+   through the chain, with a verified result.
+4. **Chat over Kubo pubsub.** `src/main/chat/` is the end-to-end encrypted chat engine from the previous
+   app (CommonJS, Helia gossipsub). Port it to Kubo's pubsub RPC (and enable pubsub in the repo
+   configuration), wire it into `index.js` and the contract.
+5. **Agent tool permissions and MCP.** Let the agent call tools (including MCP servers) behind
+   explicit per-tool, per-site user consent, with a visible log of what ran.
+6. **Tor through an `arti` sidecar.** A real Tor client supervised the same way as Kubo, with an
+   opt-in per-session proxy and honest status reporting.
+7. **Security follow-ups.** Ask before falling back from HTTPS to HTTP after a TLS error instead of
+   doing it silently; a site-settings page backed by persistent permission grants.
+8. **Release follow-ups.** Code signing and notarisation (see [BUILDING.md](BUILDING.md)), auto-update
+   from signed releases, opening `ipfs://` links handed over by the operating system (the installers
+   already register the handler; the app must read the URL from `open-url` on macOS and from the
+   command line elsewhere), and `desktopName` for correct Linux window grouping.
+
+### Removed on purpose
+
+- **The fake Tor command.** The Tauri app had a `start_tor_node` command that printed a message and
+  returned "Tor node started on ports 9050/9051" without starting anything. It is gone, and
+  nothing in the UI or docs claims Tor support until item 6 exists.
+- **The Helia in-process IPFS node** of the first Electron version. A separate Kubo process is
+  more complete, easier to reason about and shared with other IPFS tools.
+- **The Tauri shell** (the Rust backend and its IPC), replaced by the Electron main process.
+- The Next.js shell and the Qt prototype are only kept in Git history (tag `archive/pre-electron-rewrite`).
+
 ## Goal
 Build the Desktop Bucks Browser as the command center for the hybrid P2P super app:
 universal profile, provider modes, locality discovery, taxi dispatch, storefronts, social feed,

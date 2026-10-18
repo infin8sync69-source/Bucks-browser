@@ -82,7 +82,7 @@
                                 <p class="text-[10px] text-white/25 truncate">{h.url}</p>
                             </div>
                             <span class="text-[10px] text-white/20 shrink-0">{formatTime(h.visitedAt)}</span>
-                            <button onclick={() => remove(h.url)}
+                            <button onclick={() => remove(h.url)} aria-label="Remove from history" title="Remove"
                                 class="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/15 text-white/25 hover:text-red-400 transition-all">
                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>

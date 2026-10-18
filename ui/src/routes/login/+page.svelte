@@ -21,10 +21,11 @@
         return `did:key:z${hex.slice(0, 44)}`;
     }
 
-    let profile = $state<Profile | null>(loadProfile());
-    let editMode = $state(!profile);
-    let name = $state(profile?.name ?? "");
-    let bio  = $state(profile?.bio  ?? "");
+    const savedProfile = loadProfile();
+    let profile = $state<Profile | null>(savedProfile);
+    let editMode = $state(!savedProfile);
+    let name = $state(savedProfile?.name ?? "");
+    let bio  = $state(savedProfile?.bio  ?? "");
     let copied = $state(false);
 
     function create() {
@@ -74,13 +75,13 @@
 
             <div class="space-y-3">
                 <div>
-                    <label class="text-[10px] uppercase tracking-[0.25em] text-white/30 font-bold block mb-1.5">Display Name *</label>
-                    <input bind:value={name} placeholder="Your name"
+                    <label for="profile-name" class="text-[10px] uppercase tracking-[0.25em] text-white/30 font-bold block mb-1.5">Display Name *</label>
+                    <input id="profile-name" bind:value={name} placeholder="Your name"
                         class="w-full bg-white/[0.04] border border-white/[0.08] rounded-2xl px-4 py-3 text-[13px] text-white placeholder-white/25 focus:outline-none focus:border-blue-500/40 transition-colors" />
                 </div>
                 <div>
-                    <label class="text-[10px] uppercase tracking-[0.25em] text-white/30 font-bold block mb-1.5">Bio</label>
-                    <textarea bind:value={bio} placeholder="Short description (optional)" rows="2"
+                    <label for="profile-bio" class="text-[10px] uppercase tracking-[0.25em] text-white/30 font-bold block mb-1.5">Bio</label>
+                    <textarea id="profile-bio" bind:value={bio} placeholder="Short description (optional)" rows="2"
                         class="w-full bg-white/[0.04] border border-white/[0.08] rounded-2xl px-4 py-3 text-[13px] text-white placeholder-white/25 focus:outline-none focus:border-blue-500/40 transition-colors resize-none"></textarea>
                 </div>
             </div>

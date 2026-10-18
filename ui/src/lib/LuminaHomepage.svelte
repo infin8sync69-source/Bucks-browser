@@ -130,7 +130,7 @@
 
     <!-- Bottom wordmark -->
     <div
-        class="absolute bottom-24 left-0 right-0 flex flex-col items-center select-none pointer-events-none"
+        class="absolute bottom-[13rem] left-0 right-0 flex flex-col items-center select-none pointer-events-none"
         in:fly={{ y: 10, duration: 1000, delay: 500, easing: cubicOut }}
     >
         <p class="text-[10px] uppercase tracking-[0.45em] text-white/12 font-medium">soul of the world</p>

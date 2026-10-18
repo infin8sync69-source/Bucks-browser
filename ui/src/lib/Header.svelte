@@ -27,6 +27,7 @@
     import { focusOmniboxRequest, pushOverlay, popOverlay } from "./uiState";
 
     let isSettingsOpen = $state(false);
+    let menuWrapEl = $state<HTMLDivElement | null>(null);
     let storeOpen = $state(false);
     let urlInput = $state("");
     let urlInputEl = $state<HTMLInputElement | null>(null);
@@ -61,6 +62,10 @@
     // Inside Bucks Browser the native menu owns the accelerators and forwards them as
     // shortcut events (handled in the store). This handler only serves the plain-browser mock.
     function handleGlobalKey(e: KeyboardEvent) {
+        if (e.key === "Escape" && isSettingsOpen) {
+            isSettingsOpen = false;
+            return;
+        }
         if (hasBridge) return;
         const mod = e.metaKey || e.ctrlKey;
         if (!mod) return;
@@ -78,6 +83,13 @@
             e.preventDefault();
             browserStore.refresh();
         }
+    }
+
+    /** Close the menu on any click outside it (a backdrop element cannot be used: the island's
+     *  backdrop-filter makes it the containing block of fixed descendants). */
+    function handleWindowClick(e: MouseEvent) {
+        // composedPath(): the clicked icon may already have been swapped out of the DOM by now.
+        if (isSettingsOpen && menuWrapEl && !e.composedPath().includes(menuWrapEl)) isSettingsOpen = false;
     }
 
     function focusOmnibox() {
@@ -215,7 +227,7 @@
     }
 </script>
 
-<svelte:window onkeydown={handleGlobalKey} />
+<svelte:window onkeydown={handleGlobalKey} onclick={handleWindowClick} />
 
 <header
     class="fixed top-6 inset-x-0 z-[110] pointer-events-none px-6"
@@ -365,7 +377,7 @@
             class="flex items-center space-x-2 relative z-10 flex-1 min-w-0 justify-end h-full pr-2"
         >
             <!-- Settings Icon (Static) -->
-            <div class="no-drag relative flex-shrink-0">
+            <div bind:this={menuWrapEl} class="no-drag relative flex-shrink-0">
                 <button
                     onclick={() => (isSettingsOpen = !isSettingsOpen)}
                     title="Menu"
@@ -384,12 +396,6 @@
                 </button>
 
                 {#if isSettingsOpen}
-                    <div
-                        role="presentation"
-                        class="no-drag fixed inset-0 z-[-1]"
-                        onclick={() => (isSettingsOpen = false)}
-                        onkeydown={(e) => e.key === "Escape" && (isSettingsOpen = false)}
-                    ></div>
                     <div
                         transition:scale={{
                             duration: 300,

@@ -1,0 +1,109 @@
+# electron-builder configuration for Bucks Browser.
+# The root package.json deliberately has no "build" key: everything lives here.
+# Docs: https://www.electron.build/configuration
+#
+# Typical use (see docs/BUILDING.md):
+#   npm run build:ui && node scripts/fetch-kubo.mjs && npx electron-builder --publish never
+
+appId: com.mikado.bucksbrowser
+productName: Bucks Browser
+copyright: Copyright © 2026 infin8sync69-source
+
+directories:
+  output: release
+  buildResources: build
+
+asar: true
+
+# Only the main process, the preload script and the built chrome are packaged.
+# Production dependencies from package.json are added automatically.
+files:
+  - "src/**/*"
+  - "ui/build/**/*"
+  - "package.json"
+  - "!**/*.map"
+  - "!ui/node_modules"
+  - "!ui/src"
+  - "!ui/.svelte-kit"
+
+# The Kubo binary stays OUTSIDE app.asar so it can be executed.
+# scripts/fetch-kubo.mjs writes resources/kubo/<os>-<arch>/ipfs[.exe] where <os> is the
+# electron-builder ${os} macro (mac | win | linux). At runtime src/main/ipfs/kubo.js looks
+# for <process.resourcesPath>/kubo/ipfs (ipfs.exe on Windows).
+extraResources:
+  - from: "resources/kubo/${os}-${arch}"
+    to: "kubo"
+    filter:
+      - "**/*"
+
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+
+# This app has no native Node modules, so never rebuild anything.
+npmRebuild: false
+nodeGypRebuild: false
+
+# Register the app as the OS-level handler for ipfs:// and ipns:// links.
+# (Windows: registry entries written by the installer; macOS: CFBundleURLTypes;
+# Linux: x-scheme-handler MIME types in the .desktop file.)
+protocols:
+  - name: IPFS
+    schemes:
+      - ipfs
+      - ipns
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Network
+  icon: build/icons
+  maintainer: Bucks Browser <infin8sync69-source@users.noreply.github.com>
+  synopsis: Decentralised, IPFS-native web browser
+  description: >-
+    Bucks Browser is a desktop web browser where ipfs:// and ipns:// addresses are
+    first-class. It bundles and supervises a local Kubo (IPFS) node, blocks ads and
+    trackers, and upgrades connections to HTTPS by default.
+  # Name of the installed executable (and of the Exec= entry in the .desktop file).
+  executableName: bucks-browser
+
+win:
+  target:
+    - nsis
+    - portable
+  icon: build/icons/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  # nsis and portable both produce .exe files: give them different names.
+  artifactName: "${productName}-Setup-${version}-${os}-${arch}.${ext}"
+
+portable:
+  artifactName: "${productName}-Portable-${version}-${os}-${arch}.${ext}"
+
+# Unsigned builds for now. Signing and notarisation are tracked in docs/ROADMAP.md.
+# When a Developer ID certificate exists: remove "identity: null", provide CSC_LINK /
+# CSC_KEY_PASSWORD plus APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in CI,
+# and turn hardenedRuntime back on.
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  icon: build/icons/icon.icns
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Releases are published by .github/workflows/build.yml, never by electron-builder itself.
+publish: null

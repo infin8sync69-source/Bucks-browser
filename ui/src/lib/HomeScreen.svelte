@@ -124,6 +124,7 @@
                             onpointerup={cancelLongPress}
                             onpointerleave={cancelLongPress}
                             onclick={() => launchApp(app)}
+                            onkeydown={(e) => e.key === 'Enter' && launchApp(app)}
                             in:scale={{ duration: 350, easing: elasticOut, start: 0.7 }}
                             class="relative w-16 h-16 rounded-[18px] flex items-center justify-center cursor-pointer
                                    select-none transition-transform duration-150 active:scale-90

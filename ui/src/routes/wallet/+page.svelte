@@ -30,8 +30,10 @@
         createWallet,
         restoreWallet,
         buildAndSignTransaction,
+        fromHex,
     } from "$lib/bucks-crypto";
-    import type { UTXO } from "$lib/bucks-crypto";
+    import { bucks } from "$lib/bridge";
+    import { settingsStore } from "$lib/settingsStore";
 
     type WalletInfo = {
         address: string;
@@ -54,14 +56,17 @@
     type SendPhase = "form" | "review" | "sending" | "receipt";
 
     const STORAGE_KEY = "bucks_wallet_v2";
-    const NODE_URL_KEY = "bucks_node_url";
-    const DEFAULT_NODE_URL = "http://localhost:8080";
+    /** Pre-Electron override for the node URL; migrated into settings.wallet.nodeUrl once. */
+    const LEGACY_NODE_URL_KEY = "bucks_node_url";
+    /** 1 BUCKS = 1e8 base units (the unit the node, UTXOs and the signer work in). */
+    const UNITS_PER_BUCKS = 1e8;
 
     // State (Svelte 5 Runes)
     let step = $state<FlowStep>("loading");
     let wallet = $state<WalletInfo | null>(null);
-    let nodeUrl = $state(DEFAULT_NODE_URL);
+    const nodeUrl = $derived($settingsStore?.wallet.nodeUrl ?? "");
     let chainInfo = $state<any>(null);
+    let nodeError = $state("");
     let dashTab = $state<DashboardTab>("overview");
 
     let mnemonic = $state("");
@@ -94,25 +99,26 @@
 
     const formatBalance = (sat: number) => (sat / 100000000).toFixed(8);
 
-    async function apiFetch(method: string, endpoint: string, body?: any) {
+    /** Call the configured Bucks node through the main process. Throws with the node's error message. */
+    function rpc(method: "GET" | "POST", path: string, body?: unknown) {
+        return bucks.wallet.rpc({ method, path, body });
+    }
+
+    /** Like rpc() but for background refreshes: failures are surfaced in `nodeError`, not thrown. */
+    async function tryRpc(method: "GET" | "POST", path: string, body?: unknown) {
         try {
-            const url = `${nodeUrl}${endpoint}`;
-            const res = await fetch(url, {
-                method,
-                headers: { "Content-Type": "application/json" },
-                body: body ? JSON.stringify(body) : undefined,
-            });
-            if (!res.ok) throw new Error(`API Error: ${res.status}`);
-            return await res.json();
+            const res = await rpc(method, path, body);
+            nodeError = "";
+            return res;
         } catch (e) {
-            console.error(e);
+            nodeError = e instanceof Error ? e.message : String(e);
             return null;
         }
     }
 
     async function fetchBalances() {
         if (!wallet) return;
-        const res = await apiFetch(
+        const res = await tryRpc(
             "GET",
             `/api/address/${wallet.address}/balance`,
         );
@@ -122,13 +128,19 @@
     }
 
     async function fetchChainInfo() {
-        const res = await apiFetch("GET", "/api/blockchain/info");
+        const res = await tryRpc("GET", "/api/blockchain/info");
         if (res) chainInfo = res;
     }
 
     onMount(() => {
-        const savedNode = localStorage.getItem(NODE_URL_KEY);
-        if (savedNode) nodeUrl = savedNode;
+        void settingsStore.init();
+        try {
+            const legacyNode = localStorage.getItem(LEGACY_NODE_URL_KEY);
+            if (legacyNode) {
+                void settingsStore.patch({ wallet: { nodeUrl: legacyNode } }).catch(() => {});
+                localStorage.removeItem(LEGACY_NODE_URL_KEY);
+            }
+        } catch {}
 
         // Check for payment prefill from EphemeralWidget
         try {
@@ -244,16 +256,28 @@
 
     // Send Flow
     async function handleSend() {
-        if (!wallet || !sendTo || !sendAmount) return;
+        if (!wallet || !sendTo.trim() || !sendAmount) return;
         sendPhase = "sending";
         try {
-            const utxos: UTXO[] = await apiFetch("GET", `/api/utxo/${wallet.address}`) ?? [];
-            const tx = buildAndSignTransaction(
-                wallet.privateKey, wallet.address, sendTo,
-                parseFloat(sendAmount), utxos
+            const units = Math.round(parseFloat(sendAmount) * UNITS_PER_BUCKS);
+            if (!Number.isSafeInteger(units) || units <= 0) throw new Error("Enter an amount greater than zero");
+
+            const utxoRes = await rpc("GET", `/api/address/${wallet.address}/utxos`);
+            if (!utxoRes?.success) throw new Error(utxoRes?.error || "Could not fetch UTXOs");
+
+            // Sign locally: the private key never leaves this page.
+            const { rawHex, txid } = await buildAndSignTransaction(
+                utxoRes.utxos ?? [],
+                sendTo.trim(),
+                units,
+                fromHex(wallet.privateKey),
+                fromHex(wallet.publicKey),
+                wallet.address,
             );
-            const result = await apiFetch("POST", "/api/transactions/submit", tx);
-            sendResult = { success: true, hash: result?.hash ?? "pending" };
+
+            const result = await rpc("POST", "/api/transactions/broadcast", { rawTx: rawHex });
+            if (!result?.success) throw new Error(result?.error || "Broadcast rejected by the node");
+            sendResult = { success: true, hash: result.txid ?? txid };
             sendPhase = "receipt";
             await fetchBalances();
         } catch (e: any) {
@@ -285,7 +309,7 @@
 </svelte:head>
 
 <div
-    class="fixed inset-0 top-16 z-10 w-full overflow-y-auto no-scrollbar pointer-events-auto bg-[#0a0a0c]"
+    class="relative h-full w-full overflow-y-auto no-scrollbar bg-[#0a0a0c]"
 >
     {#if step === "loading"}
         <div
@@ -479,8 +503,9 @@
                 <div class="space-y-4 mb-6">
                     {#each verifyIndices as wordIdx, i}
                         <div>
-                            <label class="text-xs text-zinc-500 mb-1 block">Word #{wordIdx + 1}</label>
+                            <label for={`verify-word-${i}`} class="text-xs text-zinc-500 mb-1 block">Word #{wordIdx + 1}</label>
                             <input
+                                id={`verify-word-${i}`}
                                 type="text"
                                 bind:value={verifyAnswers[i]}
                                 oninput={() => verifyError = ""}
@@ -528,17 +553,17 @@
                         {#if sendPhase === "form" || sendPhase === "review"}
                             <div class="space-y-4">
                                 <div>
-                                    <label class="text-xs text-zinc-500 mb-1 block">Recipient Address</label>
-                                    <input bind:value={sendTo} placeholder="0x..."
+                                    <label for="send-to" class="text-xs text-zinc-500 mb-1 block">Recipient Address</label>
+                                    <input id="send-to" bind:value={sendTo} placeholder="0x..."
                                         class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm font-mono outline-none focus:border-zinc-600" />
                                 </div>
                                 <div>
-                                    <label class="text-xs text-zinc-500 mb-1 block">Amount (BUCKS)</label>
-                                    <input bind:value={sendAmount} type="number" min="0" step="0.0001" placeholder="0.00"
+                                    <label for="send-amount" class="text-xs text-zinc-500 mb-1 block">Amount (BUCKS)</label>
+                                    <input id="send-amount" bind:value={sendAmount} type="number" min="0" step="0.0001" placeholder="0.00"
                                         class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-zinc-600" />
                                 </div>
                                 <p class="text-xs text-zinc-600">Available: {(wallet.balance / 1e8).toFixed(4)} BUCKS</p>
-                                <button onclick={handleSend} disabled={!sendTo || !sendAmount || sendPhase === "sending"}
+                                <button onclick={handleSend} disabled={!sendTo.trim() || !sendAmount}
                                     class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                                     <Send class="w-4 h-4" /> Send Transaction
                                 </button>
@@ -577,7 +602,12 @@
                             <h1 class="text-xl font-bold text-white">
                                 Client Wallet
                             </h1>
-                            <div class="text-sm text-zinc-500">Local Node</div>
+                            <div class="text-sm text-zinc-500">
+                                Node: <span class="font-mono">{nodeUrl || "—"}</span>
+                            </div>
+                            {#if nodeError}
+                                <div class="text-xs text-red-400 mt-0.5">Node unreachable: {nodeError}</div>
+                            {/if}
                         </div>
                     </div>
                     <button
@@ -642,6 +672,10 @@
                             <h3 class="text-xl font-semibold mb-4 text-white">
                                 Security
                             </h3>
+                            <p class="flex items-start gap-2 text-xs text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+                                <AlertTriangle class="w-4 h-4 shrink-0 mt-px" />
+                                Keys are stored unencrypted in this profile's local storage.
+                            </p>
                             <button
                                 onclick={() =>
                                     (showPrivateKey = !showPrivateKey)}
