@@ -130,6 +130,16 @@ const api = Object.freeze({
     feedback: ({ taskId, score, correction }) => invoke('bucks:agent:feedback', { taskId, score, correction }),
     /** @returns {Promise<string[]>} models available for the current provider */
     listModels: () => invoke('bucks:agent:list-models'),
+    /** Soul Engine sidecar. @returns {Promise<SoulStatus>} */
+    soulStatus: () => invoke('bucks:agent:soul-status'),
+    /** @returns {Promise<SoulStatus>} */
+    soulStart: () => invoke('bucks:agent:soul-start'),
+    /** @returns {Promise<SoulStatus>} */
+    soulStop: () => invoke('bucks:agent:soul-stop'),
+    /** Create the engine's private Python environment, then start it. @returns {Promise<SoulStatus>} */
+    soulInstall: () => invoke('bucks:agent:soul-install'),
+    /** (status: SoulStatus) */
+    onSoulStatus: (cb) => subscribe('bucks:agent:soul-status', cb),
   }),
 
   wallet: Object.freeze({

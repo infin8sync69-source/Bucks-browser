@@ -1,9 +1,9 @@
 /**
  * Agent chat state. All model traffic goes through the main process (`bucks.agent.*`), which owns
- * the providers (offline | remote | ollama); the chrome never talks to an agent server itself.
+ * the providers (offline | remote | ollama | soul); the chrome never talks to an agent server itself.
  */
 import { writable, get } from 'svelte/store';
-import { bucks, type A2UIPayload, type AgentResult } from './bridge';
+import { bucks, type A2UIPayload, type AgentResult, type UiComponent } from './bridge';
 import { isSwarmThinking, browserStore, activeTab } from './stores';
 import { settingsStore } from './settingsStore';
 import { matchIntent, INTENT_LABELS } from './intentMatcher';
@@ -28,6 +28,10 @@ export interface Message {
     a2ui?: A2UI | null;
     cid?: string | null;
     taskId?: string | null;
+    /** Generative-UI cards (Soul Engine). */
+    components?: UiComponent[];
+    /** Suggested next questions (Soul Engine). */
+    followups?: string[];
     ts: number;
 }
 
@@ -178,6 +182,8 @@ function createSwarmStore() {
                     a2ui,
                     cid: result.cid,
                     taskId: result.task_id,
+                    components: result.components ?? [],
+                    followups: result.followups ?? [],
                     ts: Date.now()
                 };
 

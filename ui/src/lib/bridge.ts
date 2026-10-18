@@ -126,14 +126,75 @@ export interface AgentResult {
     cid?: string | null;
     task_id?: string | null;
     a2ui?: A2UIPayload | null;
+    /** Generative-UI cards (Soul Engine), already sanitised by the main process. Render as text. */
+    components?: UiComponent[];
+    /** Suggested next questions (Soul Engine). */
+    followups?: string[];
+    /** Tools the agent used for this answer (Soul Engine). */
+    tools?: string[];
 }
 
 export interface AgentStatus {
     online: boolean;
     provider: string;
     model?: string;
+    /** Why the provider cannot answer right now (Soul Engine). */
+    detail?: string;
     providers: string[];
 }
+
+// ── Soul Engine (docs/IPC-CONTRACT.md "Soul Engine") ──
+
+export type SoulBackend = 'edge' | 'ollama' | 'nim' | 'litai';
+
+export interface SoulSettings {
+    /** Start the engine at launch while it is the selected provider. */
+    autoStart: boolean;
+    /** edge = on-device model; ollama; nim / litai = cloud, with your key in <userData>/soul-engine/.env */
+    backend: SoulBackend;
+    /** 0 = a free loopback port at every start */
+    port: number;
+    /** '' = the private venv from Install, or agent/.venv in a source checkout */
+    python: string;
+    /** '' = the agent/ shipped with the app */
+    agentDir: string;
+}
+
+export type SoulState = 'idle' | 'unavailable' | 'installing' | 'starting' | 'loading' | 'ready' | 'error' | 'stopped';
+
+export interface SoulStatus {
+    state: SoulState;
+    message: string;
+    /** http://127.0.0.1:<port> while running */
+    url: string | null;
+    backend: SoulBackend;
+    model: string | null;
+    /** The engine's own /health mode (local_llm, cloud_llm, loading, …). */
+    mode: string | null;
+    python: string | null;
+    agentDir: string | null;
+    /** The engine's folder in the profile: data, venv, workspace and the .env for cloud API keys. */
+    dataDir: string;
+}
+
+export type UiComponent =
+    | { component: 'answer'; title: string; text: string }
+    | { component: 'list'; title: string; items: { title: string; subtitle: string; url: string }[] }
+    | { component: 'table'; title: string; columns: string[]; rows: string[][] }
+    | { component: 'stats'; title: string; stats: { label: string; value: string; delta: string }[] }
+    | { component: 'chart'; title: string; kind: 'line' | 'bar' | 'pie'; series: { label: string; value: number }[] }
+    | { component: 'timeline'; title: string; events: { date: string; title: string; text: string }[] }
+    | { component: 'checklist'; title: string; items: { text: string; done: boolean }[] }
+    | { component: 'accordion'; title: string; items: { heading: string; text: string }[] }
+    | { component: 'code'; title: string; language: string; code: string }
+    | {
+          component: 'weather';
+          title: string;
+          place: string;
+          current: { temp_c: number | null; feels_c: number | null; condition: string; wind_kmh: number | null; humidity: number | null };
+          days: { day: string; condition: string; high_c: number | null; low_c: number | null }[];
+      }
+    | { component: 'links'; title: string; actions: ({ label: string; url: string } | { label: string; query: string })[] };
 
 export interface AgentQuery {
     prompt: string;
@@ -273,10 +334,12 @@ export interface Settings {
         nodeUrl: string;
     };
     agent: {
-        provider: 'offline' | 'remote' | 'ollama';
+        provider: 'offline' | 'remote' | 'ollama' | 'soul';
         remoteUrl: string;
         ollamaUrl: string;
         ollamaModel: string;
+        /** The Soul Engine sidecar (agent/), started while it is the selected provider. */
+        soul: SoulSettings;
     };
     downloads: {
         /** '' → OS default downloads dir */
@@ -417,6 +480,12 @@ export interface BucksApi {
         query(q: AgentQuery): Promise<AgentResult>;
         feedback(f: AgentFeedback): Promise<void>;
         listModels(): Promise<string[]>;
+        soulStatus(): Promise<SoulStatus>;
+        soulStart(): Promise<SoulStatus>;
+        soulStop(): Promise<SoulStatus>;
+        /** Create the engine's private Python environment, then start it. */
+        soulInstall(): Promise<SoulStatus>;
+        onSoulStatus(cb: (status: SoulStatus) => void): Unsubscribe;
     };
 
     wallet: {
@@ -478,6 +547,7 @@ function defaultSettings(): Settings {
             remoteUrl: 'http://localhost:3000',
             ollamaUrl: 'http://127.0.0.1:11434',
             ollamaModel: 'llama3.2',
+            soul: { autoStart: true, backend: 'edge', port: 0, python: '', agentDir: '' },
         },
         downloads: { directory: '', askWhereToSave: false },
         ui: { theme: 'dark' },
@@ -525,6 +595,11 @@ function mockDevicesStatus(name: string): DevicesStatus {
         discovered: [],
         received: [],
     };
+}
+
+/** Soul Engine status outside Bucks: there is no main process to run it. */
+function mockSoulStatus(): SoulStatus {
+    return { state: 'unavailable', message: NOT_IN_BUCKS, url: null, backend: 'edge', model: null, mode: null, python: null, agentDir: null, dataDir: '' };
 }
 
 const noSub: Unsubscribe = () => {};
@@ -619,6 +694,11 @@ function createMockBridge(): BucksApi {
                 }),
             feedback: resolved,
             listModels: () => Promise.resolve([]),
+            soulStatus: () => Promise.resolve(mockSoulStatus()),
+            soulStart: () => unavailable('agent.soulStart'),
+            soulStop: () => Promise.resolve(mockSoulStatus()),
+            soulInstall: () => unavailable('agent.soulInstall'),
+            onSoulStatus: () => noSub,
         },
         wallet: {
             rpc: () => unavailable('wallet.rpc'),

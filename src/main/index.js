@@ -19,6 +19,7 @@ import { installDownloads } from './downloads.js';
 import { registerShellIpc } from './shell.js';
 import { installSecurity } from './security/index.js';
 import { createAgent } from './agent/bridge.js';
+import { createSoulEngine, settingsAction } from './agent/soul-engine.js';
 import { createWalletProxy } from './wallet/proxy.js';
 import { registerUpdater } from './updater.js';
 import { appRoot, uiDist, preloadPath, resourcesDir, userDataDir } from './paths.js';
@@ -52,6 +53,7 @@ if (!app.requestSingleInstanceLock()) {
 let mainWindow = null;
 let kubo = null;
 let tabs = null;
+let soul = null;
 
 const getMainWindow = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null);
 
@@ -99,7 +101,21 @@ app.whenReady().then(async () => {
   registerShellIpc();
 
   registerUpdater({ root: appRoot, getMainWindow });
-  createAgent({ settings, tabs, kubo });
+  // Soul Engine: the Python agent in agent/, run as a token-protected loopback sidecar while it is
+  // the selected agent provider.
+  soul = createSoulEngine({ settings, userData, appRoot, resourcesDir: app.isPackaged ? resourcesDir() : null, getMainWindow });
+  createAgent({ settings, tabs, kubo, soul });
+  {
+    const s = settings.get();
+    // Same rule as a settings change from "nothing selected" (validates a hand-edited settings.json).
+    if (settingsAction({}, s, false) === 'start') soul.start().catch((e) => log.error('Soul Engine start failed:', e));
+    let previous = s;
+    settings.onChange((next) => {
+      const action = settingsAction(previous, next, soul.isRunning());
+      previous = next;
+      if (action) soul[action]().catch((e) => log.error(`Soul Engine ${action} failed:`, e));
+    });
+  }
   createWalletProxy({ settings });
 
   mainWindow.on('closed', () => {
@@ -119,10 +135,11 @@ app.on('window-all-closed', () => {
 
 let shuttingDown = false;
 app.on('before-quit', (event) => {
-  if (shuttingDown || !kubo) return;
+  if (shuttingDown || (!kubo && !soul)) return;
   shuttingDown = true;
   event.preventDefault();
-  Promise.race([kubo.stop(), new Promise((r) => setTimeout(r, 4000))])
+  const stops = [kubo?.stop(), soul?.stop()].filter(Boolean);
+  Promise.race([Promise.allSettled(stops), new Promise((r) => setTimeout(r, 4000))])
     .catch(() => {})
     .finally(() => app.quit());
 });

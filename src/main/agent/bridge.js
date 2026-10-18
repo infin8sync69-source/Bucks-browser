@@ -1,31 +1,34 @@
 // Agent bridge: bucks:agent:* IPC. Dispatches chat requests to the configured provider
-// (offline rules, a remote Bucks agent server, or a local Ollama model) and falls back to the
-// offline rules, with an explanatory note, when the chosen provider is unreachable.
+// (offline rules, a remote Bucks agent server, a local Ollama model, or the Soul Engine sidecar)
+// and falls back to the offline rules, with an explanatory note, when the chosen provider is
+// unreachable. Also exposes the Soul Engine supervisor (status, start, stop, install).
 
 import { ipcMain } from 'electron';
 import { createLogger } from '../log.js';
 import { offlineProvider } from './providers/offline.js';
 import { remoteProvider } from './providers/remote.js';
 import { ollamaProvider } from './providers/ollama.js';
+import { soulProvider } from './providers/soul.js';
 
 const log = createLogger('agent');
 
-export const PROVIDER_NAMES = ['offline', 'remote', 'ollama'];
+export const PROVIDER_NAMES = ['offline', 'remote', 'ollama', 'soul'];
 const AVAILABILITY_TTL_MS = 10_000;
 const PAGE_TEXT_LIMIT = 6_000;
 const MAX_PROMPT = 8_000;
 
-const LABELS = { remote: 'Remote agent', ollama: 'Ollama', offline: 'Offline agent' };
+const LABELS = { remote: 'Remote agent', ollama: 'Ollama', soul: 'Soul Engine', offline: 'Offline agent' };
 
-/** Flat provider config from a Settings snapshot. */
-function providerConfig(s) {
-  return { ...(s?.agent || {}), searchEngine: s?.searchEngine || 'duckduckgo' };
+/** Flat provider config from a Settings snapshot, plus where the Soul Engine runs right now. */
+function providerConfig(s, soul) {
+  return { ...(s?.agent || {}), searchEngine: s?.searchEngine || 'duckduckgo', soul: soul?.connection?.() || null };
 }
 
 /** The part of the config that decides which server is probed (cache key). */
 function endpointOf(name, cfg) {
   if (name === 'remote') return cfg.remoteUrl || '';
   if (name === 'ollama') return `${cfg.ollamaUrl || ''}`;
+  if (name === 'soul') return cfg.soul?.url || '';
   return '';
 }
 
@@ -38,18 +41,20 @@ const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
  * @param {{ get(): object }} deps.settings
  * @param {{ extractText(id: string): Promise<{ title: string, text: string, url: string }> }} deps.tabs
  * @param {object} [deps.kubo] accepted for interface parity with index.js (not needed by the current providers)
+ * @param {{ status(): object, start(): Promise<object>, stop(): Promise<void>, install(): Promise<object>, connection(): object|null }} [deps.soul]
+ *        the Soul Engine supervisor (soul-engine.js); without it the soul provider is never available
  * @param {Record<string, object>} [deps.providers] override providers (tests)
  * @param {() => number} [deps.now] clock (tests)
  * @returns {{ status(): Promise<object>, query(p: object): Promise<object>, feedback(p: object): Promise<object>, listModels(): Promise<string[]> }}
  */
-export function createAgent({ settings, tabs, kubo: _kubo, providers, now = Date.now }) {
-  const registry = { offline: offlineProvider, remote: remoteProvider, ollama: ollamaProvider, ...(providers || {}) };
+export function createAgent({ settings, tabs, kubo: _kubo, soul = null, providers, now = Date.now }) {
+  const registry = { offline: offlineProvider, remote: remoteProvider, ollama: ollamaProvider, soul: soulProvider, ...(providers || {}) };
   const availability = new Map(); // `${name}|${endpoint}` -> { at, value }
 
   const selected = () => {
     const s = settings.get();
     const name = PROVIDER_NAMES.includes(s?.agent?.provider) ? s.agent.provider : 'offline';
-    return { name, provider: registry[name], cfg: providerConfig(s) };
+    return { name, provider: registry[name], cfg: providerConfig(s, soul) };
   };
 
   async function isAvailable(name, provider, cfg) {
@@ -76,12 +81,28 @@ export function createAgent({ settings, tabs, kubo: _kubo, providers, now = Date
     return out;
   }
 
+  // A cached "unreachable" must not outlive the engine becoming ready (or the other way round).
+  soul?.onStatus?.(() => {
+    for (const key of availability.keys()) if (key.startsWith('soul|')) availability.delete(key);
+  });
+
+  /** Why the Soul Engine cannot answer, in the words of its status message. */
+  function soulReason() {
+    const st = soul.status();
+    return st.state === 'idle' || st.state === 'stopped' ? 'it is not running (start it in Settings)' : st.message.replace(/\.$/, '');
+  }
+
   const api = {
-    /** @returns {Promise<{ online: boolean, provider: string, model?: string, providers: string[] }>} */
+    /** @returns {Promise<{ online: boolean, provider: string, model?: string, detail?: string, providers: string[] }>} */
     async status() {
       const { name, provider, cfg } = selected();
       const status = { online: await isAvailable(name, provider, cfg), provider: name, providers: [...PROVIDER_NAMES] };
       if (name === 'ollama') status.model = cfg.ollamaModel;
+      if (name === 'soul' && soul) {
+        const st = soul.status();
+        if (st.model) status.model = st.model;
+        if (!status.online) status.detail = st.message;
+      }
       return status;
     },
 
@@ -101,7 +122,8 @@ export function createAgent({ settings, tabs, kubo: _kubo, providers, now = Date
       if (name === 'offline') return registry.offline.query(input, cfg);
 
       if (!(await isAvailable(name, provider, cfg))) {
-        return offlineWithNote(name, cfg, input, `cannot reach ${endpointOf(name, cfg) || 'the server'}`);
+        const reason = name === 'soul' && soul ? soulReason() : `cannot reach ${endpointOf(name, cfg) || 'the server'}`;
+        return offlineWithNote(name, cfg, input, reason);
       }
 
       try {
@@ -150,6 +172,23 @@ export function createAgent({ settings, tabs, kubo: _kubo, providers, now = Date
   ipcMain.handle('bucks:agent:feedback', (_e, payload) => api.feedback(payload));
   ipcMain.removeHandler?.('bucks:agent:list-models');
   ipcMain.handle('bucks:agent:list-models', () => api.listModels());
+
+  // Soul Engine supervisor. Status changes are also pushed as the bucks:agent:soul-status event.
+  const soulMissing = () => { throw new Error('The Soul Engine is not available in this build'); };
+  const soulControl = {
+    'bucks:agent:soul-status': () => (soul ? soul.status() : soulMissing()),
+    'bucks:agent:soul-start': () => (soul ? soul.start() : soulMissing()),
+    'bucks:agent:soul-stop': async () => { if (!soul) soulMissing(); await soul.stop(); return soul.status(); },
+    'bucks:agent:soul-install': () => (soul ? soul.install() : soulMissing()),
+  };
+  for (const [channel, fn] of Object.entries(soulControl)) {
+    ipcMain.removeHandler?.(channel);
+    ipcMain.handle(channel, () => {
+      const result = fn();
+      availability.clear(); // the engine's reachability is about to change
+      return result;
+    });
+  }
 
   return api;
 }

@@ -3,7 +3,8 @@
     import { cubicOut } from "svelte/easing";
     import { onMount, tick } from "svelte";
     import { swarmStore } from "./swarmStore";
-    import { isSwarmThinking } from "./stores";
+    import { isSwarmThinking, browserStore } from "./stores";
+    import GenUiCards from "./GenUiCards.svelte";
     import { Send, X, RotateCcw, Zap, Bot, User, ChevronDown } from "lucide-svelte";
 
     let {
@@ -81,7 +82,18 @@
             .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
             .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
             .replace(/`(.*?)`/g, "<code>$1</code>")
+            // [label](https://…) → a link that openLink() opens in a new tab. The URL cannot contain
+            // quotes or spaces, so it cannot break out of the attribute.
+            .replace(/\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)"'<>]{1,2048})\)/g, '<a data-href="$2" class="text-violet-300 underline decoration-violet-400/40 cursor-pointer hover:text-violet-200">$1</a>')
             .replace(/\n/g, "<br>");
+    }
+
+    /** Links in agent answers open in a new tab; the chrome window itself never navigates. */
+    function openLink(e: MouseEvent) {
+        const a = (e.target as HTMLElement | null)?.closest?.("a[data-href]");
+        if (!a) return;
+        e.preventDefault();
+        browserStore.createTab(a.getAttribute("data-href") ?? "");
     }
 
     onMount(() => textareaEl?.focus());
@@ -189,7 +201,8 @@
                             <Zap size={12} class="text-white" />
                         </div>
                         <div class="max-w-[82%]">
-                            <div class="bg-white/[0.05] border border-white/[0.07] text-zinc-200 text-sm px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed">
+                            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                            <div onclick={openLink} class="bg-white/[0.05] border border-white/[0.07] text-zinc-200 text-sm px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed">
                                 <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                                 {@html renderContent(msg.content)}
 
@@ -212,6 +225,20 @@
                                     </div>
                                 {/if}
                             </div>
+                            {#if msg.components?.length}
+                                <GenUiCards components={msg.components} />
+                            {/if}
+                            {#if msg.followups?.length}
+                                <div class="mt-2 flex flex-wrap gap-1.5">
+                                    {#each msg.followups as q (q)}
+                                        <button
+                                            onclick={() => swarmStore.sendQuery(q)}
+                                            disabled={$isSwarmThinking}
+                                            class="text-left text-[11px] text-violet-200/90 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-400/20 rounded-xl px-2.5 py-1 disabled:opacity-40 transition-colors"
+                                        >{q}</button>
+                                    {/each}
+                                </div>
+                            {/if}
                             <p class="text-[10px] text-zinc-600 mt-1">{fmtTime(msg.ts)}</p>
                         </div>
                     </div>

@@ -35,6 +35,21 @@ extraResources:
     to: "kubo"
     filter:
       - "**/*"
+  # The Soul Engine's Python source, run by src/main/agent/soul-engine.js from
+  # <process.resourcesPath>/agent. Its Python environment is NOT bundled: Settings → Agent →
+  # Install creates one in the user's profile (<userData>/soul-engine/venv).
+  - from: "agent"
+    to: "agent"
+    filter:
+      - "**/*"
+      - "!.venv/**"
+      - "!venv/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!.env"
+      - "!tests/**"
+      - "!**/*.db"
+      - "!soul/.frozen_cid_cache"
 
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 

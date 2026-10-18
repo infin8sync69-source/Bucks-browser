@@ -1,0 +1,190 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createSoulProvider, sseEvents, buildContext } from '../../../src/main/agent/providers/soul.js';
+import { normalizeComponent, normalizeComponents, splitFollowups } from '../../../src/main/agent/genui.js';
+
+const TOKEN = 'secret-token';
+let server;
+let base;
+let mode = 'ok';
+const seen = [];
+
+const sse = (obj) => `data: ${JSON.stringify(obj)}\n\n`;
+
+before(async () => {
+  server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const parsed = body ? JSON.parse(body) : null;
+      seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || null, body: parsed });
+      const json = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+      if (req.url === '/health') return json(200, { model: 'qwen2.5:3b', mode: mode === 'loading' ? 'loading' : 'local_llm', online: true });
+      if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: 'unauthorized' });
+      if (req.url === '/agent') {
+        if (mode === 'http-error') return json(500, { detail: 'kaput' });
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        const events = [
+          sse({ type: 'session', session_id: 'sess-1' }),
+          sse({ type: 'thinking', content: 'Thinking it through…' }),
+          sse({ type: 'tool_call', name: 'web_search', args: { query: 'ipfs' } }),
+          sse({ type: 'tool_result', name: 'web_search', content: '…' }),
+        ];
+        if (mode === 'approval') {
+          events.push(sse({ type: 'browser_action', id: 'a1', action_id: 'a1', name: 'cluster_pin', needs_approval: true, session_id: 'sess-1', label: 'Pin bafy… on this node' }));
+        }
+        if (mode === 'error') {
+          events.push(sse({ type: 'error', content: 'Agent error: model crashed' }));
+        } else {
+          events.push(
+            sse({ type: 'ui_component', component: 'table', title: 'Compare', data: { columns: ['A', 'B'], rows: [['1', '2']] } }),
+            sse({ type: 'ui_component', component: 'evil_widget', data: {} }),
+            sse({ type: 'token', content: 'IPFS is a ' }),
+            sse({ type: 'token', content: 'content-addressed network.\n<followup>How do I pin a file?</followup><followup>What is a CID?</followup>' }),
+          );
+        }
+        events.push(sse({ type: 'done', session_id: 'sess-1', result: '' }), 'data: [DONE]\n\n');
+        // Split the stream at awkward places: the parser must reassemble events across chunks.
+        const all = events.join('');
+        const cut = [7, 40, 41, 100, all.length - 3];
+        let prev = 0;
+        for (const c of cut) { res.write(all.slice(prev, c)); prev = c; }
+        res.end(all.slice(prev));
+        return;
+      }
+      if (req.url.startsWith('/agent/deny/')) return json(200, { ok: true });
+      if (req.url === '/agent/feedback') return json(200, parsed.session_id === 'sess-1' ? { ok: true } : { ok: false, error: 'unknown session_id' });
+      if (req.url === '/models') return json(200, { models: [{ id: 'llama3.2:1b' }, { id: 'qwen2.5:3b' }, { nope: 1 }] });
+      return json(404, {});
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+after(() => server.close());
+
+const soul = createSoulProvider();
+const cfg = () => ({ soul: { url: base, token: TOKEN } });
+
+test('isAvailable needs a connection and a ready model', async () => {
+  mode = 'ok';
+  assert.equal(await soul.isAvailable({}), false, 'no engine running');
+  assert.equal(await soul.isAvailable(cfg()), true);
+  mode = 'loading';
+  assert.equal(await soul.isAvailable(cfg()), false);
+  assert.equal(await soul.isAvailable({ soul: { url: 'http://127.0.0.1:1', token: 't' } }), false);
+});
+
+test('query streams the answer, cards and follow-ups, with the token', async () => {
+  mode = 'ok'; seen.length = 0;
+  const r = await soul.query({ prompt: 'what is ipfs', currentUrl: 'https://a.b', currentTitle: 'A', pageText: 'body' }, cfg());
+  const call = seen.find((s) => s.url === '/agent');
+  assert.equal(call.auth, `Bearer ${TOKEN}`);
+  assert.equal(call.body.message, 'what is ipfs');
+  assert.equal(call.body.agentic, false);
+  assert.match(call.body.context, /^Page: A - https:\/\/a\.b/);
+  assert.match(call.body.context, /untrusted third-party content/);
+  assert.equal(r.status, 'ok');
+  assert.equal(r.evaluation, 'IPFS is a content-addressed network.');
+  assert.deepEqual(r.followups, ['How do I pin a file?', 'What is a CID?']);
+  assert.equal(r.task_id, 'sess-1');
+  assert.deepEqual(r.tools, ['web_search']);
+  assert.deepEqual(r.components, [{ component: 'table', title: 'Compare', columns: ['A', 'B'], rows: [['1', '2']] }], 'unknown components are dropped');
+});
+
+test('actions that need approval are declined at once and explained', async () => {
+  mode = 'approval'; seen.length = 0;
+  const r = await soul.query({ prompt: 'pin it' }, cfg());
+  const deny = seen.find((s) => s.url.startsWith('/agent/deny/'));
+  assert.ok(deny, 'the engine is told no instead of waiting 30 s');
+  assert.equal(deny.url, '/agent/deny/sess-1');
+  assert.deepEqual(deny.body, { action_id: 'a1' });
+  assert.equal(deny.auth, `Bearer ${TOKEN}`);
+  assert.match(r.evaluation, /Not done, because approving actions is not available.*Pin bafy… on this node/);
+});
+
+test('errors: engine error event, HTTP error, not running', async () => {
+  mode = 'error';
+  await assert.rejects(soul.query({ prompt: 'x' }, cfg()), /model crashed/);
+  mode = 'http-error';
+  await assert.rejects(soul.query({ prompt: 'x' }, cfg()), /responded 500: .*kaput/);
+  await assert.rejects(soul.query({ prompt: 'x' }, {}), /not running/);
+  await assert.rejects(soul.query({ prompt: 'x' }, { soul: { url: base, token: 'wrong' } }), /responded 401/);
+});
+
+test('feedback and models', async () => {
+  mode = 'ok'; seen.length = 0;
+  assert.deepEqual(await soul.feedback({ taskId: 'sess-1', score: 5, correction: '' }, cfg()), { ok: true });
+  assert.deepEqual(seen.at(-1).body, { session_id: 'sess-1', score: 1, correction: null }, 'scores are reduced to -1 | 0 | 1');
+  assert.deepEqual(await soul.feedback({ taskId: 'zzz', score: -2 }, cfg()), { ok: false, message: 'unknown session_id' });
+  assert.deepEqual(await soul.listModels(cfg()), ['llama3.2:1b', 'qwen2.5:3b']);
+  assert.deepEqual(await soul.listModels({}), []);
+});
+
+test('sseEvents: multi-line data, CRLF, junk and [DONE]', async () => {
+  const enc = new TextEncoder();
+  async function* body() {
+    yield enc.encode('data: {"a":\r\ndata: 1}\r\n\r\n: comment\n\ndata: not json\n\n');
+    yield enc.encode('data: {"b":2}\n\ndata: [DONE]\n\ndata: {"c":3}\n\n');
+  }
+  const out = [];
+  for await (const ev of sseEvents(body())) out.push(ev);
+  assert.deepEqual(out, [{ a: 1 }, { b: 2 }]);
+});
+
+test('buildContext', () => {
+  assert.equal(buildContext({}), '');
+  assert.equal(buildContext({ currentUrl: 'https://x.y' }), 'Page: https://x.y');
+  assert.equal(buildContext({ pageText: 'z'.repeat(9000) }).length < 6200, true);
+});
+
+/* ---------- generative UI normalisation ---------- */
+
+test('genui: links must be http(s)/ipfs, strings are bounded, html is just text', () => {
+  const [card] = normalizeComponent({
+    component: 'list',
+    title: '<b>Results</b>',
+    data: { items: [
+      { title: 'ok', url: 'https://example.com' },
+      { title: 'js', url: 'javascript:alert(1)' },
+      { title: 'x'.repeat(1000), url: 'ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi' },
+      'garbage',
+    ] },
+  });
+  assert.equal(card.title, '<b>Results</b>', 'kept verbatim; the chrome renders it as text');
+  assert.deepEqual(card.items[0], { title: 'ok', subtitle: '', url: 'https://example.com' });
+  assert.equal(card.items[1].url, '', 'javascript: link removed');
+  assert.equal(card.items[2].title.length, 300);
+  assert.equal(card.items.length, 3);
+});
+
+test('genui: every engine component maps to a chrome card', () => {
+  const kinds = (spec) => normalizeComponent(spec).map((c) => c.component);
+  assert.deepEqual(kinds({ component: 'stat_cards', data: { stats: [{ label: 'Peers', value: 12, delta: '+2' }] } }), ['stats']);
+  assert.deepEqual(kinds({ component: 'chart', data: { kind: 'pie', series: [{ label: 'a', value: '1,5' }, { label: 'b', value: 'x' }] } }), ['chart']);
+  assert.deepEqual(kinds({ component: 'timeline', data: { events: [{ date: '2009', title: 'Bitcoin' }] } }), ['timeline']);
+  assert.deepEqual(kinds({ component: 'checklist', data: { items: ['pack', { text: 'go', done: true }, { nope: 1 }] } }), ['checklist']);
+  assert.deepEqual(kinds({ component: 'accordion', data: { items: [{ heading: 'Q', text: 'A' }] } }), ['accordion']);
+  assert.deepEqual(kinds({ component: 'code', data: { language: 'js', code: 'let a = 1' } }), ['code']);
+  assert.deepEqual(kinds({ component: 'weather', data: { place: 'Kochi', current: { temp_c: 30 }, days: [{ day: 'Mon', high_c: 31, low_c: 25 }] } }), ['weather']);
+  assert.deepEqual(kinds({ component: 'answer', data: { markdown: 'hi' } }), ['answer']);
+  assert.deepEqual(kinds({ component: 'product_grid', data: { items: [{ title: 'Phone', price: '₹9,999', url: 'https://shop.example/p' }] } }), ['list']);
+  assert.deepEqual(kinds({ component: 'image_gallery', data: { items: [{ title: 'cat', image: 'https://img.example/c.jpg' }] } }), ['list']);
+  assert.deepEqual(kinds({ component: 'cta_row', data: { actions: [{ label: 'Open', kind: 'navigate', value: 'https://a.b' }, { label: 'Copy', kind: 'copy', value: 'x' }] } }), ['links']);
+  assert.deepEqual(kinds({ component: 'research', data: { summary: 'S', sections: [{ heading: 'H', text: 'T' }], sources: [{ title: 'W', url: 'https://w.org' }], stats: [] } }), ['answer', 'list', 'list']);
+  assert.deepEqual(kinds({ component: 'table', data: { columns: ['a'], rows: [] } }), [], 'empty cards are dropped');
+});
+
+test('genui: videos become YouTube links only for valid ids; the total is capped', () => {
+  const [v] = normalizeComponent({ component: 'video', data: { videos: [{ videoId: 'dQw4w9WgXcQ', title: 'v' }, { videoId: '"><script>', title: 'bad' }] } });
+  assert.deepEqual(v.items, [{ title: 'v', subtitle: '', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }]);
+  const many = Array.from({ length: 30 }, () => ({ component: 'answer', data: { markdown: 'x' } }));
+  assert.equal(normalizeComponents(many).length, 12);
+  assert.deepEqual(normalizeComponents('nope'), []);
+});
+
+test('splitFollowups', () => {
+  assert.deepEqual(splitFollowups('Answer.\n\n<followup> One? </followup>\n<followup>One?</followup><FOLLOWUP>Two?</FOLLOWUP>'), { text: 'Answer.', followups: ['One?', 'Two?'] });
+  assert.deepEqual(splitFollowups(undefined), { text: '', followups: [] });
+});

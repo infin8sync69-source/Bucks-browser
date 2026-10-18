@@ -12,6 +12,7 @@
     import { settingsStore } from '$lib/settingsStore';
     import { swarmStore } from '$lib/swarmStore';
     import { chatOpen } from '$lib/uiState';
+    import { bucks } from '$lib/bridge';
     import { onMount } from 'svelte';
 
     let { children } = $props();
@@ -22,8 +23,16 @@
         const teardownTabs = browserStore.init();
         void swarmStore.checkOnline();
         const statusPoll = setInterval(() => void swarmStore.checkOnline(), 30_000);
+        // The Soul Engine becomes usable on its own schedule (model download, warm-up): follow it.
+        let lastSoulState = '';
+        const stopSoulWatch = bucks.agent.onSoulStatus((st) => {
+            if (st.state === lastSoulState) return;
+            lastSoulState = st.state;
+            if ($settingsStore?.agent.provider === 'soul') void swarmStore.checkOnline();
+        });
         return () => {
             clearInterval(statusPoll);
+            stopSoulWatch();
             teardownTabs();
             ipfsStore.cleanup();
             settingsStore.destroy();

@@ -45,9 +45,9 @@ test('registers the four channels', () => {
 
 test('status', async () => {
   makeAgent();
-  assert.deepEqual(await invoke('bucks:agent:status'), { online: true, provider: 'offline', providers: ['offline', 'remote', 'ollama'] });
+  assert.deepEqual(await invoke('bucks:agent:status'), { online: true, provider: 'offline', providers: ['offline', 'remote', 'ollama', 'soul'] });
   current.agent.provider = 'ollama';
-  assert.deepEqual(await invoke('bucks:agent:status'), { online: true, provider: 'ollama', model: 'llama3.2', providers: ['offline', 'remote', 'ollama'] });
+  assert.deepEqual(await invoke('bucks:agent:status'), { online: true, provider: 'ollama', model: 'llama3.2', providers: ['offline', 'remote', 'ollama', 'soul'] });
   providerMode = 'down'; clock += 11_000;
   assert.equal((await invoke('bucks:agent:status')).online, false);
 });
@@ -139,4 +139,82 @@ test('feedback and list-models', async () => {
   assert.deepEqual(await invoke('bucks:agent:list-models'), []);
   current.agent.provider = 'ollama';
   assert.deepEqual(await invoke('bucks:agent:list-models'), ['m1', 'm2']);
+});
+
+/* ---------- Soul Engine ---------- */
+
+function fakeSoul() {
+  const listeners = new Set();
+  const calls = [];
+  const s = {
+    st: { state: 'stopped', message: 'Soul Engine stopped.', model: null },
+    conn: null,
+    calls,
+    status: () => ({ ...s.st }),
+    connection: () => s.conn,
+    onStatus: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
+    emit(patch) { Object.assign(s.st, patch); for (const cb of listeners) cb(s.status()); },
+    start: async () => { calls.push('start'); return s.status(); },
+    stop: async () => { calls.push('stop'); },
+    install: async () => { calls.push('install'); return s.status(); },
+  };
+  return s;
+}
+
+const soulProvider = {
+  name: 'soul',
+  isAvailable: async (cfg) => { probes.push(`soul ${cfg.soul?.url}`); return Boolean(cfg.soul) && providerMode !== 'down'; },
+  query: async (input, cfg) => { queries.push({ input, cfg }); return { status: 'ok', evaluation: 'soul says hi', task_id: 's1', a2ui: null, components: [] }; },
+};
+
+test('soul: status carries the engine message while it cannot answer', async () => {
+  const soul = fakeSoul();
+  createAgent({ settings, tabs, soul, providers: { ...providers, soul: soulProvider }, now: () => clock });
+  current.agent.provider = 'soul';
+  assert.deepEqual(await invoke('bucks:agent:status'), { online: false, provider: 'soul', detail: 'Soul Engine stopped.', providers: ['offline', 'remote', 'ollama', 'soul'] });
+  soul.conn = { url: 'http://127.0.0.1:5555', token: 't' };
+  soul.emit({ state: 'ready', message: 'Soul Engine is ready.', model: 'qwen2.5:3b' });
+  assert.deepEqual(await invoke('bucks:agent:status'), { online: true, provider: 'soul', model: 'qwen2.5:3b', providers: ['offline', 'remote', 'ollama', 'soul'] });
+});
+
+test('soul: a status change drops the cached availability', async () => {
+  const soul = fakeSoul();
+  createAgent({ settings, tabs, soul, providers: { ...providers, soul: soulProvider }, now: () => clock });
+  current.agent.provider = 'soul';
+  soul.conn = { url: 'http://127.0.0.1:5555', token: 't' };
+  providerMode = 'down';
+  assert.equal((await invoke('bucks:agent:status')).online, false);
+  providerMode = 'up';
+  assert.equal((await invoke('bucks:agent:status')).online, false, 'still cached');
+  soul.emit({ state: 'ready', message: 'Soul Engine is ready.' });
+  assert.equal((await invoke('bucks:agent:status')).online, true, 'cache cleared by the status event');
+});
+
+test('soul: queries get the connection; the fallback note quotes the engine', async () => {
+  const soul = fakeSoul();
+  createAgent({ settings, tabs, soul, providers: { ...providers, soul: soulProvider }, now: () => clock });
+  current.agent.provider = 'soul';
+  let r = await invoke('bucks:agent:query', { prompt: 'wallet' });
+  assert.equal(r.status, 'offline_fallback');
+  assert.match(r.evaluation, /^Soul Engine unavailable: it is not running \(start it in Settings\)/);
+  soul.emit({ state: 'loading', message: 'Loading the on-device model (qwen2.5:3b). The first start downloads it.' });
+  r = await invoke('bucks:agent:query', { prompt: 'wallet' });
+  assert.match(r.evaluation, /^Soul Engine unavailable: Loading the on-device model/);
+  soul.conn = { url: 'http://127.0.0.1:5555', token: 't' };
+  soul.emit({ state: 'ready', message: 'Soul Engine is ready.' });
+  r = await invoke('bucks:agent:query', { prompt: 'hello' });
+  assert.equal(r.evaluation, 'soul says hi');
+  assert.deepEqual(queries.at(-1).cfg.soul, { url: 'http://127.0.0.1:5555', token: 't' });
+});
+
+test('soul: control channels reach the supervisor, or fail clearly without one', async () => {
+  const soul = fakeSoul();
+  createAgent({ settings, tabs, soul, providers, now: () => clock });
+  assert.equal((await invoke('bucks:agent:soul-status')).state, 'stopped');
+  await invoke('bucks:agent:soul-start');
+  await invoke('bucks:agent:soul-stop');
+  await invoke('bucks:agent:soul-install');
+  assert.deepEqual(soul.calls, ['start', 'stop', 'install']);
+  createAgent({ settings, tabs, providers, now: () => clock });
+  assert.throws(() => invoke('bucks:agent:soul-status'), /not available/);
 });

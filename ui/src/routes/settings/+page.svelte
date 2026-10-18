@@ -11,6 +11,7 @@
     import ToggleRow from "$lib/settings/ToggleRow.svelte";
     import TextRow from "$lib/settings/TextRow.svelte";
     import RadioGroup from "$lib/settings/RadioGroup.svelte";
+    import SoulEngineSettings from "$lib/settings/SoulEngineSettings.svelte";
 
     const s = $derived($settingsStore);
 
@@ -85,6 +86,7 @@
         { id: "offline", label: "Offline (built-in intents only)", hint: "no network" },
         { id: "remote", label: "Remote agent server", hint: "Bucks agent API" },
         { id: "ollama", label: "Ollama (local model)", hint: "on-device" },
+        { id: "soul", label: "Soul Engine (full agent)", hint: "tools · web research · cards" },
     ];
 
     function clearData() {
@@ -287,6 +289,8 @@
                         {/each}
                     </div>
                 {/if}
+            {:else if s.agent.provider === "soul"}
+                <SoulEngineSettings {s} {save} />
             {/if}
             {#if agentStatus}
                 <p class="text-[11px] text-white/30">
