@@ -15,7 +15,7 @@ already has Bucks, update it first by running its install command again.
 | Computer | Install or update with |
 |---|---|
 | Linux (Ubuntu 24.04 and others) | `curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-linux.sh \| bash` |
-| Mac (Apple Silicon or Intel, macOS 13 or newer) | `curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-macos.sh \| bash` |
+| Mac (Apple Silicon or Intel, macOS 12 or newer; macOS 12 uses Electron 43) | `curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-macos.sh \| bash` |
 
 The installers download the IPFS node (Kubo) for you. They try `dist.ipfs.tech` first and then
 GitHub, so a network that blocks `dist.ipfs.tech` is fine. Details and prerequisites are in the

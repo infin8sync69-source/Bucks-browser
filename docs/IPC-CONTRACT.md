@@ -153,7 +153,7 @@ error message. Handlers must throw `Error` with a human-readable message, never 
 
 ```js
 createSettings({ userData, getMainWindow })            → settings { get(), set(patch), onChange(cb), file }
-createKubo({ settings, userData, resourcesDir, getMainWindow })
+createKubo({ settings, userData, resourcesDir, getMainWindow, fetchImpl })   // fetchImpl: Electron net.fetch, used only for the Kubo download
    → kubo { start(), stop(), restart(), status(): IpfsStatus, onStatus(cb), apiUrl(): string|null,
             gatewayUrl(): string|null, rpc: KuboRpcClient|null, isReady(): boolean,
             gatewayUrlFor(url): string }   // falls back to settings.ipfs.publicGateway when not ready
@@ -173,7 +173,16 @@ installDownloads({ session, settings, getMainWindow })
 registerShellIpc()
 createAgent({ settings, tabs, kubo })
 createWalletProxy({ settings })
+createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)
 ```
+
+Kubo download (first run, when no binary is bundled): `src/main/ipfs/dist.js` tries, in order,
+`KUBO_DIST_URL` (env), `https://dist.ipfs.tech/kubo`, then GitHub releases
+(`https://github.com/ipfs/kubo/releases/download/<v>/kubo_<v>_<os>-<arch>.tar.gz`). The small
+`.sha512` is fetched first on each mirror, so a blocked mirror fails fast; every archive is verified
+against the checksum from the same mirror, and a mirror without one is skipped (never installed
+unverified). When every mirror fails, the error lists each mirror and its reason.
+`scripts/fetch-kubo.mjs` uses the same mirror list.
 
 ## Security rules (non-negotiable)
 
@@ -205,6 +214,8 @@ Electron import, unit-tested). Wired in `src/main/index.js` as
 * The user pairs devices explicitly on both machines. Paired devices live in
   `settings.ipfs.peers = [{ peerId, name, addrs }]`. Only messages from paired peer IDs can add
   shares. Presence from unpaired peers is shown as "discovered", never trusted.
+* The topic is public: any node on the gossip mesh (not only the LAN) can read a device's presence
+  (name, addrs, the CIDs it offered in the last 7 days) and may appear under `discovered`.
 * `addrs` are multiaddrs **without** the `/p2p/<id>` suffix (that is how Kubo's `Peering.Peers` wants
   them). The UI and pair channel accept either form; devices.js strips the suffix.
 
@@ -213,9 +224,18 @@ Electron import, unit-tested). Wired in `src/main/index.js` as
 * `Pubsub.Enabled = true`, `Pubsub.Router = "gossipsub"`.
 * `Discovery.MDNS.Enabled = true` (LAN auto-discovery).
 * `Peering.Peers = settings.ipfs.peers.map(p => ({ ID: p.peerId, Addrs: p.addrs }))` so paired
-  devices stay connected and reconnect automatically.
-* Changing `settings.ipfs.peers` must NOT restart the node. devices.js applies pairing changes live
-  with `swarm/peering/add|rm`, `swarm/connect` and `config Peering.Peers`.
+  devices stay connected and reconnect automatically. Entries are validated first: an invalid peer
+  ID, our own ID or an unparsable multiaddr is dropped (Kubo refuses to start on one bad multiaddr
+  in its config), a trailing `/p2p/<id>` is stripped, and with no valid entry `Peering.Peers` is `[]`.
+* A daemon left running in our repo is only adopted when it reports `Pubsub.Enabled = true`;
+  otherwise it is shut down and a correctly configured one is started.
+* Only a change of `ipfs.mode`, or of `ipfs.externalApiUrl` while the mode is `external`, restarts
+  the node. Changing `settings.ipfs.peers` or `settings.devices` must NOT restart it. devices.js
+  applies pairing changes live with `swarm/peering/add|rm`, `swarm/connect` and
+  `config Peering.Peers` — but only for changes made through `bucks:devices:pair|unpair` (and when
+  a paired device advertises new addrs, and on every node start). Editing `ipfs.peers` through
+  `bucks:settings:set` takes effect live only at the next node start, so the UI must use the
+  devices channels.
 
 ### Pubsub protocol
 
@@ -236,14 +256,23 @@ Payload (UTF-8 JSON, at most 16 KiB):
   "name": "infin8sync-laptop",      // ≤ 64 chars
   "platform": "linux",              // process.platform
   "version": "2.0.0",               // app version
-  "addrs": ["/ip4/192.168.1.20/tcp/40785"],   // ≤ 16, non-loopback listen addrs, no /p2p suffix
+  "addrs": ["/ip4/192.168.1.20/tcp/40785"],   // ≤ 16, best first, no /p2p suffix (see below)
   "shares": [{ "cid": "bafy…", "name": "notes.txt", "size": 1234, "ts": 1792300000000 }],  // ≤ 20
   "ts": 1792300000000
 }
 ```
 
+* `addrs` excludes loopback, unspecified (`0.0.0.0`, `::`), link-local `fe80::`, `/p2p-circuit`
+  and `/certhash/` addrs (webtransport / webrtc-direct certificate hashes rotate). They are ordered
+  best first, because the UI shows `addrs[0]` as the pairing address and Kubo returns its addrs
+  sorted as strings: LAN IPv4 (192.168/16, 10/8, 172.16/12), then 100.64/10, public IPv4, IPv6;
+  TCP before UDP; an IPv4 ending in `.1` (a Docker / VM bridge the machine hosts) last.
 * Presence is published right after subscribing, every 30 s, and immediately after pair, unpair,
-  rename and share.
+  rename and share. Because messages sent before the gossip mesh forms are lost, it is also re-sent
+  once ~4 s after subscribing or pairing, and when a paired device newly appears in `swarm/peers`.
+* When a paired device's presence advertises a non-empty set of addrs different from the stored
+  one, `settings.ipfs.peers[].addrs` (and the live peering) are replaced with it. An empty set
+  never wipes the stored addrs.
 * `shares` is the outbox: files this device offered to its paired devices in the last 7 days, newest
   first. Re-sending the outbox in every presence gives eventual delivery despite lost messages.
 * Receivers validate everything (types, lengths, CID parses, addrs start with `/`) and ignore
@@ -253,15 +282,18 @@ Payload (UTF-8 JSON, at most 16 KiB):
 
 ### Persistence
 
-`<userData>/devices.json` stores `{ outbox: [...], received: [...] }` (received keeps at most 100,
-newest first). Pairings live in settings.
+`<userData>/devices.json` stores `{ outbox: [...], received: [...], seen: [...] }` (received keeps
+at most 100, newest first; `seen` holds the `(from, cid, ts)` keys of every share already received,
+kept 8 days, at most 500, so dismissed or evicted shares are not re-added from the sender's
+re-announced outbox; a share re-offered with a newer `ts` is accepted again). The file is written
+atomically; a corrupt file is logged and replaced by empty lists. Pairings live in settings.
 
 ### Status shape
 
 ```ts
 interface DevicesStatus {
   ready: boolean;                 // node ready and subscribed to the topic
-  error: string | null;           // e.g. 'Pubsub is disabled on the external node'
+  error: string | null;           // e.g. 'Pubsub is disabled on the external IPFS node. Set Pubsub.Enabled…'
   topic: 'bucks-devices-v1';
   self: { peerId: string | null; name: string; platform: string; version: string; addrs: string[] };
   paired: Array<{ peerId: string; name: string; platform: string | null; version: string | null;

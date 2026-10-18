@@ -85,7 +85,11 @@ portable:
 # Unsigned builds for now. Signing and notarisation are tracked in docs/ROADMAP.md.
 # When a Developer ID certificate exists: remove "identity: null", provide CSC_LINK /
 # CSC_KEY_PASSWORD plus APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID in CI,
-# and turn hardenedRuntime back on.
+# and turn hardenedRuntime back on. The bundled Kubo binary (Contents/Resources/kubo/ipfs) only
+# carries the Go toolchain's ad-hoc signature: it must be signed with the same identity (and the
+# hardened runtime) or notarisation fails. Check with:
+#   codesign --verify --deep --strict --verbose=2 "release/mac-arm64/Bucks Browser.app"
+#   codesign -dv "release/mac-arm64/Bucks Browser.app/Contents/Resources/kubo/ipfs"
 mac:
   target:
     - dmg

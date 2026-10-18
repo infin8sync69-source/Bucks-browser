@@ -4,10 +4,12 @@
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { app, ipcMain } from 'electron';
 import { createLogger } from './log.js';
 import { decideInstall, installPlan, isValidBranch, parseAheadBehind, parseDirty } from './updater-core.js';
+import { electronOverrideFor } from './electron-compat.js';
 
 const log = createLogger('updater');
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -108,7 +110,13 @@ export function registerUpdater({ root, getMainWindow }) {
       if (!decision.updateAvailable) return { updated: false, message: decision.reason, status: before };
 
       log.info(`updating ${before.branch} from ${before.head} (${decision.reason})`);
-      for (const step of installPlan({ branch: before.branch, npmCommand })) {
+      let electronOverride = null;
+      try {
+        electronOverride = electronOverrideFor({ platform: process.platform, release: os.release() }).override;
+      } catch {
+        // Too old to run any supported Electron: this app could not be running, keep the default plan.
+      }
+      for (const step of installPlan({ branch: before.branch, npmCommand, electronOverride })) {
         emit({ step: step.id, state: 'running', message: step.label });
         try {
           await exec(step.cmd, step.args, { cwd: root, timeout: step.timeout });

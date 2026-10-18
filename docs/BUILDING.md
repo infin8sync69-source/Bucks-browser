@@ -18,7 +18,7 @@ Per operating system:
 |---|---|---|
 | Linux | The libraries Chromium needs: GTK 3, NSS, `libxss1`, `libxtst6`, `libasound2`, `libgbm1` and an X11 or Wayland session. On a headless machine add `xvfb` and run through `xvfb-run -a`. | Nothing more. `electron-builder` downloads its AppImage and `fpm` helpers. To run an AppImage the target machine needs FUSE 2 (`libfuse2`). |
 | Windows | Windows 10 or newer. | Nothing more (no native modules, so no Visual Studio build tools). Build on Windows: cross-building from Linux or macOS would need Wine and is not supported here. |
-| macOS | macOS 13 (Ventura) or newer, Apple Silicon or Intel: Electron 44 does not start on older versions. Git from Apple's Command Line Tools (`xcode-select --install`) or Homebrew. | Build on macOS: the `.dmg` is made with the system's `hdiutil`. Xcode is not needed. |
+| macOS | macOS 12 (Monterey) or newer, Apple Silicon or Intel. Electron 44 needs macOS 13; on macOS 12 `scripts/electron-compat.mjs` (run by the installer and the in-app updater) installs Electron 43 without changing package.json. Electron 43's security support ends when Electron 46 ships. macOS 11 and older are refused. Git from Apple's Command Line Tools (`xcode-select --install`) or Homebrew. | Build on macOS: the `.dmg` is made with the system's `hdiutil`. Xcode is not needed. |
 
 The app has no native Node modules, so `npmRebuild` and `nodeGypRebuild` are off in
 `electron-builder.yml`.
@@ -219,7 +219,9 @@ cancelled).
 
 | Job | Runs on | What it does |
 |---|---|---|
-| `check` | ubuntu | `npm ci`, `npm run check`, `npm test` |
+| `check` | ubuntu | `npm ci`, `npm run check`, `shellcheck` on both installers, `npm test` |
+| `e2e` | ubuntu | Builds the chrome, fetches Kubo, then `xvfb-run -a npm run test:e2e`: the one-instance smoke test and `test/e2e/devices.test.mjs`, where two app instances pair over Kubo peering + pubsub, send a file, and one restarts and still gets a share sent while it was off. |
+| `macos-install` | macOS arm64 | Runs `scripts/install-macos.sh` for real (it clones the pushed branch from GitHub, so it is skipped for pull requests from forks), checks the app bundle and the darwin Kubo binary, then launches the installed app and waits for the IPFS node and the devices topic. |
 | `build` (4 legs) | ubuntu: linux x64; windows: win x64; macOS: arm64 and x64 | `npm ci`, `npm run build:ui`, `fetch-kubo.mjs` for that platform and architecture, `electron-builder --<os> --<arch> --publish never`, uploads `release/*.{AppImage,deb,exe,dmg,zip}` as the artifact `bucks-<os>-<arch>`. The Linux leg also boots the unpacked app under Xvfb and waits for the bundled Kubo to become ready. Electron and electron-builder downloads are cached. |
 | `release` | ubuntu | Only on a `v*` tag: downloads every artifact and creates a GitHub release with generated notes. Tags with a hyphen (`v2.1.0-rc.1`) are marked as pre-releases. |
 
@@ -227,9 +229,10 @@ To cut a release: set `version` in `package.json` (and keep `ui/package.json` in
 `git tag v2.1.0 && git push origin v2.1.0`. The build fails early when the tag and `package.json`
 disagree. The workflow contains no secrets and does no signing; see the follow-ups above.
 
-The unit tests that need a real Kubo binary skip themselves in CI because none is present when
-`npm test` runs; run `npm run fetch:kubo && npm test` locally to include them. The Playwright smoke
-test (`npm run test:e2e`) is not part of CI.
+The unit tests that need a real Kubo binary skip themselves in the `check` job because none is
+present when `npm test` runs; run `npm run fetch:kubo && npm test` locally to include them. Locally,
+the end-to-end tests are `npm run build:ui && xvfb-run -a npm run test:e2e` (drop `xvfb-run -a` on a
+desktop); they use `resources/kubo/<os>-<arch>/ipfs` or `BUCKS_KUBO_BIN`.
 
 ## Troubleshooting
 

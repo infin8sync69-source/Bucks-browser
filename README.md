@@ -39,7 +39,7 @@ Run the same command again to update to the latest commit. Start the browser wit
 
 ## Install on macOS (test build)
 
-For Apple Silicon and Intel Macs with macOS 13 (Ventura) or newer. Run this in Terminal as your normal user (no `sudo`):
+For Apple Silicon and Intel Macs with macOS 12 (Monterey) or newer. On macOS 12 the installer uses Electron 43 instead of 44, because Electron 44 needs macOS 13; Electron 43 gets security fixes only until Electron 46 ships (expected around December 2026), so update to macOS 13 or newer if your Mac supports it. Run this in Terminal as your normal user (no `sudo`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-macos.sh | bash
@@ -81,7 +81,7 @@ Other useful commands:
 | `npm start` | Build the chrome once, then run Electron against the build (no Vite) |
 | `npm run check` | Type-check the chrome (svelte-check) and syntax-check the main process |
 | `npm test` | Unit tests (`node --test`, no Electron needed) |
-| `npm run test:e2e` | End-to-end smoke test with Playwright; needs `npm run build:ui` and a Kubo binary |
+| `npm run test:e2e` | End-to-end tests with Playwright (smoke test, and two instances pairing and sending a file); needs `npm run build:ui` and a Kubo binary |
 
 ## Building installers
 

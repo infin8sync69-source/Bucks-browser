@@ -45,7 +45,7 @@ test('createDevices registers the six bucks:devices:* handlers and sends bucks:d
   assert.equal(st.topic, 'bucks-devices-v1');
   assert.equal(st.self.version, '0.0.0-test'); // app.getVersion()
   assert.equal(st.self.platform, process.platform);
-  assert.equal(st.self.name, os.hostname().slice(0, 64));
+  assert.equal(st.self.name, os.hostname().replace(/\.local$/i, '').slice(0, 64));
 
   const paired = await h.get('bucks:devices:pair')({}, { peerId: `/ip4/192.168.1.20/tcp/4001/p2p/${MAC}`, name: 'Mac' });
   assert.deepEqual(paired.paired.map((p) => [p.peerId, p.name, p.addrs]), [[MAC, 'Mac', ['/ip4/192.168.1.20/tcp/4001']]]);

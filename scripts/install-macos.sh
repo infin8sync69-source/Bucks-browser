@@ -38,8 +38,9 @@ BIN_DIR="$HOME/.local/bin"
 # paired devices and the downloaded IPFS node. The installer never writes there.
 USER_DATA="$HOME/Library/Application Support/Bucks Browser"
 BUNDLE_ID="com.mikado.bucksbrowser.source"
-# Electron 44 does not start on older macOS: its own Info.plist sets LSMinimumSystemVersion 13.0.
-MIN_MACOS_MAJOR=13
+# Electron 44 and later need macOS 13. On macOS 12 scripts/electron-compat.mjs swaps in Electron 43,
+# the last major that runs there; anything older is refused (see src/main/electron-compat.js).
+MIN_MACOS_MAJOR=12
 DOCS_URL="https://github.com/infin8sync69-source/Bucks-browser/blob/$BRANCH/docs"
 # git must fail instead of waiting for a password typed into the Terminal (curl | bash).
 export GIT_TERMINAL_PROMPT=0
@@ -119,7 +120,8 @@ find_tools() {
 # installed, and running it opens their install dialog, so it is used only when they are there.
 find_git() {
   local clt d
-  GIT_BIN=$(command -v git 2>/dev/null || true)
+  # type -P searches PATH only (command -v would name the git() function below).
+  GIT_BIN=$(type -P git 2>/dev/null || true)
   if [ "$GIT_BIN" = /usr/bin/git ]; then
     clt=$(xcode-select -p 2>/dev/null </dev/null || true)
     if [ -z "$clt" ] || [ ! -x "$clt/usr/bin/git" ]; then
@@ -215,8 +217,10 @@ check_prerequisites() {
     '' | *[!0-9]*) warn "could not read the macOS version ($MACOS_VERSION); continuing." ;;
     *)
       if [ "$major" -lt "$MIN_MACOS_MAJOR" ]; then
-        err "macOS $MIN_MACOS_MAJOR (Ventura) or newer is required (found $MACOS_VERSION). Bucks Browser runs on Electron 44, which does not start on older versions. Update macOS in System Settings > General > Software Update, then run this again."
+        err "macOS $MIN_MACOS_MAJOR (Monterey) or newer is required (found $MACOS_VERSION). Older versions can only run Electron releases that no longer get security fixes. Update macOS in System Settings > General > Software Update if this Mac supports it."
         missing=1
+      elif [ "$major" -eq 12 ]; then
+        warn "macOS 12 cannot run Electron 44, so this install uses Electron 43. Electron 43 gets security fixes only until Electron 46 ships (expected around December 2026). Update to macOS 13 or newer if this Mac supports it."
       fi
       ;;
   esac
@@ -306,7 +310,7 @@ install_dependencies() {
   # npm does not swap them when a different Node.js is used later, so start over in that case.
   if [ -f "$stamp" ]; then old_arch=$(cat "$stamp" 2>/dev/null || true); fi
   if [ -n "$old_arch" ] && [ "$old_arch" != "$NODE_ARCH" ]; then
-    say "The installed dependencies were made for a $old_arch Node.js and this one is $NODE_ARCH: installing them again"
+    say "The installed dependencies were made by the $old_arch build of Node.js and this one is the $NODE_ARCH build: installing them again"
     rm -rf "$DEST/node_modules" "$DEST/ui/node_modules"
   fi
 
@@ -318,6 +322,10 @@ install_dependencies() {
   printf '%s\n' "$NODE_ARCH" > "$stamp"
   [ -f "$DEST/node_modules/electron/install.js" ] \
     || die "npm did not install Electron (node_modules/electron is missing). Check the messages above, then run this again."
+  # macOS 12 cannot run the Electron in package.json; this swaps in Electron 43 without touching
+  # package.json or package-lock.json. It does nothing on macOS 13 and newer.
+  npm_config_include=dev node scripts/electron-compat.mjs </dev/null \
+    || die "could not install a version of Electron that runs on macOS $MACOS_VERSION. Check the messages above, then run this again."
 
   ELECTRON_BIN="$DEST/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
   if [ ! -x "$ELECTRON_BIN" ]; then
@@ -415,8 +423,13 @@ PLIST
 write_launcher() {
   # Apps opened from Finder get a minimal PATH (/usr/bin:/bin:...). The in-app updater runs git
   # and npm, so put the ones this installer used first.
-  local launch_path tmp="$1.tmp.$$"
-  launch_path="$(dirname "$(command -v node)"):$(dirname "$GIT_BIN"):/opt/homebrew/bin:/usr/local/bin"
+  local launch_path='' d tmp="$1.tmp.$$"
+  for d in "$(dirname "$(command -v node)")" "$(dirname "$GIT_BIN")" /opt/homebrew/bin /usr/local/bin; do
+    case ":$launch_path:" in
+      *":$d:"*) ;;
+      *) launch_path="${launch_path:+$launch_path:}$d" ;;
+    esac
+  done
   {
     echo '#!/bin/bash'
     echo '# Bucks Browser launcher, written by scripts/install-macos.sh. Run the installer again to update it.'

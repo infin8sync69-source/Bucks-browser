@@ -71,7 +71,8 @@ export function createDevices({ kubo, settings, userData, getMainWindow }) {
     userData,
     appVersion: app.getVersion(),
     platform: process.platform,
-    hostname: os.hostname(),
+    // macOS host names usually end in the mDNS suffix (Johns-MacBook-Air.local); drop it.
+    hostname: os.hostname().replace(/\.local$/i, ''),
     log,
     emit: (status) => {
       const win = getMainWindow?.();

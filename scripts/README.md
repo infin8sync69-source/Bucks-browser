@@ -84,3 +84,11 @@ node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64] [
   everything they started). Exit code is 0 for a requested stop, otherwise the code of whichever
   child failed.
 - Works on Windows: `npm` is started through the shell there, and process trees are ended with `taskkill /T`.
+
+## electron-compat.mjs
+
+Makes `node_modules/electron` a version this machine can run. Electron 44 and later need macOS 13,
+so on macOS 12 it runs `npm install --no-save electron@43` (package.json and package-lock.json are
+not changed). It does nothing on Linux, Windows and macOS 13 or newer, and refuses macOS 11 and
+older. `scripts/install-macos.sh` runs it after `npm install`; the in-app updater applies the same
+rule (`src/main/electron-compat.js`). `--check` prints what it would do without changing anything.

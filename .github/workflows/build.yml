@@ -1,6 +1,8 @@
 name: Build
 
-# check   : static checks and unit tests (ubuntu)
+# check   : static checks, installer lint and unit tests (ubuntu)
+# e2e     : Playwright end-to-end tests, including two app instances pairing (ubuntu)
+# macos-install : runs scripts/install-macos.sh for real and boots the installed app (macOS arm64)
 # build   : installers for Linux x64, Windows x64, macOS arm64 and macOS x64
 # release : on a v* tag, attach every installer to a GitHub release
 #
@@ -54,9 +56,119 @@ jobs:
       - name: Type-check the chrome and syntax-check the main process
         run: npm run check
 
+      - name: Lint the installer scripts
+        run: shellcheck -s bash scripts/install-linux.sh scripts/install-macos.sh
+
       # The Kubo integration tests skip themselves when no Kubo binary is present.
       - name: Unit tests
         run: npm test
+
+  e2e:
+    name: End-to-end tests (two app instances)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # These tests run the real Electron binary from node_modules.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Make sure the Electron binary is present
+        run: node node_modules/electron/install.js
+
+      - name: Build the chrome (SvelteKit)
+        run: npm run build:ui
+
+      - name: Fetch the Kubo binary
+        run: node scripts/fetch-kubo.mjs --platform linux --arch x64
+
+      # smoke.test.mjs (one instance) and devices.test.mjs (two instances pair over Kubo peering +
+      # pubsub and send a file, then one restarts and gets a share sent while it was off).
+      - name: End-to-end tests
+        env:
+          BUCKS_E2E_ARTIFACTS: ${{ runner.temp }}/e2e
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: ${{ runner.temp }}/e2e
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The macOS source install, as a user runs it (curl … | bash), on a real Mac. The installer
+  # clones the branch from GitHub, so it only runs where that branch exists in this repository.
+  macos-install:
+    name: macOS source install (install-macos.sh)
+    needs: check
+    if: >-
+      (github.event_name == 'push' && github.ref_type == 'branch') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the installer
+        shell: bash
+        env:
+          BUCKS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: BUCKS_DIR="$RUNNER_TEMP/bucks src" /bin/bash scripts/install-macos.sh
+
+      - name: Check the app bundle and the Kubo binary
+        shell: bash
+        run: |
+          app="$HOME/Applications/Bucks Browser.app"
+          test -x "$app/Contents/MacOS/bucks-browser"
+          plutil -lint "$app/Contents/Info.plist"
+          arch="$(node -p process.arch)"
+          kubo="$RUNNER_TEMP/bucks src/resources/kubo/mac-$arch/ipfs"
+          test -x "$kubo"
+          file "$kubo"
+          "$kubo" version
+
+      - name: Launch the installed app and wait for the IPFS node
+        shell: bash
+        run: |
+          userdata="$(mktemp -d)"
+          BUCKS_USER_DATA="$userdata" BUCKS_DEBUG=1 \
+            "$HOME/Applications/Bucks Browser.app/Contents/MacOS/bucks-browser" > launch.log 2>&1 &
+          pid=$!
+          ready=0
+          for _ in $(seq 1 120); do
+            if grep -q "status → ready" launch.log; then ready=1; break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          sleep 5
+          pkill -f "bucks src/resources/kubo/" || true
+          cat launch.log
+          if [ "$ready" != 1 ]; then
+            echo "::error::The installed app did not reach a ready IPFS node within 120 s"
+            exit 1
+          fi
+          grep -q "Using Kubo binary .*bucks src/resources/kubo/mac-" launch.log
+          grep -q "Subscribed to pubsub topic bucks-devices-v1" launch.log
 
   build:
     name: Build ${{ matrix.name }}

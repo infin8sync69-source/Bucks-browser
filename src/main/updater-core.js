@@ -40,13 +40,35 @@ export function decideInstall({ supported, reason, dirty, ahead, behind }) {
 
 /**
  * The exact commands the install runs, in order. Arguments are fixed arrays, never shell strings.
- * @param {{ branch: string, npmCommand: string }} opts
+ * When this machine needs a different Electron than package.json (macOS 12), the dependency step
+ * installs that version directly so the running app's Electron is not swapped twice. That form of
+ * `npm install` skips the project's postinstall, so the interface dependencies get their own step.
+ * @param {{ branch: string, npmCommand: string, electronOverride?: string | null }} opts
  */
-export function installPlan({ branch, npmCommand }) {
+export function installPlan({ branch, npmCommand, electronOverride = null }) {
   if (!isValidBranch(branch)) throw new Error(`Refusing to update: invalid branch name ${JSON.stringify(branch)}`);
+  if (electronOverride !== null && !/^\d+$/.test(String(electronOverride))) {
+    throw new Error(`Refusing to update: invalid Electron version ${JSON.stringify(electronOverride)}`);
+  }
+  const pull = { id: 'pull', label: 'Downloading the latest code', cmd: 'git', args: ['pull', '--ff-only', 'origin', branch], timeout: 180_000 };
+  const build = { id: 'build', label: 'Building the browser interface', cmd: npmCommand, args: ['run', 'build:ui'], timeout: 600_000 };
+  if (!electronOverride) {
+    return [
+      pull,
+      { id: 'deps', label: 'Installing dependencies', cmd: npmCommand, args: ['install', '--no-audit', '--no-fund'], timeout: 900_000 },
+      build,
+    ];
+  }
   return [
-    { id: 'pull', label: 'Downloading the latest code', cmd: 'git', args: ['pull', '--ff-only', 'origin', branch], timeout: 180_000 },
-    { id: 'deps', label: 'Installing dependencies', cmd: npmCommand, args: ['install', '--no-audit', '--no-fund'], timeout: 900_000 },
-    { id: 'build', label: 'Building the browser interface', cmd: npmCommand, args: ['run', 'build:ui'], timeout: 600_000 },
+    pull,
+    {
+      id: 'deps',
+      label: `Installing dependencies (Electron ${electronOverride} for this macOS version)`,
+      cmd: npmCommand,
+      args: ['install', '--no-save', '--no-audit', '--no-fund', `electron@${electronOverride}`],
+      timeout: 900_000,
+    },
+    { id: 'ui-deps', label: 'Installing interface dependencies', cmd: npmCommand, args: ['--prefix', 'ui', 'install', '--no-audit', '--no-fund'], timeout: 600_000 },
+    build,
   ];
 }

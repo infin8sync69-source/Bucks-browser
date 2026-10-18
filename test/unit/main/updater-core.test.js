@@ -55,3 +55,16 @@ test('installPlan uses fixed argv arrays and validates the branch', () => {
   assert.deepEqual(plan[2].args, ['run', 'build:ui']);
   assert.throws(() => installPlan({ branch: '--upload-pack=evil', npmCommand: 'npm' }), /invalid branch/);
 });
+
+test('installPlan on macOS 12 installs the Electron override directly and the UI deps explicitly', () => {
+  const plan = installPlan({ branch: 'electron-main', npmCommand: 'npm', electronOverride: '43' });
+  assert.deepEqual(plan.map((s) => s.id), ['pull', 'deps', 'ui-deps', 'build']);
+  assert.deepEqual(plan[1].args, ['install', '--no-save', '--no-audit', '--no-fund', 'electron@43']);
+  assert.deepEqual(plan[2].args, ['--prefix', 'ui', 'install', '--no-audit', '--no-fund']);
+  assert.deepEqual(plan[3].args, ['run', 'build:ui']);
+});
+
+test('installPlan without an override is unchanged and rejects a malformed override', () => {
+  assert.deepEqual(installPlan({ branch: 'electron-main', npmCommand: 'npm', electronOverride: null }).map((s) => s.id), ['pull', 'deps', 'build']);
+  assert.throws(() => installPlan({ branch: 'electron-main', npmCommand: 'npm', electronOverride: '43; rm -rf /' }), /invalid Electron version/);
+});
