@@ -152,11 +152,13 @@ test('when the node becomes ready: subscribe, publish presence, report self', as
   const p = kubo.published[0];
   assert.deepEqual(p, { v: 1, type: 'presence', peerId: SELF, name: 'ubuntu-laptop', platform: 'linux', version: '2.0.0', addrs: s.self.addrs, shares: [], ts: env.clock.now() });
 
-  // periodic presence every 30 s
-  await env.clock.advance(30_000);
+  // one follow-up shortly after subscribing (covers the gossip mesh forming), then every 30 s
+  await env.clock.advance(4_000);
   assert.equal(kubo.published.length, 2);
-  await env.clock.advance(30_000);
+  await env.clock.advance(26_000);
   assert.equal(kubo.published.length, 3);
+  await env.clock.advance(30_000);
+  assert.equal(kubo.published.length, 4);
   // throttled emits happened and the last one reflects the ready state
   await env.clock.advance(300);
   assert.equal(env.emitted.at(-1).ready, true);
@@ -202,9 +204,12 @@ test('pairing: settings, live peering, config; presence makes the device online;
   assert.ok(kubo.published.length > before, 'presence published after pairing');
 
   // connected comes from swarm/peers (polled every 15 s, and shortly after pairing)
+  await clock.advance(5000); // let the post-pair follow-up publish go out
   kubo.state.swarm = [MAC];
-  await clock.advance(3000);
+  const pubsBeforeConnect = kubo.published.length;
+  await clock.advance(15_000);
   assert.equal(svc.status().paired[0].connected, true);
+  assert.ok(kubo.published.length > pubsBeforeConnect, 'presence re-announced when a paired device connects');
 
   // a share from the paired device
   const shareTs = clock.now() - 5;

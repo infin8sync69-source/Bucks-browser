@@ -5,7 +5,9 @@
 //   * subscribes to the 'bucks-devices-v1' topic with a streaming POST (pubsub/sub) and reads
 //     NDJSON incrementally, resubscribing with backoff when the stream ends;
 //   * publishes this device's presence (name, platform, version, addrs, outbox) right after
-//     subscribing, every 30 s, and after pair / unpair / rename / share;
+//     subscribing, every 30 s, and after pair / unpair / rename / share (plus one follow-up a few
+//     seconds after subscribing, pairing or a paired device connecting, since messages sent
+//     before the gossip mesh forms are lost);
 //   * polls swarm/peers every 15 s to know which paired devices are connected;
 //   * records shares from paired devices into `received` (and pins them when autoPin is on).
 // Pairings live in settings.ipfs.peers; the outbox / received lists in <userData>/devices.json.
@@ -51,6 +53,11 @@ const MAX_LINE_BYTES = 64 * 1024;
 const MAX_DISCOVERED = 64;
 const LIVE_CALL_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 30_000;
+/**
+ * Messages published before the gossip mesh forms (1-3 s after two peers connect and subscribe)
+ * are lost, so a presence sent on subscribe / pair / new connection is repeated once after this.
+ */
+export const FOLLOW_UP_PUBLISH_MS = 4000;
 
 const defaultTimers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -258,7 +265,7 @@ export function createDevicesService({
 
   /* ---------- session (one per "node ready" period) ---------- */
 
-  /** @type {null | { rpc: any, apiUrl: string, abort: AbortController, timers: Set<any>, intervals: Set<any>, alive: boolean }} */
+  /** @type {null | { rpc: any, apiUrl: string, abort: AbortController, timers: Set<any>, intervals: Set<any>, alive: boolean, followUp: any }} */
   let session = null;
 
   function sessionTimeout(s, fn, ms) {
@@ -282,7 +289,7 @@ export function createDevicesService({
   }
 
   function startSession() {
-    const s = { rpc: kubo.rpc, apiUrl: kubo.apiUrl(), abort: new AbortController(), timers: new Set(), intervals: new Set(), alive: true };
+    const s = { rpc: kubo.rpc, apiUrl: kubo.apiUrl(), abort: new AbortController(), timers: new Set(), intervals: new Set(), alive: true, followUp: null };
     session = s;
     log.info('IPFS node ready: joining the devices topic');
     (async () => {
@@ -386,7 +393,7 @@ export function createDevicesService({
       retryMs = SUBSCRIBE_BACKOFF_MS[0];
       changed();
       log.info(`Subscribed to pubsub topic ${TOPIC}`);
-      publishPresence();
+      announce();
       await readStream(s, res);
       if (s.alive) log.warn('pubsub subscription stream ended; resubscribing');
     } catch (e) {
@@ -530,13 +537,24 @@ export function createDevicesService({
     return publishing;
   }
 
+  /** Publish now and once more shortly after, to cover messages lost while the gossip mesh forms. */
+  function announce() {
+    publishPresence();
+    const s = session;
+    if (!s || s.followUp) return;
+    s.followUp = sessionTimeout(s, () => { s.followUp = null; publishPresence(); }, FOLLOW_UP_PUBLISH_MS);
+  }
+
   /* ---------- swarm ---------- */
 
   async function pollSwarm(s) {
     try {
       const peers = await s.rpc.swarmPeers();
       if (!s.alive) return;
-      connected = new Set(peers.map((p) => p.peer).filter(Boolean));
+      const next = new Set(peers.map((p) => p.peer).filter(Boolean));
+      const newlyConnected = pairedPeers().some((p) => next.has(p.peerId) && !connected.has(p.peerId));
+      connected = next;
+      if (newlyConnected) announce(); // a paired device just (re)connected: tell it about us soon
     } catch (e) {
       if (s.alive) log.debug?.(`swarm/peers failed: ${e.message}`);
     }
@@ -604,7 +622,7 @@ export function createDevicesService({
         failures.push(`config Peering.Peers: ${e.kuboMessage || e.message}`);
       }
       if (failures.length) setTransientError(`Paired, but the IPFS node rejected: ${failures.join('; ')}`);
-      publishPresence();
+      announce();
       sessionTimeout(s, () => pollSwarm(s), 3000);
     }
     return status();
@@ -642,7 +660,7 @@ export function createDevicesService({
     const name = cleanText(nameInput, MAX_NAME_LENGTH);
     settings.set({ devices: { name } });
     changed();
-    publishPresence();
+    if (!unsubscribeSettings) publishPresence(); // otherwise the settings listener below publishes
     return status();
   }
 

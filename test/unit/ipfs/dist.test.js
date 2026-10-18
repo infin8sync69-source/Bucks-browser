@@ -114,6 +114,14 @@ test('latestStableVersion falls back to the GitHub /releases/latest redirect', a
   assert.equal(parseGithubLatestTag('https://github.com/ipfs/kubo/releases/tag/v0.43.1?x=1'), 'v0.43.1');
   assert.equal(parseGithubLatestTag('https://github.com/ipfs/kubo/releases'), null);
   assert.equal(parseGithubLatestTag('', 'href="https://github.com/other/repo/releases/tag/v1.0.0"'), null);
+  // Electron's net.fetch reports url '' after redirects: only the page's own og:url / canonical
+  // counts, never the many other tags its release notes link to
+  const page = `<a href="https://github.com/ipfs/kubo/releases/tag/v0.13.0">old</a>
+    <meta property="og:url" content="/ipfs/kubo/releases/tag/v0.43.1" />
+    <a href="https://github.com/ipfs/kubo/releases/tag/v0.42.2">prev</a>`;
+  assert.equal(parseGithubLatestTag('', page), 'v0.43.1');
+  assert.equal(parseGithubLatestTag('', '<a href="https://github.com/ipfs/kubo/releases/tag/v0.13.0">x</a>'), null);
+  assert.equal(parseGithubLatestTag('', '<meta content="https://github.com/ipfs/kubo/releases/tag/v0.50.0" property="og:url">'), 'v0.50.0');
 });
 
 test('kuboMirrors: KUBO_DIST_URL, then dist.ipfs.tech, then GitHub releases', () => {

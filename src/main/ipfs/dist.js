@@ -133,18 +133,29 @@ export function parseLatestStableVersion(text) {
   return latest;
 }
 
+const GITHUB_TAG_PATH_RE = /^(?:https:\/\/github\.com)?\/ipfs\/kubo\/releases\/tag\/(v\d+\.\d+\.\d+)\/?$/;
+
 /**
- * Extract the stable version from GitHub's /releases/latest redirect target
- * (…/ipfs/kubo/releases/tag/vX.Y.Z) or, failing that, from the release page's canonical link.
- * @param {string} url  final response URL
+ * Extract the stable version from GitHub's /releases/latest response: the redirect target
+ * (…/ipfs/kubo/releases/tag/vX.Y.Z) when the fetch implementation exposes it, else the release
+ * page's own URL from its <meta property="og:url"> or <link rel="canonical"> tag. Release notes
+ * link to many other tags, so nothing else in the page is trusted.
+ * @param {string} url  final response URL ('' with Electron's net.fetch)
  * @param {string} [html]  response body
  * @returns {string|null}
  */
 export function parseGithubLatestTag(url, html = '') {
-  const fromUrl = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:[/?#]|$)/.exec(String(url || ''));
+  const fromUrl = /\/ipfs\/kubo\/releases\/tag\/(v\d+\.\d+\.\d+)\/?(?:[?#]|$)/.exec(String(url || ''));
   if (fromUrl) return fromUrl[1];
-  const fromHtml = /github\.com\/ipfs\/kubo\/releases\/tag\/(v\d+\.\d+\.\d+)["'?#/]/.exec(String(html || ''));
-  return fromHtml ? fromHtml[1] : null;
+  const attr = (tag, name) => new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tag)?.[1] ?? null;
+  for (const tag of String(html || '').match(/<(?:meta|link)\b[^>]*>/gi) || []) {
+    const isOgUrl = /^<meta/i.test(tag) && attr(tag, 'property') === 'og:url';
+    const isCanonical = /^<link/i.test(tag) && (attr(tag, 'rel') || '').toLowerCase() === 'canonical';
+    if (!isOgUrl && !isCanonical) continue;
+    const m = GITHUB_TAG_PATH_RE.exec((isOgUrl ? attr(tag, 'content') : attr(tag, 'href')) || '');
+    if (m) return m[1];
+  }
+  return null;
 }
 
 /** Readable reason for a failed fetch (undici puts the real cause in err.cause). */
