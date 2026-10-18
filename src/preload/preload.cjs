@@ -142,6 +142,22 @@ const api = Object.freeze({
     stats: () => invoke('bucks:security:stats'),
   }),
 
+  devices: Object.freeze({
+    /** @returns {Promise<DevicesStatus>} this device, paired devices, discovered devices, received shares */
+    status: () => invoke('bucks:devices:status'),
+    /** Pair with another Bucks device. peerId is required; addrs are multiaddrs from its device card. */
+    pair: ({ peerId, name, addrs }) => invoke('bucks:devices:pair', { peerId, name, addrs }),
+    unpair: (peerId) => invoke('bucks:devices:unpair', { peerId }),
+    /** Set this device's display name ('' resets to the host name). */
+    rename: (name) => invoke('bucks:devices:rename', { name }),
+    /** Offer a CID to every paired device. @returns {Promise<{ queued: boolean, onlinePeers: number }>} */
+    share: ({ cid, name, size }) => invoke('bucks:devices:share', { cid, name, size }),
+    /** Remove a received share from the list (does not unpin). */
+    dismiss: ({ cid, from }) => invoke('bucks:devices:dismiss', { cid, from }),
+    /** (status: DevicesStatus) */
+    onUpdated: (cb) => subscribe('bucks:devices:updated', cb),
+  }),
+
   updater: Object.freeze({
     /** @returns {Promise<UpdateStatus>} local checkout state, no network. */
     status: () => invoke('bucks:updater:status'),

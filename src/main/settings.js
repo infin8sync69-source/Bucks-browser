@@ -14,6 +14,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
     publicGateway: 'https://ipfs.io', // fallback when the local node is not ready
     preferredGateway: 'local', // local | public
     autoStart: true,
+    // Paired Bucks devices: [{ peerId, name, addrs: ['/ip4/…/tcp/…'] }]. Kept connected via Kubo Peering.
+    peers: [],
+  },
+  devices: {
+    name: '', // '' → the computer's host name
+    autoPin: false, // pin files shared by paired devices automatically
   },
   security: {
     httpsOnly: true,

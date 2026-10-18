@@ -2,13 +2,15 @@
 // Wiring only: every subsystem lives in its own module and registers its own IPC
 // handlers (see docs/IPC-CONTRACT.md for the full channel list and module interfaces).
 
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, net, nativeImage, session } from 'electron';
+import path from 'node:path';
 import { registerSchemePrivileges } from './protocols/index.js';
 import { installBucksProtocol } from './protocols/bucks.js';
 import { installIpfsProtocols } from './protocols/ipfs.js';
 import { createSettings } from './settings.js';
 import { createKubo } from './ipfs/kubo.js';
 import { registerIpfsIpc } from './ipfs/ipc.js';
+import { createDevices } from './ipfs/devices.js';
 import { createMainWindow, registerWindowIpc } from './window.js';
 import { createTabManager } from './tabs.js';
 import { installAppMenu } from './menu.js';
@@ -55,6 +57,11 @@ const getMainWindow = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindo
 
 app.whenReady().then(async () => {
   const userData = userDataDir();
+  // Running from source on macOS shows Electron's dock icon; use ours instead.
+  if (process.platform === 'darwin' && !app.isPackaged && app.dock) {
+    const icon = nativeImage.createFromPath(path.join(appRoot, 'build', 'icons', 'icon.png'));
+    if (!icon.isEmpty()) app.dock.setIcon(icon);
+  }
   initFileLogging(userData);
   log.info(`Bucks Browser ${app.getVersion()} starting (electron ${process.versions.electron})`);
 
@@ -62,8 +69,13 @@ app.whenReady().then(async () => {
   const webSession = session.fromPartition(WEB_PARTITION);
 
   // IPFS runtime (embedded Kubo or external node). Starts in the background; never blocks the UI.
-  kubo = createKubo({ settings, userData, resourcesDir: resourcesDir(), getMainWindow });
+  // net.fetch goes through Chromium's network stack, so it honours the OS proxy settings
+  // (Node's global fetch does not). Used for the one-off Kubo download.
+  const fetchImpl = (url, init) => net.fetch(url, init);
+  kubo = createKubo({ settings, userData, resourcesDir: resourcesDir(), getMainWindow, fetchImpl });
   registerIpfsIpc({ kubo, settings, getMainWindow });
+  // Device pairing and file sharing between Bucks installs over Kubo peering + pubsub.
+  createDevices({ kubo, settings, userData, getMainWindow });
   if (settings.get().ipfs.autoStart) {
     kubo.start().catch((e) => log.error('IPFS start failed:', e));
   }

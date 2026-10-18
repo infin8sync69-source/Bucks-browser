@@ -191,3 +191,99 @@ createWalletProxy({ settings })
   clipboard-read) are denied by default for web content; `fullscreen`, `pointerLock`, `media` playback
   allowed. (A per-site allow list can come later.)
 * Private keys never leave the renderer's wallet page; main only proxies already-signed transactions.
+
+## Devices: pairing Bucks installs over IPFS peering + pubsub
+
+Owner: `src/main/ipfs/devices.js` (Electron glue) and `src/main/ipfs/devices-core.js` (pure logic, no
+Electron import, unit-tested). Wired in `src/main/index.js` as
+`createDevices({ kubo, settings, userData, getMainWindow })`.
+
+### Trust model
+
+* A device is identified by its Kubo peer ID. Kubo signs every pubsub message (StrictSign), so the
+  `from` field of a received message is authenticated.
+* The user pairs devices explicitly on both machines. Paired devices live in
+  `settings.ipfs.peers = [{ peerId, name, addrs }]`. Only messages from paired peer IDs can add
+  shares. Presence from unpaired peers is shown as "discovered", never trusted.
+* `addrs` are multiaddrs **without** the `/p2p/<id>` suffix (that is how Kubo's `Peering.Peers` wants
+  them). The UI and pair channel accept either form; devices.js strips the suffix.
+
+### Kubo configuration (applied by kubo.js on every start, before the daemon runs)
+
+* `Pubsub.Enabled = true`, `Pubsub.Router = "gossipsub"`.
+* `Discovery.MDNS.Enabled = true` (LAN auto-discovery).
+* `Peering.Peers = settings.ipfs.peers.map(p => ({ ID: p.peerId, Addrs: p.addrs }))` so paired
+  devices stay connected and reconnect automatically.
+* Changing `settings.ipfs.peers` must NOT restart the node. devices.js applies pairing changes live
+  with `swarm/peering/add|rm`, `swarm/connect` and `config Peering.Peers`.
+
+### Pubsub protocol
+
+Topic `bucks-devices-v1`. Kubo's HTTP API needs topics multibase-encoded:
+`arg=u<base64url(topic) without padding>` → `uYnVja3MtZGV2aWNlcy12MQ`.
+`pubsub/sub` streams NDJSON lines `{ from, data, seqno, topicIDs }` where `data` is `u` + base64url.
+`pubsub/pub` takes the payload as a multipart file field. A node also receives its own messages:
+drop any message whose `from` is our own peer ID. Messages published before the gossip mesh forms
+are lost, so delivery relies on periodic re-announcement, not on single sends.
+
+Payload (UTF-8 JSON, at most 16 KiB):
+
+```json
+{
+  "v": 1,
+  "type": "presence",
+  "peerId": "12D3Koo…",            // must equal the message's `from`
+  "name": "infin8sync-laptop",      // ≤ 64 chars
+  "platform": "linux",              // process.platform
+  "version": "2.0.0",               // app version
+  "addrs": ["/ip4/192.168.1.20/tcp/40785"],   // ≤ 16, non-loopback listen addrs, no /p2p suffix
+  "shares": [{ "cid": "bafy…", "name": "notes.txt", "size": 1234, "ts": 1792300000000 }],  // ≤ 20
+  "ts": 1792300000000
+}
+```
+
+* Presence is published right after subscribing, every 30 s, and immediately after pair, unpair,
+  rename and share.
+* `shares` is the outbox: files this device offered to its paired devices in the last 7 days, newest
+  first. Re-sending the outbox in every presence gives eventual delivery despite lost messages.
+* Receivers validate everything (types, lengths, CID parses, addrs start with `/`) and ignore
+  invalid messages. They dedupe shares on `(from, cid)`.
+* A paired device is `online` when its presence arrived in the last 90 s, and `connected` when it is
+  in `swarm/peers`.
+
+### Persistence
+
+`<userData>/devices.json` stores `{ outbox: [...], received: [...] }` (received keeps at most 100,
+newest first). Pairings live in settings.
+
+### Status shape
+
+```ts
+interface DevicesStatus {
+  ready: boolean;                 // node ready and subscribed to the topic
+  error: string | null;           // e.g. 'Pubsub is disabled on the external node'
+  topic: 'bucks-devices-v1';
+  self: { peerId: string | null; name: string; platform: string; version: string; addrs: string[] };
+  paired: Array<{ peerId: string; name: string; platform: string | null; version: string | null;
+                  online: boolean; connected: boolean; lastSeen: number | null; addrs: string[] }>;
+  discovered: Array<{ peerId: string; name: string; platform: string; version: string;
+                      lastSeen: number; addrs: string[] }>;   // unpaired presence seen in the last 5 min
+  received: Array<{ cid: string; name: string; size: number | null; from: string; fromName: string;
+                    ts: number; pinned: boolean }>;
+}
+```
+
+### Channels
+
+| Channel | Payload → Result |
+|---|---|
+| `bucks:devices:status` | → `DevicesStatus` |
+| `bucks:devices:pair` | `{ peerId, name?, addrs? }` → `DevicesStatus`. `peerId` may also be a full multiaddr ending in `/p2p/<id>`. |
+| `bucks:devices:unpair` | `{ peerId }` → `DevicesStatus` |
+| `bucks:devices:rename` | `{ name }` → `DevicesStatus` |
+| `bucks:devices:share` | `{ cid, name?, size? }` → `{ queued: true, onlinePeers: number }` |
+| `bucks:devices:dismiss` | `{ cid, from }` → `DevicesStatus` |
+| event `bucks:devices:updated` | `(DevicesStatus)` on any change (presence, pairing, share, ready state) |
+
+When `settings.devices.autoPin` is true, shares from paired devices are pinned on arrival
+(`pinned: true` once `pin/add` succeeds). Otherwise the user pins from the UI with `bucks.ipfs.pinAdd`.
