@@ -10,7 +10,6 @@ import { installIpfsProtocols } from './protocols/ipfs.js';
 import { createSettings } from './settings.js';
 import { createKubo } from './ipfs/kubo.js';
 import { registerIpfsIpc } from './ipfs/ipc.js';
-import { createDevices } from './ipfs/devices.js';
 import { createMainWindow, registerWindowIpc } from './window.js';
 import { createTabManager } from './tabs.js';
 import { installAppMenu } from './menu.js';
@@ -74,8 +73,6 @@ app.whenReady().then(async () => {
   const fetchImpl = (url, init) => net.fetch(url, init);
   kubo = createKubo({ settings, userData, resourcesDir: resourcesDir(), getMainWindow, fetchImpl });
   registerIpfsIpc({ kubo, settings, getMainWindow });
-  // Device pairing and file sharing between Bucks installs over Kubo peering + pubsub.
-  createDevices({ kubo, settings, userData, getMainWindow });
   if (settings.get().ipfs.autoStart) {
     kubo.start().catch((e) => log.error('IPFS start failed:', e));
   }
