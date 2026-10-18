@@ -53,6 +53,11 @@ buckscore as the shipped v1.1.0 and as the reference for the ports still to come
    embedded model could not load; it now reports `error` with the reason, and switching to the
    embedded backend at run time starts loading the model.
 
+The same agent fixes were applied to `Bucks-App/agent/` in buckscore (branch
+`claude/browser-repos-alignment-aew07f`), so the two copies have the same code and the shipped
+app no longer carries the credential either. Bucks-App runs the engine without a token, so its
+gate stays off there.
+
 ## Still in Bucks-App only (planned, in this order)
 
 Order follows the unification roadmap, phase 2, minus what is already here.
