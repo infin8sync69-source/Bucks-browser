@@ -25,6 +25,16 @@ with privacy-protective defaults turned on.
   or a local Ollama model.
 - **Wallet.** A wallet page that signs in the interface and talks to a Bucks node over HTTP.
 
+## Install on Linux (test build)
+
+Run this in a terminal. It needs `git`, `curl` and Node.js 20 or newer. It downloads the code, builds it and adds a launcher and an application menu entry:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-linux.sh | bash
+```
+
+Run the same command again to update to the latest commit. Start the browser with `bucks-browser` or from your application menu. The first start downloads the IPFS node (Kubo) and needs an internet connection. The `raw.githubusercontent.com` copy of the script can lag a few minutes behind a new commit.
+
 ## Quick start
 
 You need Node.js 22 (`package.json` requires 20 or newer) and a Git checkout of this repository.
