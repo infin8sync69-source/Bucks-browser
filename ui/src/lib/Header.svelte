@@ -218,24 +218,28 @@
 <svelte:window onkeydown={handleGlobalKey} />
 
 <header
-    class="fixed top-6 inset-x-0 z-[110] transition-all duration-700 pointer-events-none px-6"
+    class="fixed top-6 inset-x-0 z-[110] pointer-events-none px-6"
 >
+    <!-- The island is the window's drag handle; every interactive child opts out with .no-drag -->
     <div
-        data-tauri-drag-region
-        class="max-w-5xl mx-auto flex items-center h-16 px-3 bg-[#0a0a0c]/80 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] border border-white/5 pointer-events-auto relative group/header overflow-hidden"
+        style="-webkit-app-region: drag"
+        class="max-w-5xl mx-auto flex items-center h-16 px-3 bg-[#0a0a0c]/80 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] border border-white/5 pointer-events-auto relative group/header"
     >
         <!-- Animated edge glow for the whole island -->
-        <div
-            class="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-white/5 to-blue-500/0 translate-x-[-100%] group-hover/header:translate-x-[100%] transition-transform duration-[2000ms] pointer-events-none"
-        ></div>
+        <div class="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
+            <div
+                class="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-white/5 to-blue-500/0 translate-x-[-100%] group-hover/header:translate-x-[100%] transition-transform duration-[2000ms]"
+            ></div>
+        </div>
 
         <!-- Left: App Store icon + Nav -->
-        <div class="flex items-center space-x-1 relative z-10 pl-2">
+        <div class="flex items-center space-x-1 relative z-10 {isMac ? 'pl-[70px]' : 'pl-2'}">
             <!-- App Store launcher (replaces hamburger) -->
             <button
                 onclick={() => storeOpen = !storeOpen}
                 title="App Store"
-                class="w-10 h-10 flex items-center justify-center rounded-2xl transition-all active:scale-95 group/btn relative overflow-hidden
+                aria-label="App Store"
+                class="no-drag w-10 h-10 flex items-center justify-center rounded-2xl transition-all active:scale-95 group/btn relative overflow-hidden
                        {storeOpen ? 'bg-violet-500/20 text-violet-300' : 'hover:bg-white/5 text-white/60 hover:text-white'}"
             >
                 <div class="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-blue-500/10 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl"></div>
@@ -251,22 +255,32 @@
             </button>
 
             <div
-                class="flex items-center space-x-0.5 bg-white/5 rounded-xl p-1 ml-2"
+                class="no-drag flex items-center space-x-0.5 bg-white/5 rounded-xl p-1 ml-2"
             >
                 <button
                     onclick={browserStore.goBack}
-                    class="w-8 h-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                    disabled={!canGoBack}
+                    title="Back"
+                    aria-label="Back"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:cursor-default
+                           {canGoBack ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-white/25'}"
                 >
                     <ArrowLeft size={16} />
                 </button>
                 <button
                     onclick={browserStore.goForward}
-                    class="w-8 h-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                    disabled={!canGoForward}
+                    title="Forward"
+                    aria-label="Forward"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:cursor-default
+                           {canGoForward ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-white/25'}"
                 >
                     <ArrowRight size={16} />
                 </button>
                 <button
                     onclick={browserStore.refresh}
+                    title="Reload"
+                    aria-label="Reload"
                     class="w-8 h-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-all active:scale-90"
                 >
                     <RotateCw
@@ -280,7 +294,7 @@
         </div>
 
         <!-- Middle: Edge-Lit Omnibox -->
-        <div class="flex-1 mx-6 relative z-10">
+        <div class="no-drag flex-1 mx-6 relative z-10">
             <form onsubmit={handleUrlSubmit} class="relative group/form">
                 <!-- Edge-lit animated border pulsing -->
                 <div
@@ -299,9 +313,13 @@
                         bind:this={urlInputEl}
                         bind:value={urlInput}
                         oninput={updateSuggestions}
-                        onfocus={() => updateSuggestions()}
-                        onblur={() => setTimeout(() => showSuggestions = false, 200)}
+                        onfocus={() => { omniboxFocused = true; urlInputEl?.select(); }}
+                        onblur={() => { omniboxFocused = false; setTimeout(() => showSuggestions = false, 200); }}
+                        onkeydown={onOmniboxKeydown}
                         placeholder="Explore the swarm... (type URL or search)"
+                        aria-label="Address or search"
+                        spellcheck="false"
+                        autocomplete="off"
                         class="flex-1 bg-transparent border-none text-[13px] text-white/80 placeholder-white/20 outline-none w-full font-medium tracking-wide"
                     />
 
@@ -321,11 +339,12 @@
                 <!-- Suggestions Dropdown -->
                 {#if showSuggestions && suggestions.length > 0}
                     <div
-                        class="absolute top-full left-0 right-0 mt-2 bg-[#0a0a0c]/95 backdrop-blur-2xl border border-white/10 rounded-lg shadow-lg overflow-hidden z-50"
+                        class="no-drag absolute top-full left-0 right-0 mt-2 bg-[#0a0a0c]/95 backdrop-blur-2xl border border-white/10 rounded-lg shadow-lg overflow-hidden z-50"
                     >
                         {#each suggestions as suggestion (suggestion)}
                             <button
                                 type="button"
+                                onmousedown={(e) => e.preventDefault()}
                                 onclick={() => {
                                     selectSuggestion(suggestion);
                                     handleUrlSubmit(new SubmitEvent('submit'));
@@ -346,36 +365,30 @@
             class="flex items-center space-x-2 relative z-10 flex-1 min-w-0 justify-end h-full pr-2"
         >
             <!-- Settings Icon (Static) -->
-            <div class="relative flex-shrink-0">
+            <div class="no-drag relative flex-shrink-0">
                 <button
                     onclick={() => (isSettingsOpen = !isSettingsOpen)}
+                    title="Menu"
+                    aria-label="Menu"
+                    aria-expanded={isSettingsOpen}
                     class="w-10 h-10 flex items-center justify-center rounded-xl text-white/40 hover:text-white hover:bg-white/10 transition-all active:scale-90 relative overflow-hidden"
                 >
-                    <div
-                        class="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors"
-                    ></div>
                     {#if isSettingsOpen}
                         <X size={18} />
                     {:else}
                         <Settings
                             size={18}
-                            class="{isSettingsOpen
-                                ? 'rotate-90'
-                                : ''} transition-transform duration-700 ease-out"
+                            class="transition-transform duration-700 ease-out"
                         />
                     {/if}
                 </button>
 
                 {#if isSettingsOpen}
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div
-                        role="button"
-                        tabindex="0"
-                        class="fixed inset-0 z-[-1]"
+                        role="presentation"
+                        class="no-drag fixed inset-0 z-[-1]"
                         onclick={() => (isSettingsOpen = false)}
-                        onkeydown={(e) =>
-                            (e.key === "Enter" || e.key === " ") &&
-                            (isSettingsOpen = false)}
+                        onkeydown={(e) => e.key === "Escape" && (isSettingsOpen = false)}
                     ></div>
                     <div
                         transition:scale={{
@@ -383,32 +396,28 @@
                             easing: cubicOut,
                             start: 0.95,
                         }}
-                        class="absolute top-14 right-0 w-56 bg-[#0a0a0c]/98 backdrop-blur-3xl rounded-[1.5rem] p-2 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] border border-white/10 z-50"
+                        class="no-drag absolute top-14 right-0 w-56 bg-[#0a0a0c]/98 backdrop-blur-3xl rounded-[1.5rem] p-2 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] border border-white/10 z-50"
                     >
                         <div class="flex flex-col space-y-1">
                             <button
+                                onclick={() => goTo("bucks://downloads")}
                                 class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
                             >
                                 <div
                                     class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"
                                 >
-                                    <Moon
+                                    <Download
                                         size={16}
                                         class="text-blue-400/80 group-hover:text-blue-400"
                                     />
                                 </div>
                                 <span
                                     class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white"
-                                    >Appearance</span
+                                    >Downloads</span
                                 >
                             </button>
                             <button
-                                onclick={() => {
-                                    isSettingsOpen = false;
-                                    browserStore.navigateActiveTab(
-                                        "bucks://history",
-                                    );
-                                }}
+                                onclick={() => goTo("bucks://history")}
                                 class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
                             >
                                 <div
@@ -425,12 +434,7 @@
                                 >
                             </button>
                             <button
-                                onclick={() => {
-                                    isSettingsOpen = false;
-                                    browserStore.navigateActiveTab(
-                                        "bucks://bookmarks",
-                                    );
-                                }}
+                                onclick={() => goTo("bucks://bookmarks")}
                                 class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
                             >
                                 <div
@@ -448,12 +452,7 @@
                             </button>
                             <div class="h-[1px] bg-white/5 my-2 mx-3"></div>
                             <button
-                                onclick={() => {
-                                    isSettingsOpen = false;
-                                    browserStore.navigateActiveTab(
-                                        "bucks://settings",
-                                    );
-                                }}
+                                onclick={() => goTo("bucks://settings")}
                                 class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
                             >
                                 <div
@@ -481,14 +480,16 @@
                 class="relative group/tabs flex items-center h-full flex-1 min-w-0 overflow-hidden"
             >
                 <div
-                    class="flex items-center space-x-1 h-12 overflow-x-auto custom-scrollbar scroll-smooth px-2 pb-1 flex-1"
+                    class="no-drag flex items-center space-x-1 h-12 overflow-x-auto custom-scrollbar scroll-smooth px-2 pb-1 flex-1"
                     style="mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);"
                 >
-                    {#each $browserStore.tabs as tab, i (tab.id)}
+                    {#each $browserStore.tabs as tab (tab.id)}
                         <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
                         <div
                             role="button"
                             tabindex="0"
+                            aria-label={tab.title}
+                            aria-current={tab.id === $browserStore.activeTabId ? "page" : undefined}
                             onclick={() => browserStore.setActiveTab(tab.id)}
                             onkeydown={(e) =>
                                 (e.key === "Enter" || e.key === " ") &&
@@ -503,6 +504,23 @@
                                 ? 'bg-white/10 text-white border-white/20'
                                 : 'bg-white/[0.02] text-white/30 hover:text-white/60 hover:bg-white/5'}"
                         >
+                            <!-- Favicon, or a small glyph when the page has none -->
+                            {#if tab.type === "external" && tab.isLoading && !tab.favicon}
+                                <RotateCw size={11} class="animate-spin text-blue-400/80 flex-shrink-0" />
+                            {:else if tab.favicon && !brokenFavicons[tab.favicon]}
+                                <img
+                                    src={tab.favicon}
+                                    alt=""
+                                    width="14"
+                                    height="14"
+                                    class="w-3.5 h-3.5 rounded-sm flex-shrink-0 object-contain"
+                                    onerror={() => tab.favicon && (brokenFavicons[tab.favicon] = true)}
+                                />
+                            {:else if tab.type === "external"}
+                                <Globe size={12} class="flex-shrink-0 opacity-60" />
+                            {:else}
+                                <Sparkles size={12} class="flex-shrink-0 opacity-60" />
+                            {/if}
                             <span
                                 class="text-[10px] font-bold tracking-tight truncate max-w-[100px]"
                                 >{tab.title}</span
@@ -513,7 +531,9 @@
                                         e.stopPropagation();
                                         browserStore.closeTab(tab.id);
                                     }}
-                                    class="opacity-0 group-hover/tab:opacity-100 p-0.5 hover:bg-white/10 rounded-md transition-all"
+                                    title="Close tab"
+                                    aria-label="Close tab"
+                                    class="opacity-0 group-hover/tab:opacity-100 focus:opacity-100 p-0.5 hover:bg-white/10 rounded-md transition-all"
                                 >
                                     <X size={10} />
                                 </button>
@@ -530,8 +550,10 @@
 
             <!-- New Tab Button (Static) -->
             <button
-                onclick={() => browserStore.createTab()}
-                class="ml-2 w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.03] border border-dashed border-white/10 text-white/20 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
+                onclick={() => { browserStore.createTab(); focusOmnibox(); }}
+                title="New tab"
+                aria-label="New tab"
+                class="no-drag ml-2 w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.03] border border-dashed border-white/10 text-white/20 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
             >
                 <span class="text-lg font-light">+</span>
             </button>
@@ -540,13 +562,49 @@
 
             <button
                 onclick={() => browserStore.createOrFocusTab("bucks://wallet")}
-                class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-90 group text-white/40 hover:text-blue-400 hover:bg-blue-400/5 relative overflow-hidden"
+                title="Wallet"
+                aria-label="Wallet"
+                class="no-drag w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-90 group text-white/40 hover:text-blue-400 hover:bg-blue-400/5 relative overflow-hidden"
             >
                 <div
                     class="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors"
                 ></div>
                 <Wallet size={18} />
             </button>
+
+            {#if showWindowControls}
+                <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
+                <div class="no-drag flex items-center flex-shrink-0 -mr-1">
+                    <button
+                        onclick={() => bucks.window.minimize()}
+                        title="Minimize"
+                        aria-label="Minimize"
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                    >
+                        <Minus size={14} />
+                    </button>
+                    <button
+                        onclick={() => bucks.window.maximize()}
+                        title={isMaximized ? "Restore" : "Maximize"}
+                        aria-label={isMaximized ? "Restore" : "Maximize"}
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                    >
+                        {#if isMaximized}
+                            <Copy size={12} />
+                        {:else}
+                            <Square size={12} />
+                        {/if}
+                    </button>
+                    <button
+                        onclick={() => bucks.window.close()}
+                        title="Close"
+                        aria-label="Close window"
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-red-500/70 transition-all"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            {/if}
         </div>
 
     </div>

@@ -8,12 +8,14 @@
     let {
         isOnline = null,
         slmReady = false,
+        model = null,
         chatOpen = false,
         onsubmit,
         onopenchat,
     }: {
         isOnline?: boolean | null;
         slmReady?: boolean;
+        model?: string | null;
         chatOpen?: boolean;
         onsubmit?: (q: string) => void;
         onopenchat?: () => void;
@@ -104,10 +106,10 @@
                           : 'bg-white/10'}"
                 ></div>
             </div>
-            <!-- SLM (Qwen2.5:3b) dot -->
+            <!-- Local model (Ollama) dot -->
             <div
                 class="w-1.5 h-1.5 rounded-full transition-colors duration-500 {slmReady ? 'bg-sky-400/70' : 'bg-white/10'}"
-                title={slmReady ? "Qwen2.5:3b on-device ready" : "Qwen2.5:3b not loaded"}
+                title={slmReady ? `${model ?? "Local model"} on-device ready` : "No on-device model connected"}
             ></div>
         </div>
 
@@ -118,8 +120,8 @@
             placeholder={$isSwarmThinking
                 ? "Thinking..."
                 : isNewTab
-                  ? slmReady ? "Command the swarm (Qwen on-device)..." : "Command the swarm..."
-                  : slmReady ? "Ask Bucks (Qwen2.5 on-device)..." : "Command the swarm..."}
+                  ? slmReady ? "Command the swarm (on-device model)..." : "Command the swarm..."
+                  : slmReady ? "Ask Bucks (on-device model)..." : "Command the swarm..."}
             disabled={$isSwarmThinking}
             class="flex-1 bg-transparent border-none outline-none text-white text-sm font-light tracking-wide py-2.5 px-2 placeholder-white/20 disabled:opacity-50"
         />

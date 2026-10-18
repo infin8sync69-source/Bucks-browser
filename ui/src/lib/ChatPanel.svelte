@@ -9,8 +9,9 @@
     let {
         isOnline = null,
         slmReady = false,
+        model = null,
         onclose = () => {},
-    }: { isOnline?: boolean | null; slmReady?: boolean; onclose?: () => void } = $props();
+    }: { isOnline?: boolean | null; slmReady?: boolean; model?: string | null; onclose?: () => void } = $props();
 
     let query     = $state("");
     let textareaEl: HTMLTextAreaElement;
@@ -86,17 +87,9 @@
     onMount(() => textareaEl?.focus());
 </script>
 
-<!-- Backdrop -->
+<!-- Panel: sits below the header island; the web content area shrinks to its left (see ContentArea) -->
 <div
-    class="fixed inset-0 z-[300] bg-black/30 backdrop-blur-sm"
-    transition:fade={{ duration: 200 }}
-    onclick={onclose}
-    role="presentation"
-></div>
-
-<!-- Panel -->
-<div
-    class="fixed right-0 top-0 bottom-0 z-[301] w-full max-w-[440px] flex flex-col bg-[#0d0d10] border-l border-white/[0.07] shadow-2xl"
+    class="fixed right-0 top-24 bottom-0 z-[301] w-full max-w-[448px] flex flex-col bg-[#0d0d10] border-l border-white/[0.07] shadow-2xl"
     transition:fly={{ x: 440, duration: 320, easing: cubicOut }}
 >
     <!-- ── Header ─────────────────────────────────────────────────────────── -->
@@ -120,7 +113,7 @@
                 </span>
             </div>
             <p class="text-[10px] text-zinc-500 font-medium tracking-wider uppercase mt-0.5">
-                {slmReady ? "qwen2.5:3b on-device" : "swarm intelligence"}
+                {slmReady ? `${model ?? "local model"} on-device` : "swarm intelligence"}
             </p>
         </div>
 

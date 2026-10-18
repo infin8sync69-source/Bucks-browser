@@ -58,3 +58,7 @@ body {
     mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
     -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
 }
+/* Frameless window: the header island is a drag region, interactive children opt out. */
+.no-drag {
+    -webkit-app-region: no-drag;
+}

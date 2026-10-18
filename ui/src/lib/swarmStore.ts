@@ -1,6 +1,11 @@
+/**
+ * Agent chat state. All model traffic goes through the main process (`bucks.agent.*`), which owns
+ * the providers (offline | remote | ollama); the chrome never talks to an agent server itself.
+ */
 import { writable, get } from 'svelte/store';
-import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import { bucks, type A2UIPayload, type AgentResult } from './bridge';
 import { isSwarmThinking, browserStore, activeTab } from './stores';
+import { settingsStore } from './settingsStore';
 import { matchIntent, INTENT_LABELS } from './intentMatcher';
 
 export interface A2UI {
@@ -26,15 +31,7 @@ export interface Message {
     ts: number;
 }
 
-const AGENT_URL = "http://localhost:3000/api/v1/swarm/task";
-
-function isTauriRuntime(): boolean {
-    return typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__);
-}
-
-async function invokeCommand<T>(cmd: string, args?: any): Promise<T> {
-    return tauriInvoke<T>(cmd, args);
-}
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 function isURL(text: string): boolean {
     return (
@@ -43,98 +40,49 @@ function isURL(text: string): boolean {
     );
 }
 
-function buildOfflineFallback(prompt: string) {
-    const lower = prompt.toLowerCase();
-    if (lower.includes("go to") || lower.includes("open") || lower.includes("navigate") || lower.includes("browse")) {
-        const match = prompt.match(/(https?:\/\/[^\s]+|[\w-]+(\.[\w-]+)+[^\s]*)/i);
-        const url = match?.[1] ?? "https://duckduckgo.com";
-        return {
-            status: "offline_fallback",
-            evaluation: `Navigating to ${url}...`,
-            a2ui: { type: "navigate", url, content: `Navigating to ${url}...` }
-        };
-    }
-
-    if (lower.includes("search")) {
-        const query = prompt.replace(/search|for/gi, "").trim() || prompt;
-        return {
-            status: "offline_fallback",
-            evaluation: `Searching for '${query}'...`,
-            a2ui: { type: "search", content: query }
-        };
-    }
-
-    if (lower.includes("wallet")) {
-        return {
-            status: "offline_fallback",
-            evaluation: "Opening your Bucks wallet...",
-            a2ui: { type: "action", action: "open_wallet", content: "Opening your Bucks wallet..." }
-        };
-    }
-
-    if (lower.includes("ipfs")) {
-        return {
-            status: "offline_fallback",
-            evaluation: "Opening the decentralized IPFS workspace...",
-            a2ui: { type: "action", action: "open_ipfs", content: "Opening the decentralized IPFS workspace..." }
-        };
-    }
-
-    return {
-        status: "offline_fallback",
-        evaluation: `Agent server is offline. Local Bucks heard: '${prompt}'.`,
-        a2ui: {
-            type: "text",
-            content: `Agent server is offline. Local Bucks heard: '${prompt}'.`
-        }
-    };
+/** Add https:// to scheme-less URLs; anything that already has a scheme is kept. */
+function withScheme(url: string): string {
+    return HAS_SCHEME.test(url) ? url : `https://${url}`;
 }
 
-const SLM_STATUS_URL = "http://localhost:3000/api/v1/slm/status";
-const SLM_QUERY_URL  = "http://localhost:3000/api/v1/slm/query";
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+}
+
+interface SwarmState {
+    messages: Message[];
+    activeWidget: Message | null;
+    /** The configured agent provider is reachable. */
+    isOnline: boolean | null;
+    /** A local model (Ollama provider) is connected. */
+    slmReady: boolean;
+    provider: string;
+    model: string | null;
+}
 
 function createSwarmStore() {
-    const { subscribe, set, update } = writable<{
-        messages: Message[];
-        activeWidget: Message | null;
-        isOnline: boolean | null;
-        slmReady: boolean;
-    }>({
+    const { subscribe, update } = writable<SwarmState>({
         messages: [],
         activeWidget: null,
         isOnline: null,
         slmReady: false,
+        provider: 'offline',
+        model: null,
     });
 
+    /** Ask the main process which provider is active and whether it is reachable. */
     async function checkOnline() {
         try {
-            if (isTauriRuntime()) {
-                const status = await invokeCommand<boolean>("check_architect_status");
-                update(s => ({ ...s, isOnline: status }));
-            } else {
-                const response = await fetch(AGENT_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt: "__ping__", current_url: null, current_title: null })
-                });
-                update(s => ({ ...s, isOnline: response.ok }));
-            }
+            const status = await bucks.agent.status();
+            update((s) => ({
+                ...s,
+                isOnline: !!status.online,
+                slmReady: !!status.online && status.provider === 'ollama',
+                provider: status.provider,
+                model: status.model ?? null,
+            }));
         } catch {
-            update(s => ({ ...s, isOnline: false }));
-        }
-        // Always also poll SLM status (non-blocking)
-        checkSlmReady().catch(() => {});
-    }
-
-    async function checkSlmReady() {
-        try {
-            const r = await fetch(SLM_STATUS_URL, { signal: AbortSignal.timeout(3000) });
-            if (r.ok) {
-                const data = await r.json();
-                update(s => ({ ...s, slmReady: !!data.ready }));
-            }
-        } catch {
-            // SLM not reachable — leave slmReady as-is
+            update((s) => ({ ...s, isOnline: false, slmReady: false }));
         }
     }
 
@@ -143,25 +91,22 @@ function createSwarmStore() {
 
         if (type === "navigate" && a2ui.url) {
             if (a2ui.is_agent) {
-                browserStore.createTab(a2ui.url, { isAgentTab: true });
+                browserStore.createTab(withScheme(a2ui.url), { isAgentTab: true });
             } else {
-                browserStore.navigateActiveTab(a2ui.url.startsWith("http") ? a2ui.url : "https://" + a2ui.url);
+                browserStore.navigateActiveTab(withScheme(a2ui.url));
             }
         } else if (type === "open_tab" && a2ui.url) {
-            browserStore.createTab(a2ui.url, { isAgentTab: a2ui.is_agent });
+            browserStore.createTab(withScheme(a2ui.url), { isAgentTab: a2ui.is_agent });
         } else if (type === "search" && a2ui.content) {
-            browserStore.createTab(`https://duckduckgo.com/?q=${encodeURIComponent(a2ui.content)}`, { isAgentTab: a2ui.is_agent });
+            browserStore.createTab(settingsStore.searchUrl(a2ui.content), { isAgentTab: a2ui.is_agent });
         } else if (type === "scrape" && a2ui.url) {
-            browserStore.createTab(a2ui.url, { isAgentTab: true });
+            browserStore.createTab(withScheme(a2ui.url), { isAgentTab: true });
         } else if (type === "synthesis" && a2ui.content) {
             console.log("[SwarmStore] Research Synthesis Received:", a2ui.content);
         } else if (type === "action") {
             switch (a2ui.action) {
                 case "open_wallet":
                     browserStore.createOrFocusTab("bucks://wallet");
-                    break;
-                case "start_tor_node":
-                    if (isTauriRuntime()) await invokeCommand("start_tor_node");
                     break;
                 case "open_ipfs":
                     browserStore.createOrFocusTab("bucks://ipfs");
@@ -171,7 +116,7 @@ function createSwarmStore() {
             console.log("[SwarmStore] Agent is managing multi-tab context:", a2ui.tabs);
             if (a2ui.tabs) {
                 a2ui.tabs.forEach(t => {
-                    browserStore.createTab(t.url, { isAgentTab: true });
+                    browserStore.createTab(withScheme(t.url), { isAgentTab: true });
                 });
             }
         }
@@ -180,7 +125,6 @@ function createSwarmStore() {
     return {
         subscribe,
         checkOnline,
-        checkSlmReady,
         clearHistory: () => update(s => ({ ...s, messages: [], activeWidget: null })),
         closeWidget: () => update(s => ({ ...s, activeWidget: null })),
         sendQuery: async (queryStr: string) => {
@@ -188,8 +132,7 @@ function createSwarmStore() {
             if (!text || get(isSwarmThinking)) return;
 
             if (isURL(text)) {
-                const url = /^https?:\/\//i.test(text) ? text : "https://" + text;
-                browserStore.createTab(url);
+                browserStore.createTab(withScheme(text));
                 return;
             }
 
@@ -215,47 +158,24 @@ function createSwarmStore() {
 
             try {
                 const tab = get(activeTab);
-                let result;
-                if (isTauriRuntime()) {
-                    const raw = await invokeCommand<string>("query_swarm", {
-                        prompt: text,
-                        current_url: tab?.url || null,
-                        current_title: tab?.title || null,
-                    });
-                    result = JSON.parse(raw);
-                } else {
-                    // Fallback for browser-only dev mode
-                    try {
-                        const response = await fetch(AGENT_URL, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                prompt: text,
-                                current_url: tab?.url || null,
-                                current_title: tab?.title || null,
-                            })
-                        });
-                        result = response.ok ? await response.json() : buildOfflineFallback(text);
-                    } catch {
-                        result = buildOfflineFallback(text);
-                    }
-                }
-                // Clean up the evaluation text: if it contains the JSON block we extracted, strip it
-                let cleanContent = result.evaluation;
+                const result: AgentResult = await bucks.agent.query({
+                    prompt: text,
+                    currentUrl: tab?.url || null,
+                    currentTitle: tab?.title || null,
+                    tabId: tab?.type === 'external' ? tab.id : null,
+                });
+
+                // Strip a ```json block from the text when the model also returned it as a2ui
+                let cleanContent = result.evaluation ?? "";
                 if (result.a2ui) {
-                    // Try to remove ```json ... ``` blocks
                     cleanContent = cleanContent.replace(/```json[\s\S]*?```/g, "").trim();
-                    // Or if it was raw { ... }
-                    if (cleanContent.includes("{") && cleanContent.includes("}")) {
-                        // Very basic check to avoid over-stripping if the user was talking about JSON
-                        // But usually the A2UI is at the end.
-                    }
                 }
 
+                const a2ui = (result.a2ui ?? null) as (A2UIPayload & A2UI) | null;
                 const agentMsg: Message = {
-                    role: result.status === "error" || result.status === "timeout" ? "error" : "agent",
+                    role: result.status === "error" ? "error" : "agent",
                     content: cleanContent,
-                    a2ui: result.a2ui,
+                    a2ui,
                     cid: result.cid,
                     taskId: result.task_id,
                     ts: Date.now()
@@ -265,17 +185,17 @@ function createSwarmStore() {
                     ...s,
                     messages: [...s.messages, agentMsg],
                     activeWidget: agentMsg,
-                    isOnline: result.status !== "offline_fallback" && result.status !== "error"
+                    isOnline: result.status === "ok",
                 }));
 
                 if (agentMsg.a2ui) {
                     await dispatchA2UI(agentMsg.a2ui);
                 }
 
-            } catch (err: any) {
+            } catch (err: unknown) {
                 const errorMsg: Message = {
                     role: "error",
-                    content: `Agent Error: ${err.message || err.toString()}`,
+                    content: `Agent Error: ${errorText(err)}`,
                     ts: Date.now()
                 };
                 update(s => ({
@@ -290,45 +210,10 @@ function createSwarmStore() {
         },
 
         async sendFeedback(taskId: string, score: number, correction?: string) {
-            if (!isTauriRuntime()) return;
             try {
-                await invokeCommand("handle_feedback", {
-                    task_id: taskId,
-                    score,
-                    correction
-                });
+                await bucks.agent.feedback({ taskId, score, correction });
             } catch (e) {
-                console.error("[SwarmStore] Failed to send feedback:", e);
-            }
-        },
-
-        /** Fire a query directly at the on-device SLM (Qwen2.5:3b) — bypasses routing. */
-        async querySLM(prompt: string) {
-            if (get(isSwarmThinking)) return;
-            const userMsg: Message = { role: "user", content: prompt, ts: Date.now() };
-            update(s => ({ ...s, messages: [...s.messages, userMsg] }));
-            isSwarmThinking.set(true);
-            try {
-                const r = await fetch(SLM_QUERY_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ prompt }),
-                });
-                const result = r.ok ? await r.json() : { status: "error", evaluation: "SLM unreachable", a2ui: null };
-                const agentMsg: Message = {
-                    role: result.status === "error" ? "error" : "agent",
-                    content: result.evaluation ?? "",
-                    a2ui: result.a2ui ?? null,
-                    taskId: result.task_id ?? null,
-                    ts: Date.now(),
-                };
-                update(s => ({ ...s, messages: [...s.messages, agentMsg], activeWidget: agentMsg }));
-                if (agentMsg.a2ui) await dispatchA2UI(agentMsg.a2ui);
-            } catch (err: any) {
-                const errorMsg: Message = { role: "error", content: `SLM error: ${err.message}`, ts: Date.now() };
-                update(s => ({ ...s, messages: [...s.messages, errorMsg] }));
-            } finally {
-                isSwarmThinking.set(false);
+                console.error("[SwarmStore] Failed to send feedback:", errorText(e));
             }
         },
     };

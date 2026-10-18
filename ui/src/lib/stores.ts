@@ -393,13 +393,12 @@ function createBrowserStore() {
             }
         },
 
-        /** Activate the next (+1) / previous (-1) user tab, wrapping around. */
+        /** Activate the next (+1) / previous (-1) tab, wrapping around. */
         cycleTab(direction: 1 | -1) {
             const s = get({ subscribe });
-            const visible = s.tabs.filter((t) => !t.isAgentTab);
-            if (visible.length < 2) return;
-            const idx = visible.findIndex((t) => t.id === s.activeTabId);
-            const next = visible[(idx + direction + visible.length) % visible.length];
+            if (s.tabs.length < 2) return;
+            const idx = s.tabs.findIndex((t) => t.id === s.activeTabId);
+            const next = s.tabs[(idx + direction + s.tabs.length) % s.tabs.length];
             store.setActiveTab(next.id);
         },
 
@@ -619,6 +618,19 @@ function createBrowserStore() {
                 return;
             }
             void invalidateAll();
+        },
+
+        /** Forget everything: close every web view and reset tabs, bookmarks and history. */
+        resetAll() {
+            for (const t of get({ subscribe }).tabs) {
+                if (t.viewCreated) {
+                    bucks.tabs.close(t.id).catch((e) => console.warn('[tabs] close failed:', errorMessage(e)));
+                }
+            }
+            try { localStorage.removeItem(STORAGE_KEY); } catch { /* storage unavailable */ }
+            set(persist(buildInitialState()));
+            routeTo('bucks://newtab');
+            void syncActiveView();
         },
 
         // ── Bookmarks ─────────────────────────────────────────────────────────
