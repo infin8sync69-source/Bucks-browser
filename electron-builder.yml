@@ -65,6 +65,11 @@ protocols:
     schemes:
       - ipfs
       - ipns
+  # Needed for Bucks to be selectable as the default web browser (Settings → Privacy & data).
+  - name: Web
+    schemes:
+      - http
+      - https
 
 linux:
   target:
@@ -80,6 +85,13 @@ linux:
     trackers, and upgrades connections to HTTPS by default.
   # Name of the installed executable (and of the Exec= entry in the .desktop file).
   executableName: bucks-browser
+  # Lets desktop environments offer Bucks as the default browser.
+  mimeTypes:
+    - text/html
+    - x-scheme-handler/http
+    - x-scheme-handler/https
+    - x-scheme-handler/ipfs
+    - x-scheme-handler/ipns
 
 win:
   target:

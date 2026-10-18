@@ -28,6 +28,13 @@ with privacy-protective defaults turned on.
   answers with tables, charts and checklists), which Bucks runs on your computer with an
   on-device model by default.
 - **Wallet.** A wallet page that signs in the interface and talks to a Bucks node over HTTP.
+- **Everyday browsing.** Spaces, pinned / renamed / coloured tabs, reopen closed tab, private tabs
+  (Ctrl/Cmd+Shift+N), find in page, print and save as PDF, zoom and mute per site, address
+  suggestions from your history and bookmarks, clearing browsing data, unpacked Chrome extensions,
+  and Bucks as your default browser.
+
+What Bucks Core (the older app in buckscore) has and where each feature stands here:
+[docs/FEATURE-PARITY.md](docs/FEATURE-PARITY.md).
 
 ## Install on Linux (test build)
 

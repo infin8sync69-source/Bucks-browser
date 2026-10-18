@@ -3,7 +3,7 @@
     import { TriangleAlert, RotateCw } from 'lucide-svelte';
     import { bucks } from './bridge';
     import { activeTab, browserStore } from './stores';
-    import { chatOpen, overlayCount } from './uiState';
+    import { chatOpen, overlayCount, findBarOpen } from './uiState';
 
     /**
      * Placeholder for the active external tab's web view. The page itself is a WebContentsView
@@ -48,6 +48,7 @@
     // the layout class flips and again once the transition has finished.
     $effect(() => {
         void $chatOpen;
+        void $findBarOpen;
         void isExternal;
         const raf = requestAnimationFrame(reportBounds);
         const settle = setTimeout(reportBounds, 350);
@@ -70,7 +71,7 @@
 <div
     bind:this={el}
     data-content-area
-    class="fixed top-24 bottom-[88px] left-0 z-0 transition-[right] duration-300 ease-out {$chatOpen ? 'right-[448px]' : 'right-0'}"
+    class="fixed bottom-[88px] left-0 z-0 transition-[right] duration-300 ease-out {$findBarOpen ? 'top-[140px]' : 'top-24'} {$chatOpen ? 'right-[448px]' : 'right-0'}"
     style:visibility={isExternal ? 'visible' : 'hidden'}
 >
     {#if showError && error}

@@ -65,7 +65,7 @@ page should go and hides the view while an overlay is open; see the content rect
 
 | Owner | Owns |
 |---|---|
-| Chrome renderer | The list of tabs, their order, which is active, bookmarks and history (persisted in `localStorage`). Tab ids are generated here and passed to main in `tabs.create(id, url)`. |
+| Chrome renderer | The list of tabs, their order, which is active, spaces, pins, names, colours, the closed-tab stack, bookmarks and history (persisted in `localStorage`; private tabs never are). Tab ids are generated here and passed to main in `tabs.create(id, url, { private })`. |
 | Main process | One `WebContentsView` per external tab, created lazily (at startup only the active external tab gets a view). Internal tabs (`bucks://ipfs`, `bucks://settings`, ...) have no view; the chrome hides the content area and renders a route instead. |
 
 Main pushes `bucks:tabs:updated` (a `TabState`) on every navigation, title, favicon or loading
@@ -239,6 +239,15 @@ never receive a preload, Node, or any IPC handle.
   the chrome renders them as text without loading remote images, because the chrome's session has
   none of the tab session's tracker blocking. The default backend runs on the device; cloud
   backends need the user's own key and the UI says that prompts leave the device.
+- **Private tabs.** They use their own in-memory session (`bucks-private`) with the same
+  protocols, security layer and downloads as normal tabs; nothing of it is written to disk, the
+  chrome never persists them or records them in history, and main clears the session when its last
+  tab closes.
+- **Extensions.** Unpacked extensions from `<userData>/extensions` are loaded into the web
+  session only, never the chrome's, so they cannot script the interface.
+- **Links from the OS.** URLs on the command line (first or second launch) and macOS `open-url`
+  are limited to http(s), ipfs, ipns and file URLs and opened as new tabs once the chrome reports
+  `bucks:app:chrome-ready`.
 - **External links.** `bucks:shell:open-external` accepts only `http:`, `https:` and `mailto:`.
 - **Downloads.** File names are sanitised for every OS and made unique in the target directory.
 - **IPC.** Handlers validate their payloads and throw `Error` with a human-readable message.

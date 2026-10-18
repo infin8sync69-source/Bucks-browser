@@ -7,6 +7,7 @@
     import ChatPanel from '$lib/ChatPanel.svelte';
     import EphemeralWidget from '$lib/EphemeralWidget.svelte';
     import LuminaHomepage from '$lib/LuminaHomepage.svelte';
+    import FindBar from '$lib/FindBar.svelte';
     import { browserStore, activeTab } from '$lib/stores';
     import { ipfsStore } from '$lib/ipfsStore';
     import { settingsStore } from '$lib/settingsStore';
@@ -77,6 +78,9 @@
 
 <!-- Layer 2: Placeholder for the native web view of the active external tab (z-0, top 96px → bottom 88px) -->
 <ContentArea />
+
+<!-- Find in page (Ctrl/Cmd+F); the content area moves down while it is open -->
+<FindBar />
 
 <!-- New-tab home screen (z-0) -->
 {#if $activeTab?.url === 'bucks://newtab' || !$activeTab}

@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { goto, invalidateAll } from '$app/navigation';
 import { bucks, type TabError, type TabState, type OpenRequest } from './bridge';
-import { requestFocusOmnibox, toggleChat } from './uiState';
+import { requestFocusOmnibox, toggleChat, openFindBar } from './uiState';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,45 @@ export interface Tab {
     error?: TabError | null;
     /** True once the main process holds a web view for this tab. Never persisted. */
     viewCreated?: boolean;
+    /** Pinned tabs sit first in the strip, show only their icon and survive "close others". */
+    pinned?: boolean;
+    /** Name the user gave the tab; shown instead of the page title. */
+    customTitle?: string;
+    /** Colour label (one of TAB_COLORS). */
+    color?: TabColor | null;
+    /** Space the tab belongs to. */
+    spaceId?: string;
+    /** In-memory private session: never persisted, never in history. */
+    private?: boolean;
+    /** Audio muted by the user (reported back by the main process). */
+    muted?: boolean;
+    audible?: boolean;
+    /** Page zoom in percent (reported back by the main process). */
+    zoom?: number;
 }
+
+export const TAB_COLORS = ['blue', 'violet', 'emerald', 'amber', 'rose', 'cyan', 'slate'] as const;
+export type TabColor = (typeof TAB_COLORS)[number];
+
+/** A Space groups tabs (work, personal, a project); the tab strip shows one Space at a time. */
+export interface Space {
+    id: string;
+    name: string;
+    color: TabColor;
+}
+
+export interface ClosedTab {
+    url: string;
+    title: string;
+    spaceId?: string;
+    index: number;
+    pinned?: boolean;
+    customTitle?: string;
+    color?: TabColor | null;
+}
+
+export const DEFAULT_SPACE: Space = { id: 'default', name: 'Personal', color: 'blue' };
+const MAX_CLOSED_TABS = 25;
 
 export interface Bookmark {
     id: string;
@@ -45,6 +83,12 @@ interface BrowserState {
     activeTabId: string | null;
     bookmarks: Bookmark[];
     history: HistoryEntry[];
+    spaces: Space[];
+    activeSpaceId: string;
+    /** Last active tab of each space, so switching back returns to it. */
+    spaceActiveTab: Record<string, string>;
+    /** Most recently closed tabs first (private tabs are never kept). */
+    closedTabs: ClosedTab[];
 }
 
 export interface CreateTabOptions {
@@ -52,6 +96,15 @@ export interface CreateTabOptions {
     parentTabId?: string;
     /** Create the tab (and start loading it) without switching to it. */
     background?: boolean;
+    /** Open in the in-memory private session. */
+    private?: boolean;
+    /** Space for the new tab (default: the active one). */
+    spaceId?: string;
+    /** Insert at this index in the tab list (default: at the end). */
+    index?: number;
+    pinned?: boolean;
+    customTitle?: string;
+    color?: TabColor | null;
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -87,14 +140,16 @@ function saveState(state: BrowserState) {
     try {
         const toSave: BrowserState = {
             ...state,
-            // Agent tabs and transient fields (isLoading / error / viewCreated / canGo*) are not persisted.
+            // Agent tabs, private tabs and transient fields (isLoading / error / viewCreated / canGo* /
+            // audio / zoom) are not persisted.
             tabs: state.tabs
-                .filter((t) => !t.isAgentTab)
+                .filter((t) => !t.isAgentTab && !t.private)
                 .map((t) => {
-                    const { isLoading, error, viewCreated, canGoBack, canGoForward, ...rest } = t;
-                    void isLoading; void error; void viewCreated; void canGoBack; void canGoForward;
+                    const { isLoading, error, viewCreated, canGoBack, canGoForward, muted, audible, zoom, ...rest } = t;
+                    void isLoading; void error; void viewCreated; void canGoBack; void canGoForward; void muted; void audible; void zoom;
                     return rest as Tab;
                 }),
+            activeTabId: state.tabs.find((t) => t.id === state.activeTabId && !t.private) ? state.activeTabId : null,
             history: state.history.slice(0, MAX_HISTORY),
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
@@ -169,6 +224,11 @@ function makeTab(rawUrl: string, opts: CreateTabOptions = {}): Tab {
         isLoading: isExternal,
         isAgentTab: opts.isAgentTab,
         parentTabId: opts.parentTabId,
+        spaceId: opts.spaceId ?? DEFAULT_SPACE.id,
+        private: opts.private === true || undefined,
+        pinned: opts.pinned || undefined,
+        customTitle: opts.customTitle || undefined,
+        color: opts.color ?? null,
         historyBack: [],
         historyForward: [],
         favicon: null,
@@ -183,14 +243,43 @@ function errorMessage(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
+/** Closed-tab stack after closing `tab` (private, agent and blank tabs are not kept). */
+function rememberClosed(state: BrowserState, tab: Tab): ClosedTab[] {
+    if (tab.private || tab.isAgentTab || tab.url === 'bucks://newtab') return state.closedTabs;
+    const entry: ClosedTab = {
+        url: tab.url,
+        title: tab.customTitle || tab.title,
+        spaceId: tab.spaceId,
+        index: state.tabs.findIndex((t) => t.id === tab.id),
+        pinned: tab.pinned,
+        customTitle: tab.customTitle,
+        color: tab.color ?? null,
+    };
+    return [entry, ...state.closedTabs].slice(0, MAX_CLOSED_TABS);
+}
+
+function newSpaceId(): string {
+    return `space-${newTabId().slice(0, 8)}`;
+}
+
+/** Tabs shown in the strip for a space: pinned first, then the rest, in list order; no agent tabs. */
+export function stripTabs(tabs: Tab[], spaceId: string): Tab[] {
+    const inSpace = tabs.filter((t) => t.spaceId === spaceId && !t.isAgentTab);
+    return [...inSpace.filter((t) => t.pinned), ...inSpace.filter((t) => !t.pinned)];
+}
+
 // ── Initial state ─────────────────────────────────────────────────────────────
 
 function buildInitialState(): BrowserState {
     const saved = loadState();
 
+    const spaces = saved.spaces && saved.spaces.length > 0 ? saved.spaces : [DEFAULT_SPACE];
+    const spaceIds = new Set(spaces.map((sp) => sp.id));
+    const activeSpaceId = saved.activeSpaceId && spaceIds.has(saved.activeSpaceId) ? saved.activeSpaceId : spaces[0].id;
+
     const tabs = (saved.tabs && saved.tabs.length > 0)
-        ? saved.tabs
-        : [makeTab('bucks://newtab')];
+        ? saved.tabs.map((t) => ({ ...t, spaceId: t.spaceId && spaceIds.has(t.spaceId) ? t.spaceId : spaces[0].id }))
+        : [makeTab('bucks://newtab', { spaceId: activeSpaceId })];
 
     // Ensure exactly one active tab
     const hasActive = tabs.some(t => t.active);
@@ -204,6 +293,10 @@ function buildInitialState(): BrowserState {
     return {
         tabs,
         activeTabId,
+        spaces,
+        activeSpaceId: tabs.find((t) => t.id === activeTabId)?.spaceId ?? activeSpaceId,
+        spaceActiveTab: saved.spaceActiveTab ?? {},
+        closedTabs: saved.closedTabs ?? [],
         bookmarks: saved.bookmarks ?? [
             { id: '1', url: 'https://google.com',  title: 'Google',  addedAt: Date.now() },
             { id: '2', url: 'https://github.com',  title: 'GitHub',  addedAt: Date.now() },
@@ -226,8 +319,8 @@ function createBrowserStore() {
         return state;
     }
 
-    function pushHistory(state: BrowserState, url: string, title: string): BrowserState {
-        if (url === 'bucks://newtab') return state;
+    function pushHistory(state: BrowserState, url: string, title: string, tab?: Tab): BrowserState {
+        if (url === 'bucks://newtab' || tab?.private) return state;
         const entry: HistoryEntry = { url, title, visitedAt: Date.now() };
         return {
             ...state,
@@ -260,7 +353,7 @@ function createBrowserStore() {
         if (tab.type !== 'external' || tab.viewCreated) return;
         patchTab(tab.id, { viewCreated: true, isLoading: true, error: null });
         try {
-            await bucks.tabs.create(tab.id, tab.url);
+            await bucks.tabs.create(tab.id, tab.url, { private: tab.private === true });
         } catch (e) {
             patchTab(tab.id, { viewCreated: false });
             failTab(tab.id, tab.url, e);
@@ -318,6 +411,8 @@ function createBrowserStore() {
                 bucks.tabs.onClosed(({ id }) => store.closeTab(id, { fromMain: true })),
                 bucks.app.onShortcut(({ action }) => store.handleShortcut(action)),
             );
+            // Links the OS handed to Bucks (default browser, "open with") arrive once this is wired up.
+            bucks.app.chromeReady().catch(() => {});
 
             const active = activeTabNow();
             if (active) routeTo(active.url);
@@ -349,11 +444,14 @@ function createBrowserStore() {
                               canGoBack: state.canGoBack,
                               canGoForward: state.canGoForward,
                               error: state.error,
+                              muted: state.muted,
+                              audible: state.audible,
+                              zoom: state.zoom,
                           }
                         : t,
                 );
                 let next: BrowserState = { ...s, tabs };
-                if (changed && state.title && !state.error && !tab.isAgentTab) next = pushHistory(next, url, state.title);
+                if (changed && state.title && !state.error && !tab.isAgentTab) next = pushHistory(next, url, state.title, tab);
                 return persist(next);
             });
         },
@@ -368,9 +466,13 @@ function createBrowserStore() {
                 else store.navigateTab(opener.id, url);
                 return;
             }
+            // Links from a private tab stay private.
+            const opener = req.openerId ? tabById(req.openerId) : undefined;
             store.createTab(url, {
                 background: req.disposition === 'background-tab',
                 parentTabId: req.openerId ?? undefined,
+                private: opener?.private === true,
+                spaceId: opener?.spaceId,
             });
         },
 
@@ -391,27 +493,39 @@ function createBrowserStore() {
                 case 'open-ipfs': store.createOrFocusTab('bucks://ipfs'); break;
                 case 'open-wallet': store.createOrFocusTab('bucks://wallet'); break;
                 case 'toggle-agent': toggleChat(); break;
-                default: break; // find / zoom-* / toggle-devtools are handled by the main process
+                case 'new-private-tab': store.createTab('bucks://newtab', { private: true }); requestFocusOmnibox(); break;
+                case 'reopen-closed-tab': store.reopenClosedTab(); break;
+                case 'find': if (activeTabNow()?.type === 'external') openFindBar(); break;
+                case 'print': void store.printActive(); break;
+                case 'save-pdf': void store.savePdfActive(); break;
+                default: break; // zoom-* / toggle-devtools are handled by the main process
             }
         },
 
-        /** Activate the next (+1) / previous (-1) tab, wrapping around. */
+        /** Activate the next (+1) / previous (-1) tab of the current space, wrapping around. */
         cycleTab(direction: 1 | -1) {
             const s = get({ subscribe });
-            if (s.tabs.length < 2) return;
-            const idx = s.tabs.findIndex((t) => t.id === s.activeTabId);
-            const next = s.tabs[(idx + direction + s.tabs.length) % s.tabs.length];
+            const visible = s.tabs.filter((t) => t.spaceId === s.activeSpaceId && !t.isAgentTab);
+            if (visible.length < 2) return;
+            const idx = visible.findIndex((t) => t.id === s.activeTabId);
+            const next = visible[(idx + direction + visible.length) % visible.length];
             store.setActiveTab(next.id);
         },
 
         createTab(url = 'bucks://newtab', opts: CreateTabOptions = {}) {
-            const tab = makeTab(url, opts);
+            const current = get({ subscribe });
+            const tab = makeTab(url, { ...opts, spaceId: opts.spaceId ?? current.activeSpaceId });
             const foreground = !opts.isAgentTab && !opts.background;
             update((s) => {
-                const tabs = foreground
-                    ? [...s.tabs.map((t) => ({ ...t, active: false })), tab]
-                    : [...s.tabs, tab];
-                return persist({ ...s, tabs, activeTabId: foreground ? tab.id : s.activeTabId });
+                const base = foreground ? s.tabs.map((t) => ({ ...t, active: false })) : s.tabs;
+                const at = Number.isInteger(opts.index) ? Math.max(0, Math.min(base.length, opts.index as number)) : base.length;
+                const tabs = [...base.slice(0, at), tab, ...base.slice(at)];
+                return persist({
+                    ...s,
+                    tabs,
+                    activeTabId: foreground ? tab.id : s.activeTabId,
+                    activeSpaceId: foreground ? (tab.spaceId ?? s.activeSpaceId) : s.activeSpaceId,
+                });
             });
             if (foreground) {
                 if (tab.type !== 'external') routeTo(tab.url);
@@ -424,7 +538,9 @@ function createBrowserStore() {
         },
 
         createOrFocusTab(url: string) {
-            const existing = get({ subscribe }).tabs.find((t) => t.url === url);
+            const s = get({ subscribe });
+            const existing = s.tabs.find((t) => t.url === url && t.spaceId === s.activeSpaceId && !t.private)
+                ?? s.tabs.find((t) => t.url === url && !t.private);
             if (existing) {
                 store.setActiveTab(existing.id);
                 return;
@@ -439,11 +555,16 @@ function createBrowserStore() {
             if (closing.viewCreated && !opts.fromMain) {
                 bucks.tabs.close(id).catch((e) => console.warn('[tabs] close failed:', errorMessage(e)));
             }
+            const closedTabs = rememberClosed(before, closing);
 
             const filtered = before.tabs.filter((t) => t.id !== id);
-            if (filtered.length === 0) {
-                const tab = { ...makeTab('bucks://newtab'), active: true };
-                update((s) => persist({ ...s, tabs: [tab], activeTabId: tab.id }));
+            const spaceId = closing.spaceId ?? before.activeSpaceId;
+            const sameSpace = filtered.filter((t) => t.spaceId === spaceId && !t.isAgentTab);
+            const wasActive = before.activeTabId === id;
+            if (wasActive && sameSpace.length === 0) {
+                // Last tab of this space: the space keeps a fresh new-tab page.
+                const tab = { ...makeTab('bucks://newtab', { spaceId }), active: true };
+                update((s) => persist({ ...s, closedTabs, tabs: [...filtered.map((t) => ({ ...t, active: false })), tab], activeTabId: tab.id }));
                 routeTo(tab.url);
                 void syncActiveView();
                 return;
@@ -451,18 +572,15 @@ function createBrowserStore() {
 
             let activeTabId = before.activeTabId;
             let tabs = filtered;
-            const wasActive = before.activeTabId === id;
             if (wasActive) {
-                // Prefer the neighbour that took the closed tab's slot, never an agent tab.
-                const idx = before.tabs.findIndex((t) => t.id === id);
-                const candidates = filtered.filter((t) => !t.isAgentTab);
-                const pool = candidates.length > 0 ? candidates : filtered;
-                const neighbour = filtered[Math.min(idx, filtered.length - 1)];
-                const next = pool.includes(neighbour) ? neighbour : pool[pool.length - 1];
+                // Prefer the neighbour in the same space that took the closed tab's slot.
+                const spaceTabs = before.tabs.filter((t) => t.spaceId === spaceId && !t.isAgentTab);
+                const idx = spaceTabs.findIndex((t) => t.id === id);
+                const next = sameSpace[Math.min(idx, sameSpace.length - 1)];
                 activeTabId = next.id;
                 tabs = filtered.map((t) => ({ ...t, active: t.id === next.id }));
             }
-            update((s) => persist({ ...s, tabs, activeTabId }));
+            update((s) => persist({ ...s, closedTabs, tabs, activeTabId }));
             if (wasActive) {
                 const next = tabs.find((t) => t.id === activeTabId)!;
                 routeTo(next.url);
@@ -475,7 +593,14 @@ function createBrowserStore() {
             const tab = s.tabs.find((t) => t.id === id);
             if (!tab) return;
             const tabs = s.tabs.map((t) => ({ ...t, active: t.id === id }));
-            update((cur) => persist({ ...cur, tabs, activeTabId: id }));
+            const spaceId = tab.spaceId ?? s.activeSpaceId;
+            update((cur) => persist({
+                ...cur,
+                tabs,
+                activeTabId: id,
+                activeSpaceId: spaceId,
+                spaceActiveTab: tab.private ? cur.spaceActiveTab : { ...cur.spaceActiveTab, [spaceId]: id },
+            }));
             routeTo(tab.url); // internal tabs show their route, external tabs snap back to '/'
             void syncActiveView();
         },
@@ -515,7 +640,7 @@ function createBrowserStore() {
                           } as Tab),
                 );
                 let ns: BrowserState = { ...cur, tabs };
-                if (!isExternal) ns = pushHistory(ns, url, title);
+                if (!isExternal) ns = pushHistory(ns, url, title, tab);
                 return persist(ns);
             });
 
@@ -542,7 +667,7 @@ function createBrowserStore() {
                 let ns: BrowserState = { ...s, tabs };
                 // If title updated on external page, record in history
                 if (updates.title && updates.url) {
-                    ns = pushHistory(ns, updates.url, updates.title);
+                    ns = pushHistory(ns, updates.url, updates.title, s.tabs.find((t) => t.id === id));
                 }
                 return persist(ns);
             });
@@ -635,6 +760,149 @@ function createBrowserStore() {
             void syncActiveView();
         },
 
+        // ── Tab actions (context menu) ──────────────────────────────────────────
+
+        /** Reopen the most recently closed tab, in its space and position. */
+        reopenClosedTab() {
+            const s = get({ subscribe });
+            const [last, ...rest] = s.closedTabs;
+            if (!last) return;
+            update((cur) => persist({ ...cur, closedTabs: rest }));
+            const spaceId = s.spaces.some((sp) => sp.id === last.spaceId) ? last.spaceId : s.activeSpaceId;
+            store.createTab(last.url, { spaceId, index: last.index, pinned: last.pinned, customTitle: last.customTitle, color: last.color });
+        },
+
+        duplicateTab(id: string) {
+            const s = get({ subscribe });
+            const tab = s.tabs.find((t) => t.id === id);
+            if (!tab) return;
+            const index = s.tabs.findIndex((t) => t.id === id) + 1;
+            store.createTab(tab.url, { spaceId: tab.spaceId, private: tab.private, index, customTitle: tab.customTitle, color: tab.color });
+        },
+
+        togglePin(id: string) {
+            const tab = tabById(id);
+            if (tab) patchTab(id, { pinned: !tab.pinned || undefined });
+        },
+
+        /** Give the tab a name of its own; an empty name goes back to the page title. */
+        renameTab(id: string, name: string) {
+            const trimmed = name.trim().slice(0, 80);
+            patchTab(id, { customTitle: trimmed || undefined });
+        },
+
+        setTabColor(id: string, color: TabColor | null) {
+            patchTab(id, { color });
+        },
+
+        setMuted(id: string, muted: boolean) {
+            const tab = tabById(id);
+            if (!tab) return;
+            patchTab(id, { muted });
+            if (tab.viewCreated) bucks.tabs.setMuted(id, muted).catch((e) => console.warn('[tabs] mute failed:', errorMessage(e)));
+        },
+
+        /** Close every other unpinned tab of the same space. */
+        closeOtherTabs(id: string) {
+            const s = get({ subscribe });
+            const keep = s.tabs.find((t) => t.id === id);
+            if (!keep) return;
+            store.setActiveTab(id);
+            for (const t of stripTabs(s.tabs, keep.spaceId ?? s.activeSpaceId)) {
+                if (t.id !== id && !t.pinned) store.closeTab(t.id);
+            }
+        },
+
+        /** Close the unpinned tabs after this one in the strip. */
+        closeTabsToRight(id: string) {
+            const s = get({ subscribe });
+            const tab = s.tabs.find((t) => t.id === id);
+            if (!tab) return;
+            const strip = stripTabs(s.tabs, tab.spaceId ?? s.activeSpaceId);
+            const at = strip.findIndex((t) => t.id === id);
+            for (const t of strip.slice(at + 1)) if (!t.pinned) store.closeTab(t.id);
+        },
+
+        // ── Spaces ────────────────────────────────────────────────────────────
+
+        createSpace(name: string, color: TabColor = 'violet'): string {
+            const space: Space = { id: newSpaceId(), name: name.trim().slice(0, 40) || 'New space', color };
+            update((s) => persist({ ...s, spaces: [...s.spaces, space] }));
+            store.switchSpace(space.id);
+            return space.id;
+        },
+
+        updateSpace(id: string, changes: Partial<Pick<Space, 'name' | 'color'>>) {
+            update((s) => persist({
+                ...s,
+                spaces: s.spaces.map((sp) => sp.id === id
+                    ? { ...sp, ...changes, name: (changes.name ?? sp.name).trim().slice(0, 40) || sp.name }
+                    : sp),
+            }));
+        },
+
+        /** Delete a space; its tabs move to the first remaining space. The last space cannot go. */
+        deleteSpace(id: string) {
+            const s = get({ subscribe });
+            if (s.spaces.length < 2 || !s.spaces.some((sp) => sp.id === id)) return;
+            const target = s.spaces.find((sp) => sp.id !== id)!;
+            update((cur) => persist({
+                ...cur,
+                spaces: cur.spaces.filter((sp) => sp.id !== id),
+                tabs: cur.tabs.map((t) => (t.spaceId === id ? { ...t, spaceId: target.id } : t)),
+            }));
+            if (s.activeSpaceId === id) store.switchSpace(target.id);
+        },
+
+        /** Show another space: its last active tab, or a new-tab page when it has none. */
+        switchSpace(id: string) {
+            const s = get({ subscribe });
+            if (!s.spaces.some((sp) => sp.id === id)) return;
+            const strip = stripTabs(s.tabs, id);
+            const remembered = strip.find((t) => t.id === s.spaceActiveTab[id]);
+            const target = remembered ?? strip[strip.length - 1];
+            if (target) {
+                store.setActiveTab(target.id);
+                return;
+            }
+            update((cur) => persist({ ...cur, activeSpaceId: id }));
+            store.createTab('bucks://newtab', { spaceId: id });
+        },
+
+        moveTabToSpace(tabId: string, spaceId: string) {
+            const s = get({ subscribe });
+            const tab = s.tabs.find((t) => t.id === tabId);
+            if (!tab || tab.spaceId === spaceId || !s.spaces.some((sp) => sp.id === spaceId)) return;
+            const wasActive = s.activeTabId === tabId;
+            const remaining = stripTabs(s.tabs, tab.spaceId ?? s.activeSpaceId).filter((t) => t.id !== tabId);
+            patchTab(tabId, { spaceId });
+            if (!wasActive) return;
+            // The moved tab leaves the visible strip: show a neighbour, or a fresh page.
+            if (remaining.length) store.setActiveTab(remaining[remaining.length - 1].id);
+            else store.createTab('bucks://newtab', { spaceId: tab.spaceId });
+        },
+
+        // ── Page actions ──────────────────────────────────────────────────────
+
+        async printActive() {
+            const tab = activeTabNow();
+            if (tab?.type !== 'external' || !tab.viewCreated) return;
+            try { await bucks.tabs.print(tab.id); } catch (e) { console.warn('[tabs] print failed:', errorMessage(e)); }
+        },
+
+        /** @returns the saved path, or null (cancelled / not a web page) */
+        async savePdfActive(): Promise<string | null> {
+            const tab = activeTabNow();
+            if (tab?.type !== 'external' || !tab.viewCreated) return null;
+            try { return (await bucks.tabs.printToPdf(tab.id)).path; } catch (e) { console.warn('[tabs] save as PDF failed:', errorMessage(e)); return null; }
+        },
+
+        zoomActive(action: 'in' | 'out' | 'reset') {
+            const tab = activeTabNow();
+            if (tab?.type !== 'external' || !tab.viewCreated) return;
+            bucks.tabs.zoom(tab.id, action).then((zoom) => patchTab(tab.id, { zoom })).catch(() => {});
+        },
+
         // ── Bookmarks ─────────────────────────────────────────────────────────
 
         addBookmark(url: string, title: string) {
@@ -660,6 +928,10 @@ function createBrowserStore() {
             update(s => persist({ ...s, history: [] }));
         },
 
+        clearClosedTabs() {
+            update(s => persist({ ...s, closedTabs: [] }));
+        },
+
         removeHistoryEntry(url: string) {
             update(s => persist({ ...s, history: s.history.filter(h => h.url !== url) }));
         },
@@ -676,4 +948,7 @@ function createBrowserStore() {
 
 export const browserStore = createBrowserStore();
 export const activeTab    = derived(browserStore, $s => $s.tabs.find(t => t.id === $s.activeTabId) || null);
+/** Tabs of the active space as the strip shows them (pinned first). */
+export const visibleTabs  = derived(browserStore, $s => stripTabs($s.tabs, $s.activeSpaceId));
+export const activeSpace  = derived(browserStore, $s => $s.spaces.find((sp) => sp.id === $s.activeSpaceId) ?? $s.spaces[0]);
 export const isSwarmThinking = writable(false);

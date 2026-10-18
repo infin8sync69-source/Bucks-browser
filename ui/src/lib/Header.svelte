@@ -1,6 +1,10 @@
 <script lang="ts">
     import { onMount, tick } from "svelte";
-    import { browserStore, activeTab } from "$lib/stores";
+    import { browserStore, activeTab, visibleTabs, type Tab } from "$lib/stores";
+    import { buildSuggestions, securityKind, type Suggestion } from "$lib/omnibox";
+    import { tabColorClass } from "$lib/tabColors";
+    import SpaceSwitcher from "./SpaceSwitcher.svelte";
+    import TabContextMenu from "./TabContextMenu.svelte";
     import {
         LayoutGrid,
         X,
@@ -18,6 +22,19 @@
         Minus,
         Square,
         Copy,
+        Lock,
+        ShieldCheck,
+        Star,
+        VolumeX,
+        Volume2,
+        EyeOff,
+        Hexagon,
+        TriangleAlert,
+        Printer,
+        FileDown,
+        History,
+        File,
+        Undo2,
     } from "lucide-svelte";
     import AppStore from "./AppStore.svelte";
     import { scale } from "svelte/transition";
@@ -33,7 +50,12 @@
     let urlInputEl = $state<HTMLInputElement | null>(null);
     let omniboxFocused = $state(false);
     let showSuggestions = $state(false);
-    let suggestions = $state<string[]>([]);
+    let suggestions = $state<Suggestion[]>([]);
+    let selectedSuggestion = $state(-1);
+    /** Tab whose right-click menu is open, and where. */
+    let tabMenu = $state<{ tab: Tab; x: number; y: number } | null>(null);
+    let blocked = $state(0);
+    let upgrades = $state(0);
     let isMaximized = $state(false);
     /** favicon URLs that failed to load, so the fallback glyph is shown instead */
     let brokenFavicons = $state<Record<string, boolean>>({});
@@ -133,49 +155,53 @@
                 $activeTab.historyForward.length > 0),
     );
 
-    // Common search suggestions
-    const commonSuggestions = [
-        "google.com",
-        "github.com",
-        "youtube.com",
-        "stackoverflow.com",
-        "wikipedia.org",
-        "reddit.com"
-    ];
-
+    // Suggestions: what was typed, then matching open tabs, bookmarks and history.
     function updateSuggestions() {
-        const input = urlInput.trim().toLowerCase();
-        if (!input) {
-            suggestions = [];
-            showSuggestions = false;
-            return;
-        }
-
-        // Filter suggestions based on input
-        const filtered = commonSuggestions.filter(s =>
-            s.toLowerCase().includes(input)
-        );
-
-        // Add dynamic suggestions
-        if (!input.includes(".") && !input.includes(" ")) {
-            // A single word: offer the usual TLDs, then search
-            filtered.push(`${input}.com`, `${input}.org`, `${input}.net`);
-            if (filtered.length < 3) {
-                filtered.push(`Search for "${input}"`);
-            }
-        }
-
-        suggestions = filtered.slice(0, 5);
-        showSuggestions = suggestions.length > 0;
+        const s = $browserStore;
+        suggestions = buildSuggestions(urlInput, { tabs: s.tabs, bookmarks: s.bookmarks, history: s.history, activeTabId: s.activeTabId }, resolveInput);
+        selectedSuggestion = -1;
+        showSuggestions = suggestions.length > 1; // the first entry is just what was typed
     }
 
-    function selectSuggestion(suggestion: string) {
-        if (suggestion.startsWith("Search for")) {
-            urlInput = suggestion.replace('Search for "', '').replace('"', '');
-        } else {
-            urlInput = suggestion;
-        }
+    function openSuggestion(sg: Suggestion) {
         showSuggestions = false;
+        urlInputEl?.blur();
+        if (sg.kind === "tab" && sg.tabId) {
+            browserStore.setActiveTab(sg.tabId);
+            return;
+        }
+        browserStore.navigateActiveTab(sg.url);
+    }
+
+    // ── omnibox indicators ────────────────────────────────────────────────────
+    const security = $derived(securityKind($activeTab?.url));
+    const isBookmarked = $derived(!!$activeTab && $browserStore.bookmarks.some((b) => b.url === $activeTab?.url));
+    const canBookmark = $derived(!!$activeTab && $activeTab.url !== "bucks://newtab" && !$activeTab.private);
+
+    function toggleBookmark() {
+        const tab = $activeTab;
+        if (!tab) return;
+        const existing = $browserStore.bookmarks.find((b) => b.url === tab.url);
+        if (existing) browserStore.removeBookmark(existing.id);
+        else browserStore.addBookmark(tab.url, tab.customTitle || tab.title);
+    }
+
+    // Ads and trackers blocked (all tabs, this session).
+    onMount(() => {
+        const refresh = () =>
+            bucks.security.stats().then((st) => { blocked = st.blockedRequests; upgrades = st.httpsUpgrades; }).catch(() => {});
+        refresh();
+        const timer = setInterval(refresh, 4000);
+        return () => clearInterval(timer);
+    });
+
+    // Pinned tabs stay in view; the rest scroll.
+    const pinnedTabs = $derived($visibleTabs.filter((t) => t.pinned));
+    const unpinnedTabs = $derived($visibleTabs.filter((t) => !t.pinned));
+
+    function openTabMenu(e: MouseEvent, tab: Tab) {
+        e.preventDefault();
+        tabMenu = { tab, x: e.clientX, y: e.clientY };
     }
 
     /**
@@ -213,6 +239,17 @@
     }
 
     function onOmniboxKeydown(e: KeyboardEvent) {
+        if (showSuggestions && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            const n = suggestions.length;
+            selectedSuggestion = e.key === "ArrowDown" ? (selectedSuggestion + 1) % n : (selectedSuggestion - 1 + n) % n;
+            return;
+        }
+        if (e.key === "Enter" && showSuggestions && selectedSuggestion > 0) {
+            e.preventDefault();
+            openSuggestion(suggestions[selectedSuggestion]);
+            return;
+        }
         if (e.key === "Escape") {
             showSuggestions = false;
             const tab = $activeTab;
@@ -227,6 +264,92 @@
     }
 </script>
 
+{#snippet tabChip(tab: Tab)}
+                {@const isActive = tab.id === $browserStore.activeTabId}
+                <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+                <div
+                    role="button"
+                    tabindex="0"
+                    aria-label={tab.customTitle || tab.title}
+                    title={tab.customTitle ? `${tab.customTitle} — ${tab.title}` : tab.title}
+                    aria-current={isActive ? "page" : undefined}
+                    onclick={() => browserStore.setActiveTab(tab.id)}
+                    oncontextmenu={(e) => openTabMenu(e, tab)}
+                    onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); browserStore.closeTab(tab.id); } }}
+                    onkeydown={(e) =>
+                        (e.key === "Enter" || e.key === " ") &&
+                        browserStore.setActiveTab(tab.id)}
+                    transition:scale={{
+                        duration: 300,
+                        easing: cubicOut,
+                        start: 0.9,
+                    }}
+                    class="group/tab relative h-8 {tab.pinned ? 'px-2.5' : 'px-3'} rounded-xl flex items-center space-x-2 transition-all duration-300 cursor-pointer select-none whitespace-nowrap border flex-shrink-0
+                           {tab.private ? 'border-fuchsia-400/25' : 'border-white/5'}
+                           {isActive
+                        ? 'bg-white/10 text-white border-white/20'
+                        : 'bg-white/[0.02] text-white/30 hover:text-white/60 hover:bg-white/5'}"
+                >
+                    {#if tab.color}
+                        <span class="absolute left-1.5 top-1.5 bottom-1.5 w-[2px] rounded-full {tabColorClass(tab.color)}"></span>
+                    {/if}
+                    <!-- Favicon, or a small glyph when the page has none -->
+                    {#if tab.private}
+                        <EyeOff size={11} class="flex-shrink-0 text-fuchsia-300/80" />
+                    {:else if tab.type === "external" && tab.isLoading && !tab.favicon}
+                        <RotateCw size={11} class="animate-spin text-blue-400/80 flex-shrink-0" />
+                    {:else if tab.favicon && !brokenFavicons[tab.favicon]}
+                        <img
+                            src={tab.favicon}
+                            alt=""
+                            width="14"
+                            height="14"
+                            class="w-3.5 h-3.5 rounded-sm flex-shrink-0 object-contain"
+                            onerror={() => tab.favicon && (brokenFavicons[tab.favicon] = true)}
+                        />
+                    {:else if tab.type === "external"}
+                        <Globe size={12} class="flex-shrink-0 opacity-60" />
+                    {:else}
+                        <Sparkles size={12} class="flex-shrink-0 opacity-60" />
+                    {/if}
+                    {#if !tab.pinned}
+                        <span
+                            class="text-[10px] font-bold tracking-tight truncate max-w-[130px]"
+                            >{tab.customTitle || tab.title}</span
+                        >
+                    {/if}
+                    {#if tab.muted || tab.audible}
+                        <button
+                            onclick={(e) => { e.stopPropagation(); browserStore.setMuted(tab.id, !tab.muted); }}
+                            title={tab.muted ? "Unmute site" : "Mute site"}
+                            aria-label={tab.muted ? "Unmute site" : "Mute site"}
+                            class="p-0.5 rounded-md hover:bg-white/10 {tab.muted ? 'text-white/40' : 'text-blue-300/80'}"
+                        >
+                            {#if tab.muted}<VolumeX size={11} />{:else}<Volume2 size={11} />{/if}
+                        </button>
+                    {/if}
+                    {#if !tab.pinned && (isActive || $visibleTabs.length > 1)}
+                        <button
+                            onclick={(e) => {
+                                e.stopPropagation();
+                                browserStore.closeTab(tab.id);
+                            }}
+                            title="Close tab"
+                            aria-label="Close tab"
+                            class="opacity-0 group-hover/tab:opacity-100 focus:opacity-100 p-0.5 hover:bg-white/10 rounded-md transition-all"
+                        >
+                            <X size={10} />
+                        </button>
+                    {/if}
+                    {#if isActive}
+                        <div
+                            class="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-[1.5px] {tab.private ? 'bg-fuchsia-400' : 'bg-blue-500'} rounded-full"
+                        ></div>
+                    {/if}
+                </div>
+{/snippet}
+
+
 <svelte:window onkeydown={handleGlobalKey} onclick={handleWindowClick} />
 
 <header
@@ -235,7 +358,7 @@
     <!-- The island is the window's drag handle; every interactive child opts out with .no-drag -->
     <div
         style="-webkit-app-region: drag"
-        class="max-w-5xl mx-auto flex items-center h-16 px-3 bg-[#0a0a0c]/80 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] border border-white/5 pointer-events-auto relative group/header"
+        class="max-w-[1600px] mx-auto flex items-center h-16 px-3 bg-[#0a0a0c]/80 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] border border-white/5 pointer-events-auto relative group/header"
     >
         <!-- Animated edge glow for the whole island -->
         <div class="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
@@ -306,7 +429,8 @@
         </div>
 
         <!-- Middle: Edge-Lit Omnibox -->
-        <div class="no-drag flex-1 mx-6 relative z-10">
+        <!-- Compact at rest so tabs get room; widens while typing (as in Bucks Core) -->
+        <div class="no-drag min-w-[200px] mx-3 relative z-10 flex-shrink transition-[flex-basis] duration-300 ease-out {omniboxFocused ? 'basis-[460px]' : 'basis-[300px]'}">
             <form onsubmit={handleUrlSubmit} class="relative group/form">
                 <!-- Edge-lit animated border pulsing -->
                 <div
@@ -316,10 +440,22 @@
                 <div
                     class="relative bg-black/40 border border-white/[0.03] rounded-[16px] flex items-center px-4 h-10 transition-all group-focus-within/form:bg-black/80 group-focus-within/form:border-blue-500/20 shadow-inner"
                 >
-                    <Search
-                        size={14}
-                        class="text-white/20 mr-3 group-focus-within/form:text-blue-400/70 transition-colors"
-                    />
+                    {#if omniboxFocused || security === "internal"}
+                        <Search size={14} class="text-white/20 mr-3 flex-shrink-0 group-focus-within/form:text-blue-400/70 transition-colors" />
+                    {:else if security === "secure"}
+                        <span title="Secure connection (HTTPS)" class="mr-3 flex-shrink-0 text-emerald-400/70"><Lock size={13} /></span>
+                    {:else if security === "ipfs"}
+                        <span title="Content-addressed: loaded from IPFS by its hash" class="mr-3 flex-shrink-0 text-cyan-300/80"><Hexagon size={13} /></span>
+                    {:else if security === "insecure"}
+                        <span title="Not secure: this page is not encrypted" class="mr-3 flex-shrink-0 text-amber-400/80"><TriangleAlert size={13} /></span>
+                    {:else if security === "file"}
+                        <span title="File on this computer" class="mr-3 flex-shrink-0 text-white/40"><File size={13} /></span>
+                    {:else}
+                        <Search size={14} class="text-white/20 mr-3 flex-shrink-0" />
+                    {/if}
+                    {#if $activeTab?.private}
+                        <span title="Private tab: nothing is saved after it closes" class="mr-2 flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-fuchsia-500/15 text-fuchsia-200 text-[9px] font-bold uppercase tracking-wider"><EyeOff size={10} /> Private</span>
+                    {/if}
                     <input
                         type="text"
                         bind:this={urlInputEl}
@@ -335,6 +471,22 @@
                         class="flex-1 bg-transparent border-none text-[13px] text-white/80 placeholder-white/20 outline-none w-full font-medium tracking-wide"
                     />
 
+                    {#if $activeTab?.zoom && $activeTab.zoom !== 100}
+                        <button type="button" onclick={() => browserStore.zoomActive("reset")} title="Zoom: click to reset to 100 %"
+                            class="mr-1 px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-mono text-white/60 hover:text-white">{$activeTab.zoom}%</button>
+                    {/if}
+                    {#if canBookmark && !omniboxFocused}
+                        <button type="button" onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"} aria-pressed={isBookmarked}
+                            class="p-1 rounded-md transition-colors {isBookmarked ? 'text-amber-300' : 'text-white/25 hover:text-white/70'}">
+                            <Star size={13} fill={isBookmarked ? "currentColor" : "none"} />
+                        </button>
+                    {/if}
+                    {#if !omniboxFocused}
+                        <button type="button" onclick={() => goTo("bucks://settings")} title={`${blocked} ads and trackers blocked · ${upgrades} connections upgraded to HTTPS`}
+                            class="ml-0.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-emerald-300/70 hover:text-emerald-200 hover:bg-white/5">
+                            <ShieldCheck size={13} /><span class="text-[10px] font-mono">{blocked > 999 ? `${Math.floor(blocked / 1000)}k` : blocked}</span>
+                        </button>
+                    {/if}
                     {#if $activeTab?.isLoading}
                         <div class="flex items-center space-x-1.5 pr-1">
                             <div
@@ -353,18 +505,25 @@
                     <div
                         class="no-drag absolute top-full left-0 right-0 mt-2 bg-[#0a0a0c]/95 backdrop-blur-2xl border border-white/10 rounded-lg shadow-lg overflow-hidden z-50"
                     >
-                        {#each suggestions as suggestion (suggestion)}
+                        {#each suggestions as sg, i (sg.kind + sg.url)}
                             <button
                                 type="button"
                                 onmousedown={(e) => e.preventDefault()}
-                                onclick={() => {
-                                    selectSuggestion(suggestion);
-                                    handleUrlSubmit(new SubmitEvent('submit'));
-                                }}
-                                class="w-full px-4 py-2.5 text-left text-[12px] text-white/70 hover:text-white hover:bg-white/10 transition-all border-b border-white/5 last:border-b-0"
+                                onclick={() => openSuggestion(sg)}
+                                class="w-full flex items-center gap-3 px-4 py-2 text-left text-[12px] transition-all border-b border-white/5 last:border-b-0
+                                       {i === selectedSuggestion ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}"
                             >
-                                <span class="text-blue-400/70 mr-2">→</span>
-                                {suggestion}
+                                <span class="w-4 flex-shrink-0 text-white/35">
+                                    {#if sg.kind === "search"}<Search size={13} />
+                                    {:else if sg.kind === "tab"}<Copy size={13} />
+                                    {:else if sg.kind === "bookmark"}<Star size={13} />
+                                    {:else if sg.kind === "history"}<History size={13} />
+                                    {:else}<Globe size={13} />{/if}
+                                </span>
+                                <span class="min-w-0 flex-1 truncate">{sg.label}</span>
+                                <span class="flex-shrink-0 max-w-[45%] truncate text-[10px] text-white/30">
+                                    {sg.kind === "tab" ? "Switch to tab" : sg.detail}
+                                </span>
                             </button>
                         {/each}
                     </div>
@@ -405,6 +564,47 @@
                         class="no-drag absolute top-14 right-0 w-56 bg-[#0a0a0c]/98 backdrop-blur-3xl rounded-[1.5rem] p-2 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] border border-white/10 z-50"
                     >
                         <div class="flex flex-col space-y-1">
+                            <button
+                                onclick={() => { isSettingsOpen = false; browserStore.createTab("bucks://newtab", { private: true }); focusOmnibox(); }}
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                            >
+                                <div class="w-8 h-8 rounded-lg bg-fuchsia-500/10 flex items-center justify-center">
+                                    <EyeOff size={16} class="text-fuchsia-300/80 group-hover:text-fuchsia-300" />
+                                </div>
+                                <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">New private tab</span>
+                            </button>
+                            {#if $browserStore.closedTabs.length}
+                                <button
+                                    onclick={() => { isSettingsOpen = false; browserStore.reopenClosedTab(); }}
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                >
+                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                                        <Undo2 size={16} class="text-white/40 group-hover:text-white" />
+                                    </div>
+                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Reopen closed tab</span>
+                                </button>
+                            {/if}
+                            {#if $activeTab?.type === "external"}
+                                <button
+                                    onclick={() => { isSettingsOpen = false; void browserStore.printActive(); }}
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                >
+                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                                        <Printer size={16} class="text-white/40 group-hover:text-white" />
+                                    </div>
+                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Print…</span>
+                                </button>
+                                <button
+                                    onclick={() => { isSettingsOpen = false; void browserStore.savePdfActive(); }}
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                >
+                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                                        <FileDown size={16} class="text-white/40 group-hover:text-white" />
+                                    </div>
+                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Save as PDF…</span>
+                                </button>
+                            {/if}
+                            <div class="h-[1px] bg-white/5 my-1 mx-3"></div>
                             <button
                                 onclick={() => goTo("bucks://downloads")}
                                 class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
@@ -481,6 +681,16 @@
 
             <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
 
+            <SpaceSwitcher />
+
+            {#if pinnedTabs.length}
+                <div class="no-drag flex items-center gap-1 flex-shrink-0 pl-1">
+                    {#each pinnedTabs as tab (tab.id)}
+                        {@render tabChip(tab)}
+                    {/each}
+                </div>
+            {/if}
+
             <!-- Scrollable Tab Container (Dynamic) -->
             <div
                 class="relative group/tabs flex items-center h-full flex-1 min-w-0 overflow-hidden"
@@ -489,67 +699,8 @@
                     class="no-drag flex items-center space-x-1 h-12 overflow-x-auto custom-scrollbar scroll-smooth px-2 pb-1 flex-1"
                     style="mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);"
                 >
-                    {#each $browserStore.tabs as tab (tab.id)}
-                        <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
-                        <div
-                            role="button"
-                            tabindex="0"
-                            aria-label={tab.title}
-                            aria-current={tab.id === $browserStore.activeTabId ? "page" : undefined}
-                            onclick={() => browserStore.setActiveTab(tab.id)}
-                            onkeydown={(e) =>
-                                (e.key === "Enter" || e.key === " ") &&
-                                browserStore.setActiveTab(tab.id)}
-                            transition:scale={{
-                                duration: 300,
-                                easing: cubicOut,
-                                start: 0.9,
-                            }}
-                            class="group/tab relative h-8 px-4 rounded-xl flex items-center space-x-2 transition-all duration-300 cursor-pointer select-none whitespace-nowrap border border-white/5 flex-shrink-0 {tab.id ===
-                            $browserStore.activeTabId
-                                ? 'bg-white/10 text-white border-white/20'
-                                : 'bg-white/[0.02] text-white/30 hover:text-white/60 hover:bg-white/5'}"
-                        >
-                            <!-- Favicon, or a small glyph when the page has none -->
-                            {#if tab.type === "external" && tab.isLoading && !tab.favicon}
-                                <RotateCw size={11} class="animate-spin text-blue-400/80 flex-shrink-0" />
-                            {:else if tab.favicon && !brokenFavicons[tab.favicon]}
-                                <img
-                                    src={tab.favicon}
-                                    alt=""
-                                    width="14"
-                                    height="14"
-                                    class="w-3.5 h-3.5 rounded-sm flex-shrink-0 object-contain"
-                                    onerror={() => tab.favicon && (brokenFavicons[tab.favicon] = true)}
-                                />
-                            {:else if tab.type === "external"}
-                                <Globe size={12} class="flex-shrink-0 opacity-60" />
-                            {:else}
-                                <Sparkles size={12} class="flex-shrink-0 opacity-60" />
-                            {/if}
-                            <span
-                                class="text-[10px] font-bold tracking-tight truncate max-w-[100px]"
-                                >{tab.title}</span
-                            >
-                            {#if tab.id === $browserStore.activeTabId || $browserStore.tabs.length > 1}
-                                <button
-                                    onclick={(e) => {
-                                        e.stopPropagation();
-                                        browserStore.closeTab(tab.id);
-                                    }}
-                                    title="Close tab"
-                                    aria-label="Close tab"
-                                    class="opacity-0 group-hover/tab:opacity-100 focus:opacity-100 p-0.5 hover:bg-white/10 rounded-md transition-all"
-                                >
-                                    <X size={10} />
-                                </button>
-                            {/if}
-                            {#if tab.id === $browserStore.activeTabId}
-                                <div
-                                    class="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-[1.5px] bg-blue-500 rounded-full"
-                                ></div>
-                            {/if}
-                        </div>
+                    {#each unpinnedTabs as tab (tab.id)}
+                        {@render tabChip(tab)}
                     {/each}
                 </div>
             </div>
@@ -618,4 +769,9 @@
 
 {#if storeOpen}
     <AppStore onclose={() => storeOpen = false} />
+{/if}
+
+<!-- Outside the island: its backdrop-filter would make it the containing block of a fixed menu. -->
+{#if tabMenu}
+    <TabContextMenu tab={tabMenu.tab} x={tabMenu.x} y={tabMenu.y} onclose={() => (tabMenu = null)} />
 {/if}

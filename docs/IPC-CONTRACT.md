@@ -72,7 +72,14 @@ interface TabState {
   canGoForward: boolean;
   error: { code: number; description: string; url: string } | null;
   audible?: boolean;
+  muted?: boolean;             // audio muted by the user
+  zoom?: number;               // page zoom in percent (100 = actual size)
+  private?: boolean;           // lives in the in-memory private session
 }
+
+interface FoundInPage { id: string; requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }
+
+interface DefaultBrowserStatus { isDefault: boolean; protocols: Record<string, boolean>; opensSystemSettings: boolean }
 
 interface IpfsStatus {
   state: 'idle' | 'initializing' | 'ready' | 'error' | 'stopped';
@@ -137,9 +144,12 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | Area | Channel | Payload → Result |
 |---|---|---|
 | app | `bucks:app:info` | → `{ name, version, userData }` |
-| app | `bucks:app:shortcut` (event) | `{ action }` where action ∈ `new-tab`, `close-tab`, `focus-omnibox`, `reload`, `back`, `forward`, `next-tab`, `prev-tab`, `find`, `zoom-in`, `zoom-out`, `zoom-reset`, `toggle-devtools`, `open-settings`, `open-downloads`, `open-ipfs`, `open-wallet`, `toggle-agent` |
+| app | `bucks:app:shortcut` (event) | `{ action }` where action ∈ `new-tab`, `close-tab`, `focus-omnibox`, `reload`, `back`, `forward`, `next-tab`, `prev-tab`, `find`, `zoom-in`, `zoom-out`, `zoom-reset`, `toggle-devtools`, `open-settings`, `open-downloads`, `open-ipfs`, `open-wallet`, `toggle-agent`, `new-private-tab`, `reopen-closed-tab`, `print`, `save-pdf` |
+| app | `bucks:app:chrome-ready` | the chrome is wired up; links the OS handed over before this (command line, `open-url`) are delivered as `bucks:tabs:open-request` |
+| app | `bucks:app:default-browser` → `DefaultBrowserStatus`; `bucks:app:set-default-browser` → `DefaultBrowserStatus` (Windows: opens Settings → Default apps) |
+| browsing-data | `bucks:browsing-data:clear` `{ cookies?, cache?, siteData? }` → `{ cleared: string[] }` (web and private sessions; history and closed tabs are cleared by the chrome) |
 | window | `bucks:window:minimize` / `maximize` / `close` / `is-maximized` ; event `bucks:window:maximized` `(bool)` |
-| tabs | `bucks:tabs:create` `{ id, url }` → `TabState` |
+| tabs | `bucks:tabs:create` `{ id, url, private? }` → `TabState` (`private`: in-memory session `bucks-private`, wiped when its last tab closes) |
 | tabs | `bucks:tabs:navigate` `{ id, url }` → `TabState` (creates the view if missing) |
 | tabs | `bucks:tabs:close` `{ id }` |
 | tabs | `bucks:tabs:activate` `{ id \| null }` |
@@ -149,6 +159,11 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | tabs | `bucks:tabs:set-content-visible` `{ visible }` |
 | tabs | `bucks:tabs:capture` `{ id }` → PNG data URL |
 | tabs | `bucks:tabs:extract-text` `{ id }` → `{ title, text, url }` |
+| tabs | `bucks:tabs:find` `{ id, text, forward?, findNext?, matchCase? }` → request id (`findNext: true` steps through the current search); event `bucks:tabs:found-in-page` `(FoundInPage)` |
+| tabs | `bucks:tabs:stop-find` `{ id, action }` (`clearSelection` \| `keepSelection` \| `activateSelection`) |
+| tabs | `bucks:tabs:zoom` `{ id, action }` (`in` \| `out` \| `reset`) → zoom in percent |
+| tabs | `bucks:tabs:set-muted` `{ id, muted }` |
+| tabs | `bucks:tabs:print` `{ id }` → `{ printed }`; `bucks:tabs:print-to-pdf` `{ id }` → `{ path \| null }` (asks where to save) |
 | tabs | event `bucks:tabs:updated` `(TabState)` — on every navigation/title/favicon/loading change |
 | tabs | event `bucks:tabs:open-request` `({ openerId, url, disposition })` — window.open / target=_blank / middle-click / `bucks://` links from pages |
 | tabs | event `bucks:tabs:closed` `({ id })` |
@@ -196,13 +211,14 @@ installIpfsProtocols({ sessions, kubo, settings })      // registers ipfs & ipns
 installSecurity({ sessions, settings, userData })      → security { stats() }
 createMainWindow({ preloadPath, settings, devUrl })     → BrowserWindow (loads devUrl or bucks://app/)
 registerWindowIpc({ getMainWindow })
-createTabManager({ getMainWindow, webSession, settings, security })
+createTabManager({ getMainWindow, webSession, privateSession, settings, security })
    → tabs { create(id,url), navigate(id,url), close(id), activate(id), back(id), forward(id), reload(id),
             stop(id), getState(id), setContentBounds(b), setContentVisible(v), capture(id),
             extractText(id), getActiveId(), getWebContents(id), ids() }
 installAppMenu({ getMainWindow, tabs })
 installContextMenu({ tabs, getMainWindow })
-installDownloads({ session, settings, getMainWindow })
+installDownloads({ sessions, settings, getMainWindow })   // web + private sessions
+installBrowsing({ sessions, getMainWindow })            → browsing { defaultStatus(), setDefault(), clear(what), openFromArgv(argv), openUrl(url), chromeLoaded() }
 registerShellIpc()
 createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
    → soul { start(), stop(), restart(), install(), status(): SoulStatus, onStatus(cb), isReady(),

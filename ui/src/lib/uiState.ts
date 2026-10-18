@@ -36,3 +36,14 @@ export function requestFocusOmnibox() {
 export function toggleChat() {
     chatOpen.update((v) => !v);
 }
+
+/** The find-in-page bar (Ctrl/Cmd+F). ContentArea moves the page down while it is open. */
+export const findBarOpen = writable(false);
+
+export function openFindBar() {
+    findBarOpen.set(true);
+    findBarFocus.update((n) => n + 1);
+}
+
+/** Bumped on every open request so a second Ctrl+F refocuses the field. */
+export const findBarFocus = writable(0);

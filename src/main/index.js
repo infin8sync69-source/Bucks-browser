@@ -17,6 +17,8 @@ import { installAppMenu } from './menu.js';
 import { installContextMenu } from './context-menu.js';
 import { installDownloads } from './downloads.js';
 import { registerShellIpc } from './shell.js';
+import { installBrowsing } from './browsing.js';
+import { installExtensions } from './extensions.js';
 import { installSecurity } from './security/index.js';
 import { createAgent } from './agent/bridge.js';
 import { createSoulEngine, settingsAction } from './agent/soul-engine.js';
@@ -29,6 +31,13 @@ const log = createLogger('main');
 
 /** Web content (tabs) lives in its own persistent session, isolated from the chrome. */
 export const WEB_PARTITION = 'persist:bucks-web';
+/** Private tabs: an in-memory session (no "persist:" prefix), cleared when the last one closes. */
+export const PRIVATE_PARTITION = 'bucks-private';
+
+// Links the operating system hands to Bucks before the browsing module exists.
+const earlyLinks = [];
+let browsing = null;
+const openLinks = (argv) => (browsing ? browsing.openFromArgv(argv) : earlyLinks.push(argv));
 
 // Allow tests and power users to isolate a profile: BUCKS_USER_DATA=/path
 if (process.env.BUCKS_USER_DATA) {
@@ -41,7 +50,8 @@ registerSchemePrivileges();
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    openLinks(argv);
     const win = BrowserWindow.getAllWindows()[0];
     if (win) {
       if (win.isMinimized()) win.restore();
@@ -49,6 +59,12 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 }
+
+// macOS delivers links (and files) through 'open-url', possibly before the app is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  openLinks([url]);
+});
 
 let mainWindow = null;
 let kubo = null;
@@ -69,6 +85,7 @@ app.whenReady().then(async () => {
 
   const settings = createSettings({ userData, getMainWindow });
   const webSession = session.fromPartition(WEB_PARTITION);
+  const privateSession = session.fromPartition(PRIVATE_PARTITION);
 
   // IPFS runtime (embedded Kubo or external node). Starts in the background; never blocks the UI.
   // net.fetch goes through Chromium's network stack, so it honours the OS proxy settings
@@ -84,21 +101,28 @@ app.whenReady().then(async () => {
 
   // Custom schemes: bucks:// serves the chrome, ipfs:// & ipns:// stream from the node.
   installBucksProtocol({ session: session.defaultSession, uiDist });
-  installIpfsProtocols({ sessions: [session.defaultSession, webSession], kubo, settings });
+  installIpfsProtocols({ sessions: [session.defaultSession, webSession, privateSession], kubo, settings });
 
   // Network security for web content: HTTPS-only, blocklists, permission gating.
-  const security = installSecurity({ sessions: [webSession], settings, userData });
+  const security = installSecurity({ sessions: [webSession, privateSession], settings, userData });
+  // Unpacked Chrome extensions from <userData>/extensions (web tabs only, never the chrome).
+  installExtensions({ session: webSession, userData }).loadAll().catch((e) => log.error('Loading extensions failed:', e));
 
   ipcMain.handle('bucks:app:info', () => ({ name: app.getName(), version: app.getVersion(), userData }));
 
   mainWindow = createMainWindow({ preloadPath, settings, devUrl: process.env.BUCKS_DEV_URL || null });
   registerWindowIpc({ getMainWindow });
 
-  tabs = createTabManager({ getMainWindow, webSession, settings, security });
+  tabs = createTabManager({ getMainWindow, webSession, privateSession, settings, security });
   installAppMenu({ getMainWindow, tabs });
   installContextMenu({ tabs, getMainWindow });
-  installDownloads({ session: webSession, settings, getMainWindow });
+  installDownloads({ sessions: [webSession, privateSession], settings, getMainWindow });
   registerShellIpc();
+  // Clearing browsing data, the OS default-browser setting, and links handed over by the OS.
+  browsing = installBrowsing({ sessions: [webSession, privateSession], getMainWindow });
+  ipcMain.handle('bucks:app:chrome-ready', () => browsing.chromeLoaded());
+  browsing.openFromArgv(process.argv.slice(process.defaultApp ? 2 : 1));
+  for (const argv of earlyLinks.splice(0)) browsing.openFromArgv(argv);
 
   registerUpdater({ root: appRoot, getMainWindow });
   // Soul Engine: the Python agent in agent/, run as a token-protected loopback sidecar while it is

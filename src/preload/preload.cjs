@@ -27,6 +27,25 @@ const api = Object.freeze({
     info: () => invoke('bucks:app:info'),
     /** Keyboard shortcuts routed through the native menu: ({ action: string }) */
     onShortcut: (cb) => subscribe('bucks:app:shortcut', cb),
+    /** The chrome is wired up: links handed over by the OS before this are delivered now. */
+    chromeReady: () => invoke('bucks:app:chrome-ready'),
+    /** @returns {Promise<DefaultBrowserStatus>} */
+    defaultBrowser: () => invoke('bucks:app:default-browser'),
+    /** Ask the OS to make Bucks the default browser (Windows opens its settings). @returns {Promise<DefaultBrowserStatus>} */
+    setDefaultBrowser: () => invoke('bucks:app:set-default-browser'),
+  }),
+
+  extensions: Object.freeze({
+    /** @returns {Promise<{ folder: string, extensions: ExtensionInfo[] }>} */
+    list: () => invoke('bucks:extensions:list'),
+    /** Reload every extension from the folder. @returns {Promise<{ folder: string, extensions: ExtensionInfo[] }>} */
+    reload: () => invoke('bucks:extensions:reload'),
+    openFolder: () => invoke('bucks:extensions:open-folder'),
+  }),
+
+  browsingData: Object.freeze({
+    /** Clear cookies / cache / site data of web pages (normal and private tabs). @returns {Promise<{ cleared: string[] }>} */
+    clear: ({ cookies, cache, siteData }) => invoke('bucks:browsing-data:clear', { cookies, cache, siteData }),
   }),
 
   window: Object.freeze({
@@ -40,8 +59,8 @@ const api = Object.freeze({
   }),
 
   tabs: Object.freeze({
-    /** Create a web content view for an existing renderer-side tab id. */
-    create: (id, url) => invoke('bucks:tabs:create', { id, url }),
+    /** Create a web content view for an existing renderer-side tab id. opts.private: in-memory private session. */
+    create: (id, url, opts) => invoke('bucks:tabs:create', { id, url, private: opts?.private === true }),
     navigate: (id, url) => invoke('bucks:tabs:navigate', { id, url }),
     close: (id) => invoke('bucks:tabs:close', { id }),
     /** Show this tab's view (and hide the others). Pass null to hide all views. */
@@ -60,6 +79,19 @@ const api = Object.freeze({
     capture: (id) => invoke('bucks:tabs:capture', { id }),
     /** Extract readable text of the page (for the agent). @returns {Promise<{ title: string, text: string, url: string }>} */
     extractText: (id) => invoke('bucks:tabs:extract-text', { id }),
+    /** Find in page. opts: { forward = true, findNext = false (true: next match of the current search), matchCase = false }. @returns {Promise<number>} request id */
+    find: (id, text, opts) => invoke('bucks:tabs:find', { id, text, ...(opts || {}) }),
+    /** action: 'clearSelection' | 'keepSelection' | 'activateSelection' */
+    stopFind: (id, action) => invoke('bucks:tabs:stop-find', { id, action }),
+    /** ({ id, requestId, activeMatchOrdinal, matches, finalUpdate }) */
+    onFoundInPage: (cb) => subscribe('bucks:tabs:found-in-page', cb),
+    /** action: 'in' | 'out' | 'reset'. @returns {Promise<number>} zoom in percent */
+    zoom: (id, action) => invoke('bucks:tabs:zoom', { id, action }),
+    setMuted: (id, muted) => invoke('bucks:tabs:set-muted', { id, muted }),
+    /** System print dialog. @returns {Promise<{ printed: boolean }>} */
+    print: (id) => invoke('bucks:tabs:print', { id }),
+    /** Save as PDF (asks where). @returns {Promise<{ path: string | null }>} */
+    printToPdf: (id) => invoke('bucks:tabs:print-to-pdf', { id }),
     /** (state: TabState) */
     onUpdated: (cb) => subscribe('bucks:tabs:updated', cb),
     /** ({ openerId: string | null, url: string, disposition: string }) — renderer decides whether to open a tab. */

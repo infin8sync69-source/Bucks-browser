@@ -25,6 +25,37 @@ export interface TabState {
     canGoForward: boolean;
     error: TabError | null;
     audible?: boolean;
+    /** Audio muted by the user. */
+    muted?: boolean;
+    /** Page zoom in percent (100 = actual size). */
+    zoom?: number;
+    /** Lives in the in-memory private session. */
+    private?: boolean;
+}
+
+export interface FoundInPage {
+    id: string;
+    requestId: number;
+    activeMatchOrdinal: number;
+    matches: number;
+    finalUpdate: boolean;
+}
+
+export interface ExtensionInfo {
+    id: string | null;
+    name: string;
+    version: string;
+    path: string;
+    /** Why it could not be loaded. */
+    error: string | null;
+}
+
+export interface DefaultBrowserStatus {
+    /** Bucks handles both http and https. */
+    isDefault: boolean;
+    protocols: Record<string, boolean>;
+    /** Windows: the OS only lets the user change it in Settings, which set opens. */
+    opensSystemSettings: boolean;
 }
 
 export interface OpenRequest {
@@ -399,7 +430,11 @@ export type ShortcutAction =
     | 'open-downloads'
     | 'open-ipfs'
     | 'open-wallet'
-    | 'toggle-agent';
+    | 'toggle-agent'
+    | 'new-private-tab'
+    | 'reopen-closed-tab'
+    | 'print'
+    | 'save-pdf';
 
 export interface BucksApi {
     platform: string;
@@ -408,6 +443,19 @@ export interface BucksApi {
     app: {
         info(): Promise<AppInfo>;
         onShortcut(cb: (payload: { action: ShortcutAction | string }) => void): Unsubscribe;
+        chromeReady(): Promise<void>;
+        defaultBrowser(): Promise<DefaultBrowserStatus>;
+        setDefaultBrowser(): Promise<DefaultBrowserStatus>;
+    };
+
+    browsingData: {
+        clear(what: { cookies?: boolean; cache?: boolean; siteData?: boolean }): Promise<{ cleared: string[] }>;
+    };
+
+    extensions: {
+        list(): Promise<{ folder: string; extensions: ExtensionInfo[] }>;
+        reload(): Promise<{ folder: string; extensions: ExtensionInfo[] }>;
+        openFolder(): Promise<void>;
     };
 
     window: {
@@ -420,7 +468,7 @@ export interface BucksApi {
     };
 
     tabs: {
-        create(id: string, url: string): Promise<TabState>;
+        create(id: string, url: string, opts?: { private?: boolean }): Promise<TabState>;
         navigate(id: string, url: string): Promise<TabState>;
         close(id: string): Promise<void>;
         activate(id: string | null): Promise<void>;
@@ -433,6 +481,13 @@ export interface BucksApi {
         setContentVisible(visible: boolean): Promise<void>;
         capture(id: string): Promise<string>;
         extractText(id: string): Promise<{ title: string; text: string; url: string }>;
+        find(id: string, text: string, opts?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }): Promise<number>;
+        stopFind(id: string, action?: 'clearSelection' | 'keepSelection' | 'activateSelection'): Promise<void>;
+        onFoundInPage(cb: (result: FoundInPage) => void): Unsubscribe;
+        zoom(id: string, action: 'in' | 'out' | 'reset'): Promise<number>;
+        setMuted(id: string, muted: boolean): Promise<void>;
+        print(id: string): Promise<{ printed: boolean }>;
+        printToPdf(id: string): Promise<{ path: string | null }>;
         onUpdated(cb: (state: TabState) => void): Unsubscribe;
         onOpenRequest(cb: (req: OpenRequest) => void): Unsubscribe;
         onClosed(cb: (payload: { id: string }) => void): Unsubscribe;
@@ -568,7 +623,7 @@ function deepMerge<T extends Record<string, any>>(base: T, patch: Record<string,
 }
 
 function fakeTabState(id: string, url: string): TabState {
-    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false };
+    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false, muted: false, zoom: 100, private: false };
 }
 
 function mockIpfsStatus(): IpfsStatus {
@@ -621,6 +676,17 @@ function createMockBridge(): BucksApi {
         app: {
             info: () => Promise.resolve({ name: 'Bucks Browser (mock)', version: '0.0.0', userData: '' }),
             onShortcut: () => noSub,
+            chromeReady: resolved,
+            defaultBrowser: () => Promise.resolve({ isDefault: false, protocols: {}, opensSystemSettings: false }),
+            setDefaultBrowser: () => unavailable('app.setDefaultBrowser'),
+        },
+        browsingData: {
+            clear: () => unavailable('browsingData.clear'),
+        },
+        extensions: {
+            list: () => Promise.resolve({ folder: '', extensions: [] }),
+            reload: () => Promise.resolve({ folder: '', extensions: [] }),
+            openFolder: () => unavailable('extensions.openFolder'),
         },
         window: {
             minimize: resolved,
@@ -643,6 +709,13 @@ function createMockBridge(): BucksApi {
             setContentVisible: resolved,
             capture: () => unavailable('tabs.capture'),
             extractText: () => unavailable('tabs.extractText'),
+            find: () => Promise.resolve(0),
+            stopFind: resolved,
+            onFoundInPage: () => noSub,
+            zoom: () => Promise.resolve(100),
+            setMuted: resolved,
+            print: () => unavailable('tabs.print'),
+            printToPdf: () => unavailable('tabs.printToPdf'),
             onUpdated: () => noSub,
             onOpenRequest: () => noSub,
             onClosed: () => noSub,
