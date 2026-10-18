@@ -10,7 +10,9 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { KuboRpc } from './rpc.js';
 import { downloadKubo, latestStableVersion, FALLBACK_KUBO_VERSION, kuboBinaryName, builderOsName } from './dist.js';
-import { toGatewayUrl } from './cid.js';
+import { toGatewayUrl, isPeerId } from './cid.js';
+import { bases } from 'multiformats/basics';
+import * as Digest from 'multiformats/hashes/digest';
 import { createLogger } from '../log.js';
 
 const API_WAIT_TIMEOUT_MS = 60_000;
@@ -59,15 +61,129 @@ export function multiaddrToHttpUrl(addr) {
   return `${scheme}://${host}:${port}`;
 }
 
+/* ---------- multiaddr / peer validation (Peering.Peers must never break daemon start-up) ---------- */
+
+// Kubo refuses to start when its config holds a multiaddr it cannot parse, so peering addresses
+// coming from settings are validated against the protocols a Bucks peer can realistically use.
+// Value kinds: null = no value, 'ip4' | 'ip6' | 'host' | 'port' | 'uint8' | 'str' | 'certhash' | 'peer'.
+const MULTIADDR_PROTOCOLS = {
+  ip4: 'ip4', ip6: 'ip6', ip6zone: 'str', ipcidr: 'uint8',
+  dns: 'host', dns4: 'host', dns6: 'host', dnsaddr: 'host',
+  tcp: 'port', udp: 'port', sctp: 'port', dccp: 'port',
+  quic: null, 'quic-v1': null, webtransport: null, certhash: 'certhash',
+  webrtc: null, 'webrtc-direct': null, ws: null, wss: null, tls: null, sni: 'host', noise: null,
+  http: null, https: null, 'p2p-circuit': null, p2p: 'peer', ipfs: 'peer', utp: null, udt: null,
+};
+const MULTIADDR_FIRST = new Set(['ip4', 'ip6', 'ip6zone', 'dns', 'dns4', 'dns6', 'dnsaddr']);
+const HOSTNAME_RE = /^(?=.{1,253}$)([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?$/;
+const MULTIBASE_DECODERS = new Map(Object.values(bases).map((b) => [b.prefix, b]));
+const MAX_PEERING_ADDRS = 32;
+
+function validMultiaddrValue(kind, value) {
+  switch (kind) {
+    case 'ip4': return net.isIPv4(value);
+    case 'ip6': return net.isIPv6(value);
+    case 'host': return HOSTNAME_RE.test(value);
+    case 'port': return /^\d{1,5}$/.test(value) && Number(value) <= 65535;
+    case 'uint8': return /^\d{1,3}$/.test(value) && Number(value) <= 255;
+    case 'str': return value.length > 0;
+    case 'peer': return isPeerId(value);
+    case 'certhash': {
+      const base = MULTIBASE_DECODERS.get(value[0]);
+      if (!base) return false;
+      try {
+        const bytes = base.decode(value);
+        return Digest.decode(bytes).bytes.length === bytes.length;
+      } catch {
+        return false;
+      }
+    }
+    default: return false;
+  }
+}
+
 /**
- * Apply Bucks' port assignments to a Kubo config object (idempotent, returns a copy).
- * API and Gateway are bound to loopback on the reserved ports; every Swarm listen address
- * keeps its transport but moves to the reserved swarm port so the embedded node never
- * fights a user's own Kubo over 4001. Everything else (profile, datastore, …) is untouched.
- * @param {object} config  parsed <repo>/config
- * @param {{ apiPort: number, gatewayPort: number, swarmPort?: number }} ports
+ * True when `addr` is a multiaddr Kubo will accept in Peering.Peers: it starts with an address
+ * component (/ip4, /ip6, /dns*), and every component is a known protocol with a valid value.
+ * @param {string} addr
  */
-export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort }) {
+export function isValidMultiaddr(addr) {
+  if (typeof addr !== 'string' || !addr.startsWith('/') || addr.length > 1024) return false;
+  const parts = addr.slice(1).split('/');
+  if (parts.at(-1) === '') parts.pop(); // tolerate one trailing slash
+  if (!parts.length || !MULTIADDR_FIRST.has(parts[0])) return false;
+  for (let i = 0; i < parts.length; i += 1) {
+    const proto = parts[i];
+    if (!Object.hasOwn(MULTIADDR_PROTOCOLS, proto)) return false;
+    const kind = MULTIADDR_PROTOCOLS[proto];
+    if (kind === null) continue;
+    i += 1;
+    if (i >= parts.length || !validMultiaddrValue(kind, parts[i])) return false;
+  }
+  return true;
+}
+
+/**
+ * Split a trailing /p2p/<id> (or legacy /ipfs/<id>) off a multiaddr.
+ * @param {string} addr
+ * @returns {{ addr: string, peerId: string|null }}
+ */
+export function splitP2pSuffix(addr) {
+  const s = String(addr || '').trim().replace(/\/+$/, '');
+  const m = /^(.*)\/(?:p2p|ipfs)\/([^/]+)$/.exec(s);
+  return m ? { addr: m[1], peerId: m[2] } : { addr: s, peerId: null };
+}
+
+/**
+ * Turn settings.ipfs.peers ([{ peerId, name, addrs }]) into Kubo Peering.Peers entries
+ * ([{ ID, Addrs }]). Entries with an invalid peer ID (or our own ID) are dropped, a trailing
+ * /p2p/<id> is removed from each address, and addresses that are not valid multiaddrs (or name
+ * a different peer) are dropped. Duplicate peer IDs are merged.
+ * @param {unknown} peers
+ * @param {{ selfId?: string|null }} [opts]
+ * @returns {Array<{ ID: string, Addrs: string[] }>}
+ */
+export function normalizePeeringPeers(peers, { selfId = null } = {}) {
+  if (!Array.isArray(peers)) return [];
+  const byId = new Map();
+  for (const p of peers) {
+    if (!p || typeof p !== 'object') continue;
+    let id = typeof p.peerId === 'string' ? p.peerId.trim() : '';
+    const extraAddrs = [];
+    if (id.startsWith('/')) {
+      // tolerate a full multiaddr ending in /p2p/<id> in the peerId field
+      const split = splitP2pSuffix(id);
+      id = split.peerId || '';
+      extraAddrs.push(split.addr);
+    }
+    if (!id || !isPeerId(id) || (selfId && id === selfId)) continue;
+    const entry = byId.get(id) || { ID: id, Addrs: [] };
+    const rawAddrs = [...extraAddrs, ...(Array.isArray(p.addrs) ? p.addrs : [])];
+    for (const raw of rawAddrs) {
+      if (typeof raw !== 'string' || !raw.trim().startsWith('/')) continue;
+      const { addr, peerId } = splitP2pSuffix(raw);
+      if (peerId && peerId !== id) continue;
+      if (!isValidMultiaddr(addr) || entry.Addrs.includes(addr)) continue;
+      if (entry.Addrs.length < MAX_PEERING_ADDRS) entry.Addrs.push(addr);
+    }
+    byId.set(id, entry);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Apply Bucks' settings to a Kubo config object (idempotent, returns a copy).
+ * - API and Gateway are bound to loopback on the reserved ports; every Swarm listen address keeps
+ *   its transport but moves to the reserved swarm port so the embedded node never fights a user's
+ *   own Kubo over 4001.
+ * - Pubsub is enabled with the gossipsub router and LAN mDNS discovery is on (device pairing).
+ * - When `peers` is given (settings.ipfs.peers), Peering.Peers is replaced by the valid entries
+ *   (see normalizePeeringPeers) so paired devices stay connected.
+ * Everything else (profile, datastore, …) is untouched.
+ * @param {object} config  parsed <repo>/config
+ * @param {{ apiPort: number, gatewayPort: number, swarmPort?: number, peers?: unknown }} opts
+ */
+export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort, peers }) {
   const out = structuredClone(config || {});
   out.Addresses = { ...(out.Addresses || {}) };
   out.Addresses.API = `/ip4/127.0.0.1/tcp/${apiPort}`;
@@ -76,7 +192,35 @@ export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort }) {
     const swarm = Array.isArray(out.Addresses.Swarm) && out.Addresses.Swarm.length ? out.Addresses.Swarm : DEFAULT_SWARM_ADDRS;
     out.Addresses.Swarm = [...new Set(swarm.map((a) => String(a).replace(/\/(tcp|udp)\/\d+/, `/$1/${swarmPort}`)))];
   }
+  out.Pubsub = { ...(isObject(out.Pubsub) ? out.Pubsub : {}), Enabled: true, Router: 'gossipsub' };
+  const discovery = isObject(out.Discovery) ? out.Discovery : {};
+  out.Discovery = { ...discovery, MDNS: { ...(isObject(discovery.MDNS) ? discovery.MDNS : {}), Enabled: true } };
+  if (peers !== undefined) {
+    const selfId = typeof out.Identity?.PeerID === 'string' ? out.Identity.PeerID : null;
+    out.Peering = { ...(isObject(out.Peering) ? out.Peering : {}), Peers: normalizePeeringPeers(peers, { selfId }) };
+  }
   return out;
+}
+
+function isObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * True when a settings change requires restarting the IPFS node: only the node mode
+ * (embedded | external) and the external API URL do. Pairing changes (ipfs.peers), device
+ * settings, gateways and everything else are applied live or on the next start.
+ * @param {object|undefined} prevIpfs  previous settings.ipfs
+ * @param {object|undefined} nextIpfs  new settings.ipfs
+ */
+export function ipfsSettingsNeedRestart(prevIpfs, nextIpfs) {
+  const a = prevIpfs || {};
+  const b = nextIpfs || {};
+  const modeA = a.mode === 'external' ? 'external' : 'embedded';
+  const modeB = b.mode === 'external' ? 'external' : 'embedded';
+  if (modeA !== modeB) return true;
+  // The external API URL only matters while connected to an external node.
+  return modeB === 'external' && String(a.externalApiUrl || '').trim() !== String(b.externalApiUrl || '').trim();
 }
 
 /**
@@ -191,10 +335,11 @@ class RotatingLog {
  *   userData: string,
  *   resourcesDir: string,
  *   getMainWindow?: () => any,
- *   log?: { info: Function, warn: Function, error: Function, debug?: Function }
+ *   log?: { info: Function, warn: Function, error: Function, debug?: Function },
+ *   fetchImpl?: typeof fetch   // used for internet downloads only (Electron passes net.fetch for proxy support)
  * }} opts
  */
-export function createKubo({ settings, userData, resourcesDir, getMainWindow = () => null, log = createLogger('kubo') }) {
+export function createKubo({ settings, userData, resourcesDir, getMainWindow = () => null, log = createLogger('kubo'), fetchImpl = globalThis.fetch }) {
   const kuboDir = path.join(userData, 'kubo');
   const repoDir = path.join(kuboDir, 'repo');
   const binDir = path.join(kuboDir, 'bin');
@@ -313,7 +458,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     initializing('Downloading IPFS node…');
     let version;
     try {
-      version = await latestStableVersion();
+      version = await latestStableVersion(fetchImpl);
     } catch (e) {
       log.warn(`Could not determine latest Kubo version (${e.message}); using ${FALLBACK_KUBO_VERSION}`);
       version = FALLBACK_KUBO_VERSION;
@@ -324,6 +469,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       installed = await downloadKubo({
         version,
         destDir: binDir,
+        fetchImpl,
         log,
         onProgress: (received, total) => {
           if (!total) return;
@@ -377,7 +523,10 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     } catch (e) {
       throw new Error(`The IPFS repository config at ${file} is unreadable (${e.message}). Delete the ${repoDir} folder to start over.`);
     }
-    const next = applyBucksConfig(current, rt);
+    // settings.ipfs.peers → Peering.Peers; pubsub + mDNS always on (device pairing).
+    const { peers: configured } = ipfsSettings();
+    const peers = Array.isArray(configured) ? configured : [];
+    const next = applyBucksConfig(current, { ...rt, peers });
     if (JSON.stringify(next) === JSON.stringify(current)) return;
     const tmp = `${file}.bucks.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(next, null, 2));
@@ -414,6 +563,19 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     if (!apiUrl || !(await apiAnswers(apiUrl))) return false;
     const gatewayUrl = (await readRepoAddrFile('gateway')) || (rt.gatewayPort ? `http://127.0.0.1:${rt.gatewayPort}` : null);
     if (!gatewayUrl) return false;
+    // A daemon started by an older Bucks (or by hand) may lack pubsub, which device pairing needs
+    // and which only takes effect at daemon start: shut it down and start a correctly configured one.
+    const probe = new KuboRpc(apiUrl, { timeoutMs: 5000 });
+    let pubsubOn = false;
+    try { pubsubOn = (await probe.configGet('Pubsub.Enabled')) === true; } catch { /* treat as off */ }
+    if (!pubsubOn) {
+      log.info(`Running IPFS daemon at ${apiUrl} has pubsub disabled; restarting it with the Bucks configuration`);
+      try { await probe.shutdown({ timeoutMs: 3000 }); } catch (e) { log.debug?.(`shutdown of stale daemon: ${e.message}`); }
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && (await apiAnswers(apiUrl))) await sleep(250);
+      if (await apiAnswers(apiUrl)) throw new Error(`An IPFS daemon at ${apiUrl} is using the Bucks repository (${repoDir}) and did not shut down; stop it and start the node again.`);
+      return false;
+    }
     log.info(`Adopting already-running IPFS daemon at ${apiUrl}`);
     child = null;
     await becomeReady({ apiUrl, gatewayUrl, embedded: true, source: 'embedded_kubo', message: 'Embedded IPFS node is ready (reused running daemon).' });
@@ -757,12 +919,13 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     },
   };
 
-  // Restart when the node configuration changes (mode or external API URL).
+  // Restart only when the node configuration changes (mode or external API URL). Pairing changes
+  // (settings.ipfs.peers) are applied live by devices.js and written to the repo on the next start.
   let lastCfg = ipfsSettings();
   if (typeof settings.onChange === 'function') {
     settings.onChange((all) => {
       const cfg = { ...(all?.ipfs || {}) };
-      const changed = cfg.mode !== lastCfg.mode || (cfg.externalApiUrl || '') !== (lastCfg.externalApiUrl || '');
+      const changed = ipfsSettingsNeedRestart(lastCfg, cfg);
       lastCfg = cfg;
       if (!changed) return;
       if (status.state === 'idle' || status.state === 'stopped') return; // not running: nothing to restart

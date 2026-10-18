@@ -353,6 +353,52 @@ export class KuboRpc {
     return j.Path;
   }
 
+  /**
+   * Connect to a peer now (swarm/connect).
+   * @param {string} addr  multiaddr ending in /p2p/<peerId>
+   * @returns {Promise<string[]>} Kubo's status strings
+   */
+  async swarmConnect(addr, { timeoutMs } = {}) {
+    const j = await this.call('swarm/connect', { args: [addr], timeoutMs: timeoutMs ?? Math.max(this.timeoutMs, 30_000) });
+    return Array.isArray(j?.Strings) ? j.Strings : [];
+  }
+
+  /**
+   * Add a peer to the live peering set (kept connected, reconnected on drop). Not persisted to the
+   * repo config; write Peering.Peers with configSet for that.
+   * @param {string} addr  multiaddr ending in /p2p/<peerId>
+   * @returns {Promise<{ id: string, status: string }>}
+   */
+  async swarmPeeringAdd(addr) {
+    const j = await this.call('swarm/peering/add', { args: [addr] });
+    return { id: j?.ID ?? '', status: j?.Status ?? '' };
+  }
+
+  /** Remove a peer from the live peering set. @returns {Promise<{ id: string, status: string }>} */
+  async swarmPeeringRm(peerId) {
+    const j = await this.call('swarm/peering/rm', { args: [peerId] });
+    return { id: j?.ID ?? '', status: j?.Status ?? '' };
+  }
+
+  /** @returns {Promise<Array<{ id: string, addrs: string[] }>>} the live peering set */
+  async swarmPeeringLs() {
+    const j = await this.call('swarm/peering/ls');
+    return (j?.Peers || []).map((p) => ({ id: p.ID, addrs: Array.isArray(p.Addrs) ? p.Addrs : [] }));
+  }
+
+  /**
+   * Publish a message on a pubsub topic (requires Pubsub.Enabled on the node).
+   * @param {string} topic  plain topic name; multibase-encoded for the HTTP API automatically
+   * @param {Uint8Array|string} data
+   */
+  async pubsubPub(topic, data) {
+    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    if (!(bytes instanceof Uint8Array)) throw new Error('pubsubPub(): data must be a string or Uint8Array');
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), 'data');
+    await this.request('pubsub/pub', { args: [encodePubsubTopic(topic)], body: form }).then((res) => res.text());
+  }
+
   /** Read a config key. @returns {Promise<any>} the value */
   async configGet(key) {
     const j = await this.call('config', { args: [key] });
@@ -370,6 +416,26 @@ export class KuboRpc {
   async shutdown({ timeoutMs = 3000 } = {}) {
     await this.request('shutdown', { timeoutMs });
   }
+}
+
+/**
+ * Encode a pubsub topic the way Kubo's HTTP API expects it: multibase base64url, no padding
+ * ('u' prefix). 'bucks-devices-v1' → 'uYnVja3MtZGV2aWNlcy12MQ'.
+ * @param {string} topic
+ */
+export function encodePubsubTopic(topic) {
+  if (typeof topic !== 'string' || !topic) throw new Error('pubsub topic must be a non-empty string');
+  return `u${Buffer.from(topic, 'utf8').toString('base64url')}`;
+}
+
+/**
+ * Decode a multibase base64url ('u…') pubsub field (data, seqno, topicIDs) into bytes.
+ * @param {string} value
+ * @returns {Uint8Array}
+ */
+export function decodeMultibaseBase64url(value) {
+  if (typeof value !== 'string' || !value.startsWith('u')) throw new Error('expected a multibase base64url string (u…)');
+  return new Uint8Array(Buffer.from(value.slice(1), 'base64url'));
 }
 
 export { mapLinkType };

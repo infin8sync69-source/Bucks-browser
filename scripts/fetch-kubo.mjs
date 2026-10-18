@@ -5,9 +5,12 @@
 //
 //   node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64]
 //                               [--version vX.Y.Z] [--all-arch] [--force] [--skip-checksum]
+//                               [--out-dir <dir>]   (default resources/kubo; same <os>-<arch> layout)
 //
-// Set KUBO_DIST_URL to download from a mirror. HTTPS_PROXY is honoured on Node ≥ 22.21 by
-// re-executing with NODE_USE_ENV_PROXY=1 (no proxy library needed).
+// Mirrors are tried in order: env KUBO_DIST_URL (dist.ipfs.tech layout), https://dist.ipfs.tech/kubo,
+// then GitHub releases; each archive is verified against the .sha512 from the same mirror.
+// HTTPS_PROXY is honoured on Node ≥ 22.21 by re-executing with NODE_USE_ENV_PROXY=1 (no proxy
+// library needed).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,12 +24,12 @@ import {
   builderOsName,
   kuboBinaryName,
   FALLBACK_KUBO_VERSION,
-  distBaseUrl,
+  kuboMirrors,
 } from '../src/main/ipfs/dist.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
-const resourcesKubo = path.join(repoRoot, 'resources', 'kubo');
+const defaultOutDir = path.join(repoRoot, 'resources', 'kubo');
 
 const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
 const proxyVar = PROXY_VARS.find((k) => process.env[k]);
@@ -49,22 +52,40 @@ const { values: opts } = parseArgs({
     'all-arch': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
     'skip-checksum': { type: 'boolean', default: false },
+    'out-dir': { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
   strict: true,
 });
 
 if (opts.help) {
-  console.log(`Usage: node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64] [--version vX.Y.Z] [--all-arch] [--force] [--skip-checksum]
-Downloads Kubo from ${distBaseUrl()} into resources/kubo/<os>-<arch>/ (os = linux | win | mac).
-Every archive is verified against its published .sha512; --skip-checksum only proceeds with a warning (mirrors without checksums).`);
+  console.log(`Usage: node scripts/fetch-kubo.mjs [--platform linux|win32|darwin] [--arch x64|arm64] [--version vX.Y.Z] [--all-arch] [--force] [--skip-checksum] [--out-dir <dir>]
+Downloads Kubo into resources/kubo/<os>-<arch>/ (os = linux | win | mac; --out-dir replaces resources/kubo), trying these mirrors in order:
+${kuboMirrors().map((m, i) => `  ${i + 1}. ${m.label}: ${m.baseUrl}`).join('\n')}
+Set KUBO_DIST_URL to put your own mirror (dist.ipfs.tech layout) first.
+Every archive is verified against the .sha512 published by the same mirror; --skip-checksum only proceeds with a warning (mirrors without checksums).`);
   process.exit(0);
 }
 
-function proxyHint(err) {
-  const base = `Download failed: ${err.message}`;
-  if (!proxyVar) return base;
-  return `${base}\nA proxy is configured via ${proxyVar}. Node's fetch only honours it with NODE_USE_ENV_PROXY=1 (Node >= 22.21 / 24); this script re-executes with that flag, so if it still fails the proxy may be refusing ${distBaseUrl()}. You can also set KUBO_DIST_URL to a mirror you can reach.`;
+/** Repo-relative path for files under the repo, absolute otherwise. */
+function shown(file) {
+  const rel = path.relative(repoRoot, file);
+  return rel.startsWith('..') || path.isAbsolute(rel) ? file : rel;
+}
+
+function failureReport(err) {
+  const lines = [];
+  if (Array.isArray(err.attempts) && err.attempts.length) {
+    lines.push('Download failed: no mirror could provide a verified Kubo archive.');
+    for (const a of err.attempts) lines.push(`  - ${a.mirror}: ${a.reason}`);
+  } else {
+    lines.push(`Download failed: ${err.message}`);
+  }
+  if (proxyVar) {
+    lines.push(`A proxy is configured via ${proxyVar}. Node's fetch only honours it with NODE_USE_ENV_PROXY=1 (Node >= 22.21 / 24); this script re-executes with that flag, so if it still fails the proxy may be refusing these hosts.`);
+  }
+  lines.push('Set KUBO_DIST_URL to a mirror you can reach (same layout as https://dist.ipfs.tech/kubo), or place the binary at the path above by hand.');
+  return lines.join('\n');
 }
 
 async function main() {
@@ -75,12 +96,13 @@ async function main() {
   }
   const osName = builderOsName(platform); // validates the platform
   const binaryName = kuboBinaryName(platform);
+  const resourcesKubo = opts['out-dir'] ? path.resolve(String(opts['out-dir'])) : defaultOutDir;
 
   // Decide which versions still need a download before touching the network.
   const targets = archesRequested.map((arch) => ({ arch, dir: path.join(resourcesKubo, `${osName}-${arch}`), file: path.join(resourcesKubo, `${osName}-${arch}`, binaryName) }));
   const pending = targets.filter((t) => opts.force || !fs.existsSync(t.file));
   for (const t of targets) {
-    if (!pending.includes(t)) console.log(`✓ ${path.relative(repoRoot, t.file)} already present (use --force to re-download)`);
+    if (!pending.includes(t)) console.log(`✓ ${shown(t.file)} already present (use --force to re-download)`);
   }
   if (pending.length === 0) return;
 
@@ -93,12 +115,12 @@ async function main() {
       console.log(`Latest stable Kubo: ${version}`);
     } catch (e) {
       version = FALLBACK_KUBO_VERSION;
-      console.warn(`Could not read the Kubo versions list (${e.message}); falling back to ${version}`);
+      console.warn(`${e.message}; falling back to the pinned Kubo ${version}`);
     }
   }
 
   for (const t of pending) {
-    console.log(`Fetching Kubo ${version} for ${platform}/${t.arch} → ${path.relative(repoRoot, t.file)}`);
+    console.log(`Fetching Kubo ${version} for ${platform}/${t.arch} → ${shown(t.file)}`);
     let lastShown = -1;
     try {
       await downloadKubo({
@@ -108,6 +130,9 @@ async function main() {
         destDir: t.dir,
         requireChecksum: !opts['skip-checksum'],
         log: { info: (m) => console.log(`  ${m}`), warn: (m) => console.warn(`  warning: ${m}`) },
+        onMirror: ({ mirror, url, ok }) => {
+          if (ok) console.log(`  mirror used: ${mirror.label} (${url})`);
+        },
         onProgress: (received, total) => {
           if (!total || !process.stdout.isTTY) return;
           const pct = Math.floor((received / total) * 100);
@@ -118,9 +143,9 @@ async function main() {
         },
       });
     } catch (e) {
-      throw new Error(proxyHint(e));
+      throw new Error(failureReport(e));
     }
-    console.log(`✓ installed ${path.relative(repoRoot, t.file)}`);
+    console.log(`✓ installed ${shown(t.file)}`);
   }
 }
 

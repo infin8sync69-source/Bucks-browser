@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KuboRpc, mapLinkType } from '../../../src/main/ipfs/rpc.js';
+import { KuboRpc, mapLinkType, encodePubsubTopic, decodeMultibaseBase64url } from '../../../src/main/ipfs/rpc.js';
 
 /** Fake fetch that records calls and replies from a table keyed by command. */
 function fakeFetch(routes) {
@@ -143,4 +143,42 @@ test('swarmPeers tolerates Peers: null', async () => {
   const f = fakeFetch({ 'swarm/peers': { Peers: null } });
   const rpc = new KuboRpc('http://127.0.0.1:5001', { fetchImpl: f.impl });
   assert.deepEqual(await rpc.swarmPeers(), []);
+});
+
+test('pubsub topics are multibase base64url without padding', () => {
+  assert.equal(encodePubsubTopic('bucks-devices-v1'), 'uYnVja3MtZGV2aWNlcy12MQ');
+  assert.equal(encodePubsubTopic('a'), 'uYQ');
+  assert.throws(() => encodePubsubTopic(''), /non-empty/);
+  assert.equal(new TextDecoder().decode(decodeMultibaseBase64url('uYnVja3MtZGV2aWNlcy12MQ')), 'bucks-devices-v1');
+  assert.throws(() => decodeMultibaseBase64url('mYQ=='), /base64url/);
+});
+
+test('swarm connect/peering and pubsubPub helpers', async () => {
+  const peer = '12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN';
+  const f = fakeFetch({
+    'swarm/connect': { Strings: [`connect ${peer} success`] },
+    'swarm/peering/add': { ID: peer, Status: 'success' },
+    'swarm/peering/rm': { ID: peer, Status: 'success' },
+    'swarm/peering/ls': { Peers: [{ ID: peer, Addrs: ['/ip4/127.0.0.1/tcp/4001'] }] },
+    'pubsub/pub': () => new Response('', { status: 200 }),
+  });
+  const rpc = new KuboRpc('http://127.0.0.1:5001', { fetchImpl: f.impl });
+  const addr = `/ip4/127.0.0.1/tcp/4001/p2p/${peer}`;
+  assert.deepEqual(await rpc.swarmConnect(addr), [`connect ${peer} success`]);
+  assert.equal(f.calls.at(-1).url.searchParams.get('arg'), addr);
+  assert.deepEqual(await rpc.swarmPeeringAdd(addr), { id: peer, status: 'success' });
+  assert.deepEqual(await rpc.swarmPeeringRm(peer), { id: peer, status: 'success' });
+  assert.equal(f.calls.at(-1).url.searchParams.get('arg'), peer);
+  assert.deepEqual(await rpc.swarmPeeringLs(), [{ id: peer, addrs: ['/ip4/127.0.0.1/tcp/4001'] }]);
+
+  await rpc.pubsubPub('bucks-devices-v1', '{"v":1}');
+  const { url, init } = f.calls.at(-1);
+  assert.equal(url.pathname, '/api/v0/pubsub/pub');
+  assert.equal(url.searchParams.get('arg'), 'uYnVja3MtZGV2aWNlcy12MQ');
+  assert.equal(init.method, 'POST');
+  assert.equal(await init.body.get('file').text(), '{"v":1}');
+  await assert.rejects(rpc.pubsubPub('t', 42), /string or Uint8Array/);
+
+  const empty = new KuboRpc('http://127.0.0.1:5001', { fetchImpl: fakeFetch({ 'swarm/peering/ls': { Peers: null } }).impl });
+  assert.deepEqual(await empty.swarmPeeringLs(), []);
 });

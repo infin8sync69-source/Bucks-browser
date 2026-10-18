@@ -7,7 +7,16 @@ import {
   candidateBinaryPaths,
   isLockError,
   normalizeGatewayBase,
+  isValidMultiaddr,
+  splitP2pSuffix,
+  normalizePeeringPeers,
+  ipfsSettingsNeedRestart,
 } from '../../../src/main/ipfs/kubo.js';
+
+const PEER_A = '12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN';
+const PEER_B = 'QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N';
+const PEER_C = 'k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv0v8';
+const SELF = '12D3KooWDTgzAwwNkcfUX8KryUS5veDMAdSFwLfsstMJEKpyyWdW';
 
 test('multiaddrToHttpUrl', () => {
   assert.equal(multiaddrToHttpUrl('/ip4/127.0.0.1/tcp/5001'), 'http://127.0.0.1:5001');
@@ -69,4 +78,94 @@ test('isLockError and normalizeGatewayBase', () => {
   assert.equal(normalizeGatewayBase('https://dweb.link/ipfs/'), 'https://dweb.link');
   assert.equal(normalizeGatewayBase(''), 'https://ipfs.io');
   assert.equal(normalizeGatewayBase(undefined), 'https://ipfs.io');
+});
+
+test('applyBucksConfig enables pubsub (gossipsub) and mDNS and maps settings.ipfs.peers to Peering.Peers', () => {
+  const init = {
+    Identity: { PeerID: SELF },
+    Pubsub: { DisableSigning: false, Router: '' },
+    Discovery: { MDNS: { Enabled: false } },
+    Peering: { Peers: null },
+  };
+  const peers = [
+    { peerId: PEER_A, name: 'mac', addrs: ['/ip4/192.168.1.20/tcp/40785', `/ip4/192.168.1.20/udp/40785/quic-v1/p2p/${PEER_A}`, 'not-a-multiaddr'] },
+    { peerId: 'garbage', name: 'bad', addrs: ['/ip4/10.0.0.1/tcp/1'] },
+    { peerId: SELF, name: 'me', addrs: ['/ip4/127.0.0.1/tcp/1'] },
+  ];
+  const out = applyBucksConfig(init, { apiPort: 1, gatewayPort: 2, swarmPort: 3, peers });
+  assert.deepEqual(out.Pubsub, { DisableSigning: false, Router: 'gossipsub', Enabled: true });
+  assert.deepEqual(out.Discovery, { MDNS: { Enabled: true } });
+  assert.deepEqual(out.Peering, { Peers: [{ ID: PEER_A, Addrs: ['/ip4/192.168.1.20/tcp/40785', '/ip4/192.168.1.20/udp/40785/quic-v1'] }] });
+  assert.equal(init.Pubsub.Router, '', 'input is not mutated');
+  // idempotent, including the peering part
+  assert.deepEqual(applyBucksConfig(out, { apiPort: 1, gatewayPort: 2, swarmPort: 3, peers }), out);
+  // an empty list clears Peering.Peers; omitting `peers` leaves it untouched
+  assert.deepEqual(applyBucksConfig(out, { apiPort: 1, gatewayPort: 2, peers: [] }).Peering.Peers, []);
+  assert.deepEqual(applyBucksConfig(out, { apiPort: 1, gatewayPort: 2 }).Peering, out.Peering);
+  // a bare init config without these sections still gets them
+  const bare = applyBucksConfig({}, { apiPort: 1, gatewayPort: 2, peers: [] });
+  assert.equal(bare.Pubsub.Enabled, true);
+  assert.equal(bare.Pubsub.Router, 'gossipsub');
+  assert.equal(bare.Discovery.MDNS.Enabled, true);
+});
+
+test('normalizePeeringPeers validates peer IDs and multiaddrs', () => {
+  const out = normalizePeeringPeers([
+    { peerId: PEER_A, addrs: ['/ip4/192.168.1.20/tcp/4001', '/ip4/192.168.1.20/tcp/4001/', '/ip6/fe80::1/tcp/4001'] },
+    { peerId: ` ${PEER_B} `, addrs: [`/dns4/laptop.local/tcp/4001/p2p/${PEER_A}`, '/dns4/laptop.local/tcp/4001'] }, // addr naming another peer is dropped
+    { peerId: PEER_C, addrs: 'not-an-array' },
+    { peerId: `/ip4/10.0.0.5/tcp/4001/p2p/${PEER_A}` }, // full multiaddr in the peerId field → merged into PEER_A
+    { peerId: 'bafzaajaiaejcb5ipbu3uucqb56l5l4azzcjpbxehrsodrmpbsegt3zyvonhc4l4a', addrs: [] },
+    { peerId: 'QmNotAPeer', addrs: ['/ip4/1.2.3.4/tcp/1'] },
+    { peerId: 'bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy', addrs: [] }, // a CID, but not libp2p-key
+    null,
+    'x',
+    { addrs: ['/ip4/1.2.3.4/tcp/1'] },
+  ], { selfId: SELF });
+  assert.deepEqual(out, [
+    { ID: PEER_A, Addrs: ['/ip4/192.168.1.20/tcp/4001', '/ip6/fe80::1/tcp/4001', '/ip4/10.0.0.5/tcp/4001'] },
+    { ID: PEER_B, Addrs: ['/dns4/laptop.local/tcp/4001'] },
+    { ID: PEER_C, Addrs: [] },
+    { ID: 'bafzaajaiaejcb5ipbu3uucqb56l5l4azzcjpbxehrsodrmpbsegt3zyvonhc4l4a', Addrs: [] },
+  ]);
+  assert.deepEqual(normalizePeeringPeers(undefined), []);
+  assert.deepEqual(normalizePeeringPeers({}), []);
+});
+
+test('isValidMultiaddr only accepts addresses Kubo can parse', () => {
+  for (const ok of [
+    '/ip4/192.168.1.20/tcp/40785',
+    '/ip6/::1/tcp/4001',
+    '/ip4/1.2.3.4/udp/4001/quic-v1',
+    '/ip4/1.2.3.4/udp/4001/quic-v1/webtransport/certhash/uEiDDq4_xNyDorZBH3TlGazyJdOWSwvo4PUo5YHFMrvDE8g',
+    '/ip4/1.2.3.4/udp/4001/webrtc-direct/certhash/uEiDDq4_xNyDorZBH3TlGazyJdOWSwvo4PUo5YHFMrvDE8g',
+    '/dns4/example.com/tcp/443/wss',
+    '/dnsaddr/bootstrap.libp2p.io',
+    `/ip4/1.2.3.4/tcp/4001/p2p/${PEER_A}/p2p-circuit`,
+  ]) assert.equal(isValidMultiaddr(ok), true, ok);
+  for (const bad of [
+    '', 'ip4/1.2.3.4/tcp/1', '/ip4/1.2.3.4/tcp/9/garbage', '/ip4/999.1.1.1/tcp/1', '/ip4/1.2.3.4/tcp/70000',
+    '/ip4/1.2.3.4/tcp', '/tcp/4001', '/ip6/zz::1/tcp/1', '/dns4/bad host/tcp/1', '/ip4/1.2.3.4/udp/1/quic-v1/certhash/xnotbase',
+    '/ip4/1.2.3.4/tcp/1/p2p/notapeer', '/unix/tmp/sock', null, 42,
+  ]) assert.equal(isValidMultiaddr(bad), false, String(bad));
+});
+
+test('splitP2pSuffix', () => {
+  assert.deepEqual(splitP2pSuffix(`/ip4/1.2.3.4/tcp/1/p2p/${PEER_A}`), { addr: '/ip4/1.2.3.4/tcp/1', peerId: PEER_A });
+  assert.deepEqual(splitP2pSuffix(`/ip4/1.2.3.4/tcp/1/ipfs/${PEER_B}/`), { addr: '/ip4/1.2.3.4/tcp/1', peerId: PEER_B });
+  assert.deepEqual(splitP2pSuffix('/ip4/1.2.3.4/tcp/1'), { addr: '/ip4/1.2.3.4/tcp/1', peerId: null });
+});
+
+test('ipfsSettingsNeedRestart: only mode and (in external mode) the API URL restart the node', () => {
+  const base = { mode: 'embedded', externalApiUrl: '', publicGateway: 'https://ipfs.io', preferredGateway: 'local', autoStart: true, peers: [] };
+  assert.equal(ipfsSettingsNeedRestart(base, { ...base, peers: [{ peerId: PEER_A, name: 'mac', addrs: [] }] }), false);
+  assert.equal(ipfsSettingsNeedRestart(base, { ...base, publicGateway: 'https://dweb.link', preferredGateway: 'public', autoStart: false }), false);
+  assert.equal(ipfsSettingsNeedRestart(base, { ...base, externalApiUrl: 'http://127.0.0.1:5001' }), false, 'unused while embedded');
+  assert.equal(ipfsSettingsNeedRestart(base, { ...base, mode: 'external' }), true);
+  const ext = { ...base, mode: 'external', externalApiUrl: 'http://127.0.0.1:5001' };
+  assert.equal(ipfsSettingsNeedRestart(ext, { ...ext, externalApiUrl: 'http://127.0.0.1:5002' }), true);
+  assert.equal(ipfsSettingsNeedRestart(ext, { ...ext, externalApiUrl: ' http://127.0.0.1:5001 ' }), false);
+  assert.equal(ipfsSettingsNeedRestart(ext, { ...ext, peers: [{ peerId: PEER_B }] }), false);
+  assert.equal(ipfsSettingsNeedRestart(undefined, { mode: 'embedded' }), false);
+  assert.equal(ipfsSettingsNeedRestart(ext, base), true);
 });

@@ -9,7 +9,9 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { createKubo } from '../../../src/main/ipfs/kubo.js';
+import { KuboRpc, encodePubsubTopic, decodeMultibaseBase64url } from '../../../src/main/ipfs/rpc.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..', '..');
@@ -17,10 +19,19 @@ const bundled = path.join(repoRoot, 'resources', 'kubo', 'linux-x64', 'ipfs');
 const binary = process.env.BUCKS_KUBO_BIN || (process.platform === 'linux' && process.arch === 'x64' ? bundled : null);
 const haveBinary = Boolean(binary && fs.existsSync(binary));
 
+// A paired device that is not running (TEST-NET-2 address): it must land in Peering.Peers, and the
+// invalid entries next to it must be dropped instead of breaking the daemon's start-up.
+const PAIRED_PEER = '12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN';
+const fakePeers = [
+  { peerId: PAIRED_PEER, name: 'macbook-air', addrs: [`/ip4/198.51.100.7/tcp/40785/p2p/${PAIRED_PEER}`, '/ip4/198.51.100.7/tcp/40785/garbage'] },
+  { peerId: 'not-a-peer-id', name: 'junk', addrs: ['/ip4/198.51.100.8/tcp/1'] },
+];
+const ipfsDefaults = { mode: 'embedded', externalApiUrl: '', publicGateway: 'https://ipfs.io', preferredGateway: 'local', autoStart: true };
 const fakeSettings = {
-  get: () => ({ ipfs: { mode: 'embedded', externalApiUrl: '', publicGateway: 'https://ipfs.io', preferredGateway: 'local', autoStart: true } }),
+  get: () => ({ ipfs: { ...ipfsDefaults, peers: fakePeers }, devices: { name: '', autoPin: false } }),
   onChange: () => () => {},
 };
+const settingsWith = (ipfs) => ({ get: () => ({ ipfs: { ...ipfsDefaults, ...ipfs } }), onChange: () => () => {} });
 const quietLog = { lines: [], info: (...a) => quietLog.lines.push(['info', a.join(' ')]), warn: (...a) => quietLog.lines.push(['warn', a.join(' ')]), error: (...a) => quietLog.lines.push(['error', a.join(' ')]), debug: () => {} };
 
 function isAlive(pid) {
@@ -93,6 +104,9 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
   assert.equal(repoConfig.Addresses.API, `/ip4/127.0.0.1/tcp/${runtime.apiPort}`);
   assert.ok(repoConfig.Addresses.Swarm.every((a) => a.includes(`/${runtime.swarmPort}`)), JSON.stringify(repoConfig.Addresses.Swarm));
   assert.ok(fs.existsSync(path.join(userData, 'logs', 'kubo.log')), 'daemon output is logged to <userData>/logs/kubo.log');
+  assert.equal(repoConfig.Pubsub.Enabled, true);
+  assert.equal(repoConfig.Pubsub.Router, 'gossipsub');
+  assert.equal(repoConfig.Discovery.MDNS.Enabled, true);
 
   const pid = kubo.pid();
   assert.ok(Number.isInteger(pid) && isAlive(pid), 'daemon pid is alive');
@@ -125,6 +139,13 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
   assert.ok(stat.num_objects >= 2 && stat.storage_max > 0);
   assert.equal(Array.isArray(await rpc.swarmPeers()), true);
   assert.equal(await rpc.configGet('Addresses.API'), `/ip4/127.0.0.1/tcp/${runtime.apiPort}`);
+  // device pairing prerequisites, as the running daemon reports them
+  assert.equal(await rpc.configGet('Pubsub.Enabled'), true);
+  assert.equal(await rpc.configGet('Pubsub.Router'), 'gossipsub');
+  assert.equal(await rpc.configGet('Discovery.MDNS.Enabled'), true);
+  assert.deepEqual(await rpc.configGet('Peering.Peers'), [{ ID: PAIRED_PEER, Addrs: ['/ip4/198.51.100.7/tcp/40785'] }]);
+  assert.ok((await rpc.swarmPeeringLs()).some((p) => p.id === PAIRED_PEER), 'paired peer is in the live peering set');
+  await rpc.pubsubPub('bucks-integration-smoke', 'pubsub works'); // fails if pubsub were disabled
 
   // gateway mapping + the HTTP path the protocol handler proxies
   const gatewayUrl = kubo.gatewayUrlFor(`ipfs://${added.cid}/`);
@@ -234,5 +255,119 @@ test('embedded Kubo: a killed daemon is restarted automatically; an external-mod
   assert.equal(dead.status().state, 'error');
   assert.equal(dead.isReady(), false);
 
+  await kubo.stop();
+});
+
+function waitFor(fn, { timeoutMs = 30_000, intervalMs = 250, what = 'condition' } = {}) {
+  return (async () => {
+    const deadline = Date.now() + timeoutMs;
+    let lastErr = null;
+    while (Date.now() < deadline) {
+      try {
+        const v = await fn();
+        if (v) return v;
+      } catch (e) { lastErr = e; }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    throw new Error(`timed out waiting for ${what}${lastErr ? ` (last error: ${lastErr.message})` : ''}`);
+  })();
+}
+
+test('two embedded nodes: settings.ipfs.peers peering connects them, pubsub messages and files flow between them', { skip: haveBinary ? false : 'no Kubo binary (set BUCKS_KUBO_BIN)', timeout: 180_000 }, async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-kubo-pair-'));
+  const prevEnv = process.env.BUCKS_KUBO_BIN;
+  process.env.BUCKS_KUBO_BIN = binary;
+  t.after(() => { if (prevEnv === undefined) delete process.env.BUCKS_KUBO_BIN; else process.env.BUCKS_KUBO_BIN = prevEnv; });
+  const opts = (name, settings) => ({ settings, userData: path.join(root, name), resourcesDir: path.join(root, 'no-resources'), getMainWindow: () => null, log: quietLog });
+
+  const a = createKubo(opts('linux', settingsWith({ peers: [] })));
+  t.after(() => a.stop());
+  const readyA = await a.start();
+  const swarmPortA = JSON.parse(await fsp.readFile(path.join(root, 'linux', 'kubo', 'runtime.json'), 'utf8')).swarmPort;
+
+  // B ("the Mac") pairs with A purely through settings → Peering.Peers at start-up.
+  const b = createKubo(opts('mac', settingsWith({ peers: [{ peerId: readyA.peer_id, name: 'linux', addrs: [`/ip4/127.0.0.1/tcp/${swarmPortA}/p2p/${readyA.peer_id}`] }] })));
+  t.after(() => b.stop());
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const readyB = await b.start();
+  assert.notEqual(readyA.peer_id, readyB.peer_id);
+  assert.deepEqual(await b.rpc.configGet('Peering.Peers'), [{ ID: readyA.peer_id, Addrs: [`/ip4/127.0.0.1/tcp/${swarmPortA}`] }]);
+  await waitFor(async () => (await b.rpc.swarmPeers()).some((p) => p.peer === readyA.peer_id), { what: 'B to connect to A via Peering' });
+
+  // pubsub: B subscribes, A re-publishes until the gossip mesh has formed and B receives it.
+  const topic = 'bucks-devices-v1';
+  const sub = await b.rpc.request('pubsub/sub', { args: [encodePubsubTopic(topic)], timeoutMs: 120_000 });
+  const reader = sub.body.getReader();
+  t.after(() => reader.cancel().catch(() => {}));
+  const payload = JSON.stringify({ v: 1, type: 'presence', peerId: readyA.peer_id, ts: Date.now() });
+  let received = null;
+  const readLoop = (async () => {
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const msg = JSON.parse(line);
+        if (msg.from === readyA.peer_id) { received = msg; return; }
+      }
+    }
+  })();
+  readLoop.catch(() => {});
+  await waitFor(async () => {
+    if (received) return true;
+    await a.rpc.pubsubPub(topic, payload);
+    return false;
+  }, { intervalMs: 500, what: 'a pubsub message from A to arrive at B' });
+  assert.equal(received.from, readyA.peer_id);
+  assert.equal(new TextDecoder().decode(decodeMultibaseBase64url(received.data)), payload);
+  assert.deepEqual(received.topicIDs, [encodePubsubTopic(topic)]);
+  await reader.cancel().catch(() => {});
+
+  // a file added on A is fetched by B over bitswap between the directly connected peers
+  const text = `shared from linux ${Date.now()}`;
+  const { cid } = await a.rpc.add(new TextEncoder().encode(text), { fileName: 'share.txt' });
+  assert.equal(new TextDecoder().decode(await b.rpc.cat(cid, { timeoutMs: 60_000 })), text);
+
+  await b.stop();
+  await a.stop();
+});
+
+test('embedded Kubo: a leftover daemon without pubsub is replaced instead of adopted', { skip: haveBinary ? false : 'no Kubo binary (set BUCKS_KUBO_BIN)', timeout: 180_000 }, async (t) => {
+  const userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-kubo-adopt-'));
+  const prevEnv = process.env.BUCKS_KUBO_BIN;
+  process.env.BUCKS_KUBO_BIN = binary;
+  t.after(() => { if (prevEnv === undefined) delete process.env.BUCKS_KUBO_BIN; else process.env.BUCKS_KUBO_BIN = prevEnv; });
+  const kubo = createKubo({ settings: settingsWith({ peers: [] }), userData, resourcesDir: path.join(userData, 'no-resources'), getMainWindow: () => null, log: quietLog });
+  t.after(() => kubo.stop());
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
+  const first = await kubo.start(); // creates the repo and runtime.json
+  await kubo.stop();
+
+  // Simulate a daemon left running by an older Bucks build: pubsub off in the repo config.
+  const repo = kubo.repoPath();
+  const cfgFile = path.join(repo, 'config');
+  const cfg = JSON.parse(await fsp.readFile(cfgFile, 'utf8'));
+  cfg.Pubsub = { ...cfg.Pubsub, Enabled: false };
+  await fsp.writeFile(cfgFile, JSON.stringify(cfg, null, 2));
+  const stale = spawn(binary, ['daemon'], { env: { ...process.env, IPFS_PATH: repo }, stdio: 'ignore' });
+  const staleExit = new Promise((r) => stale.once('exit', r));
+  t.after(() => { if (stale.exitCode === null && stale.signalCode === null) stale.kill('SIGKILL'); });
+  const staleRpc = new KuboRpc(first.api_url, { timeoutMs: 2000 });
+  await waitFor(async () => (await staleRpc.id()).ID === first.peer_id, { what: 'the stale daemon API' });
+  assert.equal(await staleRpc.configGet('Pubsub.Enabled'), false);
+
+  const ready = await kubo.start();
+  assert.equal(ready.state, 'ready');
+  assert.equal(ready.peer_id, first.peer_id);
+  assert.ok(kubo.pid(), 'a fresh daemon was spawned (not adopted)');
+  assert.notEqual(kubo.pid(), stale.pid);
+  await Promise.race([staleExit, new Promise((_, rej) => setTimeout(() => rej(new Error('stale daemon did not exit')), 15_000).unref())]);
+  assert.equal(await kubo.rpc.configGet('Pubsub.Enabled'), true);
   await kubo.stop();
 });
