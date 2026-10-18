@@ -30,13 +30,13 @@ test('payload validators', () => {
 
 test('createDevices registers the six bucks:devices:* handlers and sends bucks:devices:updated', async (t) => {
   const userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-devices-ipc-'));
-  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
   const sent = [];
   const win = { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: (ch, payload) => sent.push([ch, payload]) } };
   const kubo = { isReady: () => false, rpc: null, apiUrl: () => null, status: () => ({ peer_id: null }), onStatus: () => () => {} };
   const settings = makeSettings();
   const service = createDevices({ kubo, settings, userData, getMainWindow: () => win });
   t.after(() => service.stop());
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
 
   const h = ipcMain._handlers;
   for (const ch of ['status', 'pair', 'unpair', 'rename', 'share', 'dismiss']) assert.equal(typeof h.get(`bucks:devices:${ch}`), 'function', ch);

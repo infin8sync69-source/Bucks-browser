@@ -5,10 +5,14 @@
     import AddContent from '$lib/ipfs/AddContent.svelte';
     import PathBrowser from '$lib/ipfs/PathBrowser.svelte';
     import PinList from '$lib/ipfs/PinList.svelte';
+    import DevicesSection from '$lib/devices/DevicesSection.svelte';
+    import { devicesStore } from '$lib/devicesStore';
 
     onMount(() => {
         ipfsStore.init();
+        devicesStore.init();
         void ipfsStore.listPins();
+        return () => devicesStore.cleanup();
     });
 
     // Pins can only be listed once the node is up; reload them when it becomes ready.
@@ -32,6 +36,7 @@
     </div>
 
     <NodeStatusCard />
+    <DevicesSection />
     <AddContent />
     <PathBrowser />
     <PinList />

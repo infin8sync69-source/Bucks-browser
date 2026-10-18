@@ -29,6 +29,33 @@ platform they will be built on.
   releases; developer runner `scripts/dev.mjs`. Builds are unsigned.
 - **Tests.** Unit tests for the pure logic of each module, and a Playwright smoke test that boots
   the app, starts Kubo and loads an `ipfs://` page.
+- **Source installers.** One-line installers for Linux (`scripts/install-linux.sh`) and macOS on
+  Apple Silicon and Intel (`scripts/install-macos.sh`, which creates an unsigned launcher app in
+  `~/Applications`). Both pre-download Kubo, falling back from `dist.ipfs.tech` to GitHub releases.
+
+### In progress: device pairing over IPFS peering and pubsub
+
+Pair your own Bucks installs (for example an Ubuntu laptop and a MacBook) and send files between
+them, with no server in between. User guide: [DEVICES.md](DEVICES.md); protocol:
+[IPC-CONTRACT.md](IPC-CONTRACT.md#devices-pairing-bucks-installs-over-ipfs-peering--pubsub).
+
+- Built: Kubo configured with pubsub (gossipsub), mDNS discovery and `Peering.Peers` for paired
+  devices; signed presence messages on the topic `bucks-devices-v1` every 30 s with a 7-day outbox
+  for eventual delivery; pairing by discovery on the local network or by pasting a pairing address;
+  live pairing changes without restarting the node; the Devices section on `bucks://ipfs`
+  (this device, paired, nearby, received, pair manually), "Send to my devices", and optional
+  auto-pin of received files.
+- Remaining before calling it done: a test between two real machines (Linux and macOS) on the same
+  Wi-Fi and across networks, including the macOS firewall and Local Network prompts.
+- Next steps:
+  1. **End-to-end encryption for shares.** Today a share is a public CID and the presence messages
+     (device name, addresses, file names) are readable by any node on the topic. Encrypt shared
+     content and the share list to the paired devices' keys (derived from their peer IDs), so
+     only paired devices can read them.
+  2. **Pairing confirmation.** Show a short code derived from both peer IDs on both screens so the
+     user can confirm they paired the right device.
+  3. **Reachability across networks.** Use Kubo's relay and hole punching (or a user-run relay) so
+     devices on different networks connect without a VPN or port forwarding.
 
 ### Next
 
@@ -41,18 +68,23 @@ platform they will be built on.
    pages (`bucks://app`, plus the interface's internal routes). Human-readable names should resolve to a CID
    through the chain, with a verified result.
 4. **Chat over Kubo pubsub.** `src/main/chat/` is the end-to-end encrypted chat engine from the previous
-   app (CommonJS, Helia gossipsub). Port it to Kubo's pubsub RPC (and enable pubsub in the repo
-   configuration), wire it into `index.js` and the contract.
+   app (CommonJS, Helia gossipsub). Port it to Kubo's pubsub RPC (pubsub is now enabled in the
+   repo configuration for device pairing, and `src/main/ipfs/devices-service.js` shows how to
+   stream `pubsub/sub` and publish with `pubsub/pub`), wire it into `index.js` and the contract.
+   Its encryption is a model for encrypted shares.
 5. **Agent tool permissions and MCP.** Let the agent call tools (including MCP servers) behind
    explicit per-tool, per-site user consent, with a visible log of what ran.
 6. **Tor through an `arti` sidecar.** A real Tor client supervised the same way as Kubo, with an
    opt-in per-session proxy and honest status reporting.
 7. **Security follow-ups.** Ask before falling back from HTTPS to HTTP after a TLS error instead of
    doing it silently; a site-settings page backed by persistent permission grants.
-8. **Release follow-ups.** Code signing and notarisation (see [BUILDING.md](BUILDING.md)), auto-update
-   from signed releases, opening `ipfs://` links handed over by the operating system (the installers
-   already register the handler; the app must read the URL from `open-url` on macOS and from the
-   command line elsewhere), and `desktopName` for correct Linux window grouping.
+8. **Release follow-ups.** Signed releases: code signing and notarisation (see
+   [BUILDING.md](BUILDING.md)), so macOS and Windows users get a packaged app without Gatekeeper or
+   SmartScreen warnings, and a stable signed identity for the macOS firewall and privacy prompts.
+   Auto-update for packaged builds (`electron-updater` from the signed releases feed; source installs
+   already update by re-running the installer). Opening `ipfs://` links handed over by the operating
+   system (the packages already register the handler; the app must read the URL from `open-url` on
+   macOS and from the command line elsewhere), and `desktopName` for correct Linux window grouping.
 
 ### Removed on purpose
 

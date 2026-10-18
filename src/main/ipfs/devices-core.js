@@ -148,8 +148,10 @@ function isUnusableAddr(addr) {
 
 /**
  * The addresses this device advertises to others: Kubo `id` Addresses minus loopback
- * (127.0.0.0/8, ::1), unspecified and link-local IPv6, relay (/p2p-circuit) addresses, with the
- * /p2p suffix stripped, deduped, at most 16.
+ * (127.0.0.0/8, ::1), unspecified and link-local IPv6, relay (/p2p-circuit) addresses and
+ * /certhash/ addresses (webtransport / webrtc-direct: their certificate hashes rotate, which would
+ * churn the stored pairing and Peering config; tcp and quic-v1 cover direct connections), with
+ * the /p2p suffix stripped, deduped, at most 16.
  * @param {unknown} idAddresses  e.g. (await rpc.id()).Addresses
  * @returns {string[]}
  */
@@ -158,7 +160,7 @@ export function shareableAddrs(idAddresses) {
   const out = [];
   for (const raw of idAddresses) {
     if (typeof raw !== 'string') continue;
-    if (raw.includes('/p2p-circuit')) continue;
+    if (raw.includes('/p2p-circuit') || raw.includes('/certhash/')) continue;
     const a = stripP2p(raw);
     if (!isValidAddr(a) || isLoopbackAddr(a) || isUnusableAddr(a) || out.includes(a)) continue;
     out.push(a);

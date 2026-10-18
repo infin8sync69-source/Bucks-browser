@@ -148,6 +148,98 @@ export interface AgentFeedback {
     correction?: string;
 }
 
+// ── Devices (docs/IPC-CONTRACT.md "Devices: pairing Bucks installs over IPFS peering + pubsub") ──
+
+/** Pubsub topic every Bucks device announces itself on. */
+export const DEVICES_TOPIC = 'bucks-devices-v1';
+
+/** This install, as announced to other devices. */
+export interface DeviceSelf {
+    /** Kubo peer ID; null until the node is up. */
+    peerId: string | null;
+    name: string;
+    /** process.platform of this install ('darwin', 'linux', 'win32', …). */
+    platform: string;
+    version: string;
+    /** Non-loopback listen multiaddrs without the /p2p/<id> suffix. */
+    addrs: string[];
+}
+
+/** A device the user paired with (persisted in settings.ipfs.peers). */
+export interface PairedDevice {
+    peerId: string;
+    name: string;
+    platform: string | null;
+    version: string | null;
+    /** Presence received in the last 90 s. */
+    online: boolean;
+    /** Currently in swarm/peers. */
+    connected: boolean;
+    /** ms since epoch of the last presence, null when never seen. */
+    lastSeen: number | null;
+    addrs: string[];
+}
+
+/** An unpaired device whose presence was seen in the last 5 minutes (never trusted). */
+export interface DiscoveredDevice {
+    peerId: string;
+    name: string;
+    platform: string;
+    version: string;
+    lastSeen: number;
+    addrs: string[];
+}
+
+/** A file a paired device shared with this one. */
+export interface ReceivedShare {
+    cid: string;
+    name: string;
+    size: number | null;
+    /** Sender peer ID. */
+    from: string;
+    fromName: string;
+    ts: number;
+    pinned: boolean;
+}
+
+/** Result of `bucks:devices:status` and payload of `bucks:devices:updated`. */
+export interface DevicesStatus {
+    /** Node ready and subscribed to the topic. */
+    ready: boolean;
+    error: string | null;
+    topic: typeof DEVICES_TOPIC;
+    self: DeviceSelf;
+    paired: PairedDevice[];
+    discovered: DiscoveredDevice[];
+    received: ReceivedShare[];
+}
+
+export interface DevicePairRequest {
+    /** A peer ID, or a full multiaddr ending in /p2p/<id>. */
+    peerId: string;
+    name?: string;
+    addrs?: string[];
+}
+
+export interface DeviceShareRequest {
+    cid: string;
+    name?: string;
+    size?: number;
+}
+
+export interface DeviceShareResult {
+    queued: boolean;
+    /** Paired devices that were online when the share was announced. */
+    onlinePeers: number;
+}
+
+/** One entry of settings.ipfs.peers. */
+export interface PeerSetting {
+    peerId: string;
+    name: string;
+    addrs: string[];
+}
+
 export type SearchEngineId = 'duckduckgo' | 'google' | 'brave' | 'bing';
 
 /** Mirrors DEFAULT_SETTINGS in src/main/settings.js. */
@@ -162,6 +254,14 @@ export interface Settings {
         publicGateway: string;
         preferredGateway: 'local' | 'public';
         autoStart: boolean;
+        /** Paired Bucks devices, kept connected through Kubo Peering. Arrays are replaced wholesale on set(). */
+        peers: PeerSetting[];
+    };
+    devices: {
+        /** '' → the computer's host name */
+        name: string;
+        /** Pin files shared by paired devices automatically. */
+        autoPin: boolean;
     };
     security: {
         httpsOnly: boolean;
@@ -328,6 +428,20 @@ export interface BucksApi {
         stats(): Promise<SecurityStats>;
     };
 
+    devices: {
+        status(): Promise<DevicesStatus>;
+        /** Pair with another Bucks device (peer ID or pairing address). */
+        pair(req: DevicePairRequest): Promise<DevicesStatus>;
+        unpair(peerId: string): Promise<DevicesStatus>;
+        /** Set this device's display name ('' resets to the host name). */
+        rename(name: string): Promise<DevicesStatus>;
+        /** Offer a CID to every paired device. */
+        share(req: DeviceShareRequest): Promise<DeviceShareResult>;
+        /** Remove a received share from the list (does not unpin). */
+        dismiss(req: { cid: string; from: string }): Promise<DevicesStatus>;
+        onUpdated(cb: (status: DevicesStatus) => void): Unsubscribe;
+    };
+
     shell: {
         /** Open http(s)/mailto URLs in the OS default handler. */
         openExternal(url: string): Promise<void>;
@@ -349,7 +463,9 @@ function defaultSettings(): Settings {
             publicGateway: 'https://ipfs.io',
             preferredGateway: 'local',
             autoStart: true,
+            peers: [],
         },
+        devices: { name: '', autoPin: false },
         security: {
             httpsOnly: true,
             adBlock: true,
@@ -395,6 +511,19 @@ function mockIpfsStatus(): IpfsStatus {
         embedded: true,
         version: null,
         peer_id: null,
+    };
+}
+
+/** Devices status outside Bucks: not ready, nothing paired, nothing seen. */
+function mockDevicesStatus(name: string): DevicesStatus {
+    return {
+        ready: false,
+        error: NOT_IN_BUCKS,
+        topic: DEVICES_TOPIC,
+        self: { peerId: null, name, platform: 'browser', version: '0.0.0', addrs: [] },
+        paired: [],
+        discovered: [],
+        received: [],
     };
 }
 
@@ -496,6 +625,19 @@ function createMockBridge(): BucksApi {
         },
         security: {
             stats: () => Promise.resolve({ blockedRequests: 0, httpsUpgrades: 0, adBlockReady: false }),
+        },
+        devices: {
+            status: () => Promise.resolve(mockDevicesStatus(settings.devices.name)),
+            // Pairing and sharing need a running IPFS node, so they fail loudly instead of pretending.
+            pair: () => unavailable('devices.pair'),
+            unpair: () => Promise.resolve(mockDevicesStatus(settings.devices.name)),
+            rename: (name) => {
+                settings = deepMerge(settings, { devices: { name: String(name ?? '').trim() } });
+                return Promise.resolve(mockDevicesStatus(settings.devices.name));
+            },
+            share: () => unavailable('devices.share'),
+            dismiss: () => Promise.resolve(mockDevicesStatus(settings.devices.name)),
+            onUpdated: () => noSub,
         },
         shell: {
             openExternal: (url) => {

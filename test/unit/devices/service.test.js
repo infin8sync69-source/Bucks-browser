@@ -99,7 +99,6 @@ function presenceOf(peerId, clock, extra = {}) {
 
 async function setup(t, { settingsInit = {}, kuboOpts = {}, devicesJson } = {}) {
   const userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-devices-unit-'));
-  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
   if (devicesJson !== undefined) await fsp.writeFile(path.join(userData, 'devices.json'), devicesJson);
   const clock = makeClock();
   const settings = makeSettings(settingsInit);
@@ -110,7 +109,9 @@ async function setup(t, { settingsInit = {}, kuboOpts = {}, devicesJson } = {}) 
     kubo, settings, userData, appVersion: '2.0.0', platform: 'linux', hostname: 'ubuntu-laptop',
     emit: (s) => emitted.push(s), log, now: clock.now, timers: clock.timers, fetch,
   });
+  // after hooks run in order: stop (flushes devices.json) before the profile is removed
   t.after(() => svc.stop());
+  t.after(() => fsp.rm(userData, { recursive: true, force: true }));
   return { svc, kubo, settings, clock, log, emitted, userData };
 }
 
@@ -313,6 +314,23 @@ test('a paired device advertising new addrs updates settings and peering, withou
   kubo.deliver(presenceOf(MAC, clock, { addrs: [] }));
   await settle(20);
   assert.equal(settings.sets.length, setsBefore + 1);
+});
+
+test('a device paired by bare peer ID gets its name from its first presence (one settings write)', async (t) => {
+  const env = await setup(t);
+  await goReady(env);
+  const { kubo, settings, clock, svc } = env;
+  await svc.pair({ peerId: `/ip4/192.168.1.20/tcp/4001/p2p/${MAC}` });
+  assert.equal(settings.get().ipfs.peers[0].name, '');
+  assert.match(svc.status().paired[0].name, /^12D3KooW…/);
+  const setsBefore = settings.sets.length;
+  kubo.deliver(presenceOf(MAC, clock));
+  await settle(20);
+  kubo.deliver(presenceOf(MAC, clock, { name: 'renamed-later' }));
+  await settle(20);
+  assert.equal(settings.sets.length, setsBefore + 1);
+  assert.deepEqual(settings.get().ipfs.peers, [{ peerId: MAC, name: 'macbook-air', addrs: ['/ip4/192.168.1.20/tcp/4001'] }]);
+  assert.equal(svc.status().paired[0].name, 'macbook-air');
 });
 
 test('autoPin pins shares from paired devices and marks them pinned; failures retry later', async (t) => {

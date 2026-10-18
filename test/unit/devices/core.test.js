@@ -102,7 +102,7 @@ test('stripP2p and sanitizeAddrs', () => {
   assert.deepEqual(sanitizeAddrs('not an array'), []);
 });
 
-test('shareableAddrs drops loopback, unspecified, link-local and relay addrs, strips /p2p, dedupes, caps at 16', () => {
+test('shareableAddrs drops loopback, unspecified, link-local, relay and certhash addrs, strips /p2p, dedupes, caps at 16', () => {
   const id = [
     `/ip4/127.0.0.1/tcp/4001/p2p/${A}`,
     `/ip4/127.8.9.1/udp/4001/quic-v1/p2p/${A}`,
@@ -114,6 +114,8 @@ test('shareableAddrs drops loopback, unspecified, link-local and relay addrs, st
     `/ip6/2001:db8::5/tcp/4001/p2p/${A}`,
     `/ip4/1.2.3.4/tcp/4001/p2p/${B}/p2p-circuit/p2p/${A}`,
     '/ip4/0.0.0.0/tcp/4001',
+    `/ip4/192.168.1.20/udp/4001/quic-v1/webtransport/certhash/uEiDvqTw2e3UMyiGQvOxDo2d-zC0DNZTB61yi-v1A9i3BXg/p2p/${A}`,
+    '/ip4/192.168.1.20/udp/4001/webrtc-direct/certhash/uEiC09KTW--VIU9UbeGz0OHHQmSrhAWyXw7yroPGT1N587A',
   ];
   assert.deepEqual(shareableAddrs(id), ['/ip4/192.168.1.20/tcp/4001', '/ip4/192.168.1.20/udp/4001/quic-v1', '/ip6/2001:db8::5/tcp/4001']);
   assert.equal(shareableAddrs(Array.from({ length: 30 }, (_, i) => `/ip4/10.1.0.${i}/tcp/4001`)).length, 16);

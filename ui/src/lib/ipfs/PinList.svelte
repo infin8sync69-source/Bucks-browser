@@ -2,6 +2,7 @@
     import { ipfsStore } from '$lib/ipfsStore';
     import { browserStore } from '$lib/stores';
     import { errorMessage, shortId } from '$lib/format';
+    import SendToDevicesButton from '$lib/devices/SendToDevicesButton.svelte';
 
     let pinInput = $state('');
     let pinning = $state(false);
@@ -74,9 +75,12 @@
                         <span class="font-mono text-xs text-zinc-300 truncate" title={pin.cid}>{shortId(pin.cid, 10, 8)}</span>
                         <span class="text-xs text-zinc-600">{pin.pin_type}</span>
                     </div>
-                    <div class="flex gap-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-                        <button onclick={() => browserStore.createTab(`ipfs://${pin.cid}`)} class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Open</button>
-                        <button onclick={() => unpin(pin.cid)} class="text-xs text-red-400/70 hover:text-red-400 transition-colors">Unpin</button>
+                    <div class="flex items-center gap-3 min-w-0">
+                        <SendToDevicesButton cid={pin.cid} compact />
+                        <div class="flex gap-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                            <button onclick={() => browserStore.createTab(`ipfs://${pin.cid}`)} class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Open</button>
+                            <button onclick={() => unpin(pin.cid)} class="text-xs text-red-400/70 hover:text-red-400 transition-colors">Unpin</button>
+                        </div>
                     </div>
                 </div>
             {/each}

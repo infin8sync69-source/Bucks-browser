@@ -459,9 +459,16 @@ export function createDevicesService({
     }
     if (settings.get()?.devices?.autoPin) autoPin(msg.peerId, presences.get(msg.peerId).shareCids);
 
-    // Keep the stored addrs (and so Kubo's Peering) in step with what the device advertises.
-    if (msg.addrs.length && !sameAddrSet(msg.addrs, paired.addrs)) {
-      updatePeers((peers) => peers.map((p) => (p.peerId === msg.peerId ? { ...p, addrs: msg.addrs } : p)));
+    // Keep the stored addrs (and so Kubo's Peering) in step with what the device advertises, and
+    // fill in its name when it was paired by bare peer ID. Settings are only written on a change.
+    const addrsChanged = msg.addrs.length > 0 && !sameAddrSet(msg.addrs, paired.addrs);
+    const learnName = !paired.name && Boolean(msg.name);
+    if (addrsChanged || learnName) {
+      updatePeers((peers) => peers.map((p) => (p.peerId === msg.peerId
+        ? { ...p, addrs: addrsChanged ? msg.addrs : p.addrs, name: p.name || msg.name }
+        : p)));
+    }
+    if (addrsChanged) {
       const s = session;
       if (s) {
         (async () => {

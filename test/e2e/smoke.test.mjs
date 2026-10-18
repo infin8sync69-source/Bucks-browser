@@ -61,7 +61,7 @@ test('ipfs:// end to end through the embedded node', { timeout: NODE_TIMEOUT + 6
 
     const html = `<!doctype html><html><head><title>Bucks E2E Page</title></head><body><h1 id="h">hello from ipfs</h1><a id="l" href="./other.html">rel</a></body></html>`;
     const added = await page.evaluate((content) => window.bucks.ipfs.addText(content, 'index.html'), html);
-    assert.match(added.cid, /^bafy/, 'CIDv1 base32 expected');
+    assert.match(added.cid, /^baf[ky]/, 'CIDv1 base32 expected');
     assert.equal(added.ipfs_uri, `ipfs://${added.cid}`);
 
     const cat = await page.evaluate((cid) => window.bucks.ipfs.cat(cid), added.cid);

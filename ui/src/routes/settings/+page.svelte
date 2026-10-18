@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { fade } from "svelte/transition";
-    import { RefreshCw } from "lucide-svelte";
+    import { RefreshCw, MonitorSmartphone } from "lucide-svelte";
     import { browserStore } from "$lib/stores";
     import { settingsStore } from "$lib/settingsStore";
     import { bucks, type AgentStatus, type AppInfo, type SecurityStats, type Settings, type SettingsPatch } from "$lib/bridge";
@@ -160,6 +160,31 @@
                 checked={s.ipfs.autoStart}
                 onchange={(v) => save({ ipfs: { autoStart: v } })}
             />
+        </Section>
+
+        <!-- Devices -->
+        <Section title="Devices" hint="Pair your other Bucks installs (for example a Mac and a Linux laptop) to send files between them over IPFS.">
+            <ToggleRow
+                label="Pin files from my devices automatically"
+                description="Files your paired devices send are pinned on arrival, so they stay available on this computer."
+                checked={s.devices?.autoPin ?? false}
+                onchange={(v) => save({ devices: { autoPin: v } })}
+            />
+            <div class="flex items-center justify-between gap-4 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+                <div class="min-w-0">
+                    <p class="text-[13px] text-white/70">Paired devices</p>
+                    <p class="text-[11px] text-white/30 mt-0.5">
+                        {(s.ipfs.peers?.length ?? 0) === 0 ? "None yet" : `${s.ipfs.peers.length} paired`}{s.devices?.name ? ` · this device is "${s.devices.name}"` : ""}
+                    </p>
+                </div>
+                <a
+                    href="bucks://ipfs"
+                    onclick={(e) => { e.preventDefault(); browserStore.createOrFocusTab("bucks://ipfs"); }}
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 text-[12px] text-white/70 transition-colors shrink-0"
+                >
+                    <MonitorSmartphone size={12} /> Manage devices
+                </a>
+            </div>
         </Section>
 
         <!-- Security -->

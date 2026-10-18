@@ -9,8 +9,8 @@ All platforms:
 
 - Node.js 22 (`package.json` requires 20 or newer) with npm 10, and Git.
 - Internet access during `npm install` (Electron, about 100 MB), `npm run fetch:kubo` (the Kubo
-  archive, from `dist.ipfs.tech`) and the first `electron-builder` run (packaging helpers,
-  downloaded from GitHub releases and cached).
+  archive, from `dist.ipfs.tech` or GitHub releases, see [Kubo bundling](#kubo-bundling)) and the
+  first `electron-builder` run (packaging helpers, downloaded from GitHub releases and cached).
 
 Per operating system:
 
@@ -18,7 +18,7 @@ Per operating system:
 |---|---|---|
 | Linux | The libraries Chromium needs: GTK 3, NSS, `libxss1`, `libxtst6`, `libasound2`, `libgbm1` and an X11 or Wayland session. On a headless machine add `xvfb` and run through `xvfb-run -a`. | Nothing more. `electron-builder` downloads its AppImage and `fpm` helpers. To run an AppImage the target machine needs FUSE 2 (`libfuse2`). |
 | Windows | Windows 10 or newer. | Nothing more (no native modules, so no Visual Studio build tools). Build on Windows: cross-building from Linux or macOS would need Wine and is not supported here. |
-| macOS | macOS 12 or newer. | Build on macOS: the `.dmg` is made with the system's `hdiutil`. Xcode is not needed. |
+| macOS | macOS 13 (Ventura) or newer, Apple Silicon or Intel: Electron 44 does not start on older versions. Git from Apple's Command Line Tools (`xcode-select --install`) or Homebrew. | Build on macOS: the `.dmg` is made with the system's `hdiutil`. Xcode is not needed. |
 
 The app has no native Node modules, so `npmRebuild` and `nodeGypRebuild` are off in
 `electron-builder.yml`.
@@ -38,6 +38,51 @@ are root on Linux. Ctrl+C, closing the window, or the dev server dying stops eve
 
 Without Vite: `npm start` builds the chrome (`npm run build:ui`) and runs Electron against `ui/build`.
 Use `BUCKS_USER_DATA=/path` to keep a throw-away profile apart from your real one.
+
+## Source installs (install-linux.sh, install-macos.sh)
+
+For testers who want the app without packaging it, `scripts/install-linux.sh` and
+`scripts/install-macos.sh` turn a Git checkout into a launchable app. Both are meant to be piped
+from GitHub (`curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-<os>.sh | bash`),
+check every prerequisite first and report all problems at once, clone or fast-forward the branch
+(`BUCKS_BRANCH`, default `electron-main`) into `BUCKS_DIR`, run `npm install`, make sure the
+Electron binary really arrived (retrying `node node_modules/electron/install.js` once), pre-download
+Kubo with `node scripts/fetch-kubo.mjs` (not fatal: the app downloads it at first start otherwise),
+run `npm run build:ui` and add a launcher. Running the command again updates the checkout. See
+[scripts/README.md](../scripts/README.md) for the exact behaviour of each.
+
+### macOS notes
+
+- **What it creates.** The checkout goes to `~/Library/Application Support/BucksBrowser/source`.
+  `~/Applications/Bucks Browser.app` is a small launcher bundle made by the script: an `Info.plist`
+  (bundle id `com.mikado.bucksbrowser.source`, version from `package.json`,
+  `LSMinimumSystemVersion` 13.0), the icon from `build/icons/icon.icns`, and
+  `Contents/MacOS/bucks-browser`, a bash script that runs
+  `node_modules/electron/dist/Electron.app/Contents/MacOS/Electron` with the checkout as the app.
+  `~/.local/bin/bucks-browser` is the same script for terminal use. The profile, settings and
+  the IPFS repository live in `~/Library/Application Support/Bucks Browser/`, the same folder a
+  packaged build uses.
+- **Unsigned, but not quarantined.** The launcher is not code-signed. It is created on the Mac
+  itself, so it carries no quarantine flag and Gatekeeper does not block it; the script never uses
+  `sudo`, never writes outside your home folder and does not change Gatekeeper settings. Electron
+  is downloaded by npm and Kubo by `fetch-kubo.mjs`, neither of which quarantines files.
+- **Apple Silicon and Intel.** Electron and Kubo are installed for the architecture of the Node.js
+  that runs the installer (`node -p process.arch`). On Apple Silicon with an Intel Node.js, or from
+  a Terminal opened with Rosetta, the installer warns that the slower Intel builds would be used.
+- **How it looks.** The Dock icon is the Bucks icon, but because the running process is Electron's
+  own app, the menu bar and the Dock label say "Electron". Packaged builds do not have this quirk.
+- **PATH.** Apps opened from Finder get a minimal `PATH`. The launcher puts the directories of the
+  `node` and `git` the installer used first, so the in-app updater (`git pull`, `npm install`,
+  `npm run build:ui`) finds them. If you later remove that Node.js version, run the installer again.
+- **Network prompts.** On first start macOS may ask whether `ipfs` or `Electron` may accept incoming
+  connections and, on macOS 15 and later, whether the app may find devices on the local network.
+  Both are needed to connect to other computers, see [DEVICES.md](DEVICES.md).
+- **Uninstall.** Quit Bucks, then delete `~/Applications/Bucks Browser.app`,
+  `~/.local/bin/bucks-browser` and `~/Library/Application Support/BucksBrowser/`. Also delete
+  `~/Library/Application Support/Bucks Browser/` to remove your profile and IPFS repository.
+- **Packaged builds are separate.** `npm run dist:mac` builds an unsigned `.dmg` and `.zip` with
+  electron-builder (next sections). Install those in `/Applications`; the source installer refuses
+  to overwrite a `~/Applications/Bucks Browser.app` it did not create.
 
 ## Building installers
 
@@ -101,10 +146,14 @@ node scripts/fetch-kubo.mjs --version v0.43.1        # pin a version (default: l
 node scripts/fetch-kubo.mjs --force                  # re-download
 ```
 
-- The version list and archives come from `https://dist.ipfs.tech/kubo`. Set `KUBO_DIST_URL` to use
-  a mirror. If the version list cannot be read, v0.43.1 is used.
-- Every archive is checked against its published SHA-512. `--skip-checksum` continues with only a warning,
-  for mirrors that do not host checksums.
+- Mirrors are tried in order: `KUBO_DIST_URL` when set (any mirror with the `dist.ipfs.tech`
+  layout), `https://dist.ipfs.tech/kubo`, then GitHub releases
+  (`https://github.com/ipfs/kubo/releases/download/<version>/kubo_<version>_<os>-<arch>.tar.gz`).
+  So a network that blocks `dist.ipfs.tech` still gets Kubo from GitHub. The latest stable version
+  is read from the same mirrors; if none answers, v0.43.1 is used. The app's own first-start
+  download uses the same list, through Electron's network stack (so it follows the system proxy).
+- Every archive is checked against the SHA-512 published by the same mirror. `--skip-checksum`
+  continues with only a warning, for mirrors that do not host checksums.
 - `HTTPS_PROXY` is honoured (the script re-runs itself with `NODE_USE_ENV_PROXY=1`, which needs
   Node 22.21 or newer).
 - `electron-builder.yml` copies `resources/kubo/${os}-${arch}` to `resources/kubo/` in the package:
@@ -193,5 +242,8 @@ test (`npm run test:e2e`) is not part of CI.
   run `npm run build:ui`.
 - **`electron-builder` times out downloading helpers.** Set `ELECTRON_MIRROR`/`ELECTRON_BUILDER_BINARIES_MIRROR`,
   or build on a machine with direct access to GitHub.
-- **Kubo download fails.** Place a binary at `resources/kubo/<os>-<arch>/ipfs`, point `BUCKS_KUBO_BIN`
-  at one, or set `KUBO_DIST_URL`.
+- **Kubo download fails.** Run `node scripts/fetch-kubo.mjs` and read which mirror failed and why.
+  Then place a binary at `resources/kubo/<os>-<arch>/ipfs` in the checkout, or in the profile at
+  `kubo/bin/ipfs` (`~/.config/Bucks Browser/` on Linux, `~/Library/Application Support/Bucks Browser/`
+  on macOS, `%APPDATA%\Bucks Browser\` on Windows, as `ipfs.exe`); point `BUCKS_KUBO_BIN` at one; or
+  set `KUBO_DIST_URL`. [DEVICES.md](DEVICES.md#installing-the-ipfs-node-by-hand) has the commands.

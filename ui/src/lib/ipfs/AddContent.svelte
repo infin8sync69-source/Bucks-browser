@@ -2,10 +2,19 @@
     import { ipfsStore, type IpfsAddResult } from '$lib/ipfsStore';
     import { browserStore } from '$lib/stores';
     import { errorMessage, formatBytes } from '$lib/format';
+    import SendToDevicesButton from '$lib/devices/SendToDevicesButton.svelte';
 
     let textContent = $state('');
     let publishResult = $state<IpfsAddResult | null>(null);
     let uploadResult = $state<IpfsAddResult | null>(null);
+    let uploadName = $state('');
+    let publishName = $state('');
+
+    /** Label for a published note when it is sent to other devices: its first line, as a .txt name. */
+    function noteName(content: string): string {
+        const first = content.split('\n', 1)[0].replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 48).trim();
+        return first ? `${first}.txt` : 'note.txt';
+    }
     let isPublishing = $state(false);
     let isUploading = $state(false);
     let publishError = $state('');
@@ -25,6 +34,7 @@
         publishResult = null;
         try {
             publishResult = await ipfsStore.publishText(content);
+            publishName = noteName(content);
             textContent = '';
             await ipfsStore.listPins();
         } catch (e) {
@@ -40,6 +50,7 @@
         uploadResult = null;
         try {
             uploadResult = await ipfsStore.uploadFile(file);
+            uploadName = file.name;
             await ipfsStore.listPins();
         } catch (e) {
             uploadError = errorMessage(e);
@@ -56,7 +67,7 @@
     }
 </script>
 
-{#snippet resultBox(title: string, r: IpfsAddResult)}
+{#snippet resultBox(title: string, r: IpfsAddResult, name?: string)}
     <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1 text-xs">
         <div class="text-emerald-400 font-medium">✓ {title}</div>
         <div class="flex gap-2">
@@ -72,6 +83,9 @@
             <button onclick={() => openCid(r.cid)} class="font-mono text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline break-all text-left transition-colors">
                 {r.ipfs_uri}
             </button>
+        </div>
+        <div class="pt-2">
+            <SendToDevicesButton cid={r.cid} {name} size={r.size} />
         </div>
     </div>
 {/snippet}
@@ -105,7 +119,7 @@
         }}
     />
     {#if uploadError}<p class="text-xs text-red-400">{uploadError}</p>{/if}
-    {#if uploadResult}{@render resultBox('Added', uploadResult)}{/if}
+    {#if uploadResult}{@render resultBox('Added', uploadResult, uploadName)}{/if}
 </section>
 
 <section class="space-y-3">
@@ -127,5 +141,5 @@
         </button>
         {#if publishError}<span class="text-xs text-red-400">{publishError}</span>{/if}
     </div>
-    {#if publishResult}{@render resultBox('Published', publishResult)}{/if}
+    {#if publishResult}{@render resultBox('Published', publishResult, publishName)}{/if}
 </section>
