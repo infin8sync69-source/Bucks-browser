@@ -40,6 +40,14 @@ fi
 cd "$DEST"
 say "Installing dependencies (downloads Electron, roughly 250 MB on first run)"
 npm install --no-audit --no-fund </dev/null
+# npm can finish without the Electron binary when its download is blocked, so verify it explicitly.
+ELECTRON_BIN="$DEST/node_modules/electron/dist/electron"
+if [ ! -x "$ELECTRON_BIN" ]; then
+  say "Electron binary not found, retrying its download"
+  node node_modules/electron/install.js </dev/null || true
+fi
+[ -x "$ELECTRON_BIN" ] || die "Electron did not download. Check your network or proxy settings, then run this again."
+
 say "Building the browser interface"
 npm run build:ui </dev/null
 
@@ -51,7 +59,7 @@ say "Adding the launcher and the application menu entry"
 mkdir -p "$BIN_DIR" "$APPS_DIR"
 cat > "$BIN_DIR/bucks-browser" <<LAUNCHER
 #!/usr/bin/env bash
-cd "$DEST" && exec "$DEST/node_modules/electron/dist/electron" . $SANDBOX_FLAG "\$@"
+cd "$DEST" && exec "$ELECTRON_BIN" . $SANDBOX_FLAG "\$@"
 LAUNCHER
 chmod +x "$BIN_DIR/bucks-browser"
 
