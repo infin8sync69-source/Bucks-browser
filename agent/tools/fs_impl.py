@@ -46,24 +46,73 @@ BUCKS_ROOT = Path(
 MAX_READ_CHARS = int(os.getenv("BUCKS_MAX_READ_CHARS", "8000"))
 MAX_LIST_ENTRIES = int(os.getenv("BUCKS_MAX_LIST_ENTRIES", "100"))
 
+# Extra directories the user has explicitly granted, beyond the project root.
+# Colon-separated absolute paths, e.g.
+#     BUCKS_ALLOWED_ROOTS="$HOME/Documents:$HOME/Desktop/work"
+# Empty by default: without an explicit grant the tools stay confined to the
+# project, which is the behaviour every existing caller was written against.
+def _configured_roots() -> list[Path]:
+    roots = [BUCKS_ROOT.resolve()]
+    for raw in os.getenv("BUCKS_ALLOWED_ROOTS", "").split(os.pathsep):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            roots.append(Path(raw).expanduser().resolve())
+        except OSError:
+            continue
+    return roots
+
+
+# Never readable/writable even when nested inside a granted root. Credentials
+# do not become safe to hand an agent just because they sit under a directory
+# the user opened up for ordinary work files.
+DENIED_NAMES = {
+    ".ssh", ".aws", ".gnupg", ".kube", ".docker", ".netrc",
+    ".env", ".env.local", "id_rsa", "id_ed25519", "credentials",
+    "Keychains", "login.keychain-db", ".git-credentials", ".npmrc", ".pypirc",
+}
+
 
 def safe_path(rel_or_abs: str) -> Path:
-    """Resolve a path, keeping it inside BUCKS_ROOT.
+    """Resolve a path, keeping it inside one of the allowed roots.
 
-    Containment is checked with ``is_relative_to`` (real path components), not a
-    string prefix — a raw ``startswith`` lets a sibling like
-    ``/x/bucks core-evil`` slip past the guard for root ``/x/bucks core``.
-    ``resolve()`` collapses symlinks, so a link pointing out of root is rejected
-    here rather than followed.
+    Allowed roots are the project root plus anything the user granted via
+    ``BUCKS_ALLOWED_ROOTS``. Containment is checked with ``is_relative_to``
+    (real path components), not a string prefix — a raw ``startswith`` lets a
+    sibling like ``/x/bucks core-evil`` slip past the guard for root
+    ``/x/bucks core``. ``resolve()`` collapses symlinks, so a link pointing out
+    of every root is rejected here rather than followed.
     """
-    p = Path(rel_or_abs)
+    p = Path(rel_or_abs).expanduser()
     if not p.is_absolute():
         p = BUCKS_ROOT / p
     p = p.resolve()
-    root = BUCKS_ROOT.resolve()
-    if p != root and not p.is_relative_to(root):
-        raise PermissionError(f"Path outside project root: {p}")
+
+    roots = _configured_roots()
+    if not any(p == r or p.is_relative_to(r) for r in roots):
+        raise PermissionError(
+            f"Path outside allowed roots: {p}. Granted: "
+            + ", ".join(str(r) for r in roots)
+            + ". Add more with BUCKS_ALLOWED_ROOTS."
+        )
+
+    # Check every component, so .../Documents/.ssh/id_rsa is caught too.
+    for part in p.parts:
+        if part in DENIED_NAMES:
+            raise PermissionError(f"Path is denied (sensitive): {p}")
     return p
+
+
+def _display(p: Path) -> str:
+    """Path shown back to the caller, relative to whichever root contains it."""
+    for r in _configured_roots():
+        if p == r or p.is_relative_to(r):
+            try:
+                return str(p.relative_to(r))
+            except ValueError:
+                break
+    return str(p)
 
 
 def _human_size(n: int) -> str:
@@ -98,7 +147,9 @@ def write_file(path: str, content: str) -> str:
         p = safe_path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"✓ Written: {p.relative_to(BUCKS_ROOT)}"
+        # relative_to(BUCKS_ROOT) raised for files under a granted external
+        # root, turning a successful write into a "Write error:" string.
+        return f"✓ Written: {_display(p)}"
     except Exception as e:
         return f"Write error: {e}"
 
