@@ -416,7 +416,7 @@ async def get_capabilities():
             "file_operations": ["read_file", "write_file", "list_directory", "git_status"],
             "web": ["web_search", "fetch_url", "extract_links"],
             "research": ["deep_research", "image_search", "weather_lookup"],
-            "ipfs": ["ipfs_upload_text", "ipfs_cat_text", "dweb_search"],
+            "ipfs": ["ipfs_cat_text", "dweb_search"],
             "calendar": ["calendar_add", "calendar_list"],
             "commerce": ["product_search", "track_order"]
         }

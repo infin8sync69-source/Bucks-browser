@@ -367,10 +367,9 @@ async def _run_top_tool(agent: str, prompt: str) -> str:
                     return await tool.run(cid=cid)
                 return "Error: No IPFS CID found in prompt to load tool."
             elif any(k in prompt.lower() for k in ("upload", "pin", "publish")):
-                text_match = re.search(r'["\'](.*?)["\']', prompt)
-                text = text_match.group(1) if text_match else prompt
-                tool = get_tool("ipfs_upload_text")
-                return await tool.run(text=text)
+                # Publishing needs the user's approval, which only the browser can ask for.
+                return ("Publishing to IPFS is done by Bucks Browser, which shows you what will be "
+                        "published and asks first: use the agent with the Soul Engine, or Host a site.")
             else:
                 if cid:
                     tool = get_tool("ipfs_cat_text")

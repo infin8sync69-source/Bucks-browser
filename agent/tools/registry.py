@@ -441,10 +441,6 @@ async def _wrap_product_lookup(query: str, max_results: int = 12):
     from tools.shopping import product_lookup
     return await product_lookup(query, max_results)
 
-async def wrap_ipfs_upload_text(text: str) -> str:
-    from tools.ipfs_tools import ipfs_upload_text as _upload
-    return await _upload(text)
-
 async def wrap_ipfs_cat_text(cid: str) -> str:
     from tools.ipfs_tools import ipfs_cat_text as _cat
     return await _cat(cid)
@@ -452,10 +448,6 @@ async def wrap_ipfs_cat_text(cid: str) -> str:
 async def wrap_ipfs_dynamic_load_tool(cid: str) -> str:
     from tools.ipfs_tools import ipfs_dynamic_load_tool as _load
     return await _load(cid)
-
-async def wrap_dweb_publish(name: str, content: str, title: str = "", desc: str = "") -> str:
-    from tools.ipfs_tools import dweb_publish as _pub
-    return await _pub(name, content, title, desc)
 
 async def wrap_dweb_search(query: str) -> str:
     from tools.ipfs_tools import dweb_search as _search
@@ -641,10 +633,8 @@ TOOLS: dict[str, Tool] = {
     "track_order":           Tool("track_order",           "Track a shipment order",                               track_order),
     "product_search":        Tool("product_search",        "Search the product catalog",                           product_search),
     "product_lookup":        Tool("product_lookup",        "Fetch REAL products from trusted retailer pages",      _wrap_product_lookup),
-    "ipfs_upload_text":      Tool("ipfs_upload_text",      "Upload text content to IPFS, returning the CID",       wrap_ipfs_upload_text, safe=False),
     "ipfs_cat_text":         Tool("ipfs_cat_text",         "Retrieve and read text content from an IPFS CID",      wrap_ipfs_cat_text),
     "ipfs_dynamic_load_tool": Tool("ipfs_dynamic_load_tool", "Fetch and dynamically load a new agent tool from IPFS", wrap_ipfs_dynamic_load_tool, safe=False),
-    "dweb_publish":          Tool("dweb_publish",          "Publish a page to the Bucks dWeb (IPFS + swarm index)", wrap_dweb_publish, safe=False),
     "dweb_search":           Tool("dweb_search",           "Search pages on the Bucks dWeb discovery index",       wrap_dweb_search),
     "image_search":          Tool("image_search",          "Search the web for images (renders an image gallery)", _wrap_image_search),
     "youtube_search":        Tool("youtube_search",        "Search YouTube videos (renders an embedded player)",   _wrap_youtube_search),
@@ -681,8 +671,9 @@ AGENT_TOOL_MAPPINGS = {
     "commerce": ["track_order", "product_search", "web_search"],
     "slm":      ["web_search", "calendar_list"],
     "calendar": ["calendar_add", "calendar_list"],
-    "ipfs":     ["ipfs_upload_text", "ipfs_cat_text", "ipfs_dynamic_load_tool",
-                 "dweb_publish", "dweb_search"],
+    # Publishing is not an engine tool: the browser does it, with the user's approval
+    # (site_* tools, src/main/sites/agent-tools.js).
+    "ipfs":     ["ipfs_cat_text", "ipfs_dynamic_load_tool", "dweb_search"],
     "cluster":  ["cluster_list_members", "cluster_list_discovered", "cluster_get_my_identity",
                  "cluster_list_files", "cluster_recommend", "cluster_unrecommend",
                  "cluster_pin", "cluster_unpin"],
