@@ -1,2 +1,0 @@
-set(__QT_DEPLOY_TARGET_BucksNativeBrowser_FILE /Users/mikado/Desktop/Bucks-browser/bucks-native-browser/build/BucksNativeBrowser)
-set(__QT_DEPLOY_TARGET_BucksNativeBrowser_TYPE EXECUTABLE)

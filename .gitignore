@@ -1,14 +1,23 @@
 # Dependencies
 node_modules/
+.venv/
+venv/
+env/
 
-# Electron runtime binaries (committed separately or installed by Electron)
+# Build and runtime binaries
 bin/
 dist/
 out/
+build/
+.next/
 
-# IPFS & Wallet data
+# IPFS, Database, & Wallet data
 ipfs-data/
 *.wallet
+chroma_db/
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
 *.log
@@ -25,3 +34,26 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.local
+
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Test/runtime scratch profiles
+test-userData*/
+
+# Playwright output
+test-results/
+playwright-report/
+
+# Cluster secrets (use cluster-config.env.example)
+ipfs/cluster-config.env
+
+# Runtime caches
+agent/soul/.frozen_cid_cache
+
+# Composer attachments (written at runtime, agent-readable, never committed)
+.bucks-attachments/
+bucks-browser-dist.tar.gz

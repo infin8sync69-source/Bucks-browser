@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-07-26T08:00:32.755Z",
+  "warning": "TEST IDENTITIES ONLY — public info only, no private keys, DO NOT USE IN PRODUCTION",
+  "userA": {
+    "soulId": "d023e6c202260626bc43add2843d7adaa93866f223705693220c6912566aef7a",
+    "address": "0xd023e6c202260626bc43add2843d7adaa93866f2",
+    "displayName": "SoulUser_d023e6",
+    "peerId": "12D3KooWPprinnR8Bx1KA2tykPxzwiAirH3AqRQpfR1EY3z94ygm",
+    "identityPublicKey": "MCowBQYDK2VuAyEAgL4C6hUWLkpbKTSMOr6o89VXGoHF3MBr+wAZhK6uRmM=",
+    "createdAt": "2026-07-26T08:00:30.693Z"
+  },
+  "userB": {
+    "soulId": "915d43fd54591c329f18ffbda65c94ad4abecdafc5c279626aaa9c53ec59c382",
+    "address": "0x915d43fd54591c329f18ffbda65c94ad4abecdaf",
+    "displayName": "SoulUser_915d43",
+    "peerId": "12D3KooWKbomazPSWUx1JP1Cnug1wYC6pbV2Wj3pAZbZqgVcFnaM",
+    "identityPublicKey": "MCowBQYDK2VuAyEASr5HmhSA/pmeiq/TyPcAQh4dVsR5ug9Y8AZv5VlJ6T8=",
+    "createdAt": "2026-07-26T08:00:30.681Z"
+  },
+  "messagingTest": {
+    "passed": true,
+    "messagesVerified": 4,
+    "totalMessages": 4
+  }
+}
