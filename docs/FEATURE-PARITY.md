@@ -69,7 +69,7 @@ carried over** (reason given).
 | `ipfs://` / `ipns://` browsing, add, pin, node dashboard | ✅ (Helia) | ✅ (Kubo) |
 | Devices: pair your computers, send files | ✅ | ✅ e2e |
 | Feed: follow peers, publish posts, upvote | ✅ | ⏳ batch D |
-| dWeb: publish a site, search the index | ✅ | ⏳ batch D |
+| dWeb: publish a site, search the index | ✅ | 🟡 hosting a site (publish, `ipns://` updates, rollback, key backup, health, SPA deep links) is done in the main process, e2e; screens not built yet, publish with `scripts/site.mjs` or the agent ([HOSTING.md](HOSTING.md)). The dWeb search index is ⏳ batch D |
 | Storage dashboard | ✅ | 🟡 node stats on `bucks://ipfs` |
 | Cluster: members, invites, votes, shared pins | ✅ | ⏳ batch D |
 | Messages: end-to-end encrypted chat with peers | ✅ | ⏳ batch D (engine code in `src/main/chat/`) |

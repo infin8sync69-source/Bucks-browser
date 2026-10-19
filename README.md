@@ -18,7 +18,12 @@ with privacy-protective defaults turned on.
 - **Your devices, connected.** Pair your own computers (Linux and macOS) and send files between them
   over IPFS peering and pubsub, see [docs/DEVICES.md](docs/DEVICES.md).
 - **Local-first.** Your settings, bookmarks, history, pins and node repository live on your machine.
-  The public gateway is only a fallback when the local node is not running.
+  When the local node is not running, a page asks before anything is loaded through a public gateway.
+- **Host sites from your browser.** Publish a folder (a website or a client-side web app) as an
+  `ipfs://` version and an updatable `ipns://` address, with checks for secrets and server-only
+  features, single-page-app deep links, updates with a diff, rollback and key backup. See
+  [docs/HOSTING.md](docs/HOSTING.md) (the screens are not built yet: publish with
+  `scripts/site.mjs` or the agent).
 - **Privacy defaults.** HTTPS-only mode, ad and tracker blocking, third-party cookie blocking,
   and a deny-by-default permission policy (camera, microphone, location, notifications and
   device access are refused). Every tab is a sandboxed Chromium renderer, with Chromium's
@@ -118,7 +123,8 @@ unsigned-build caveats and the CI pipeline are in [docs/BUILDING.md](docs/BUILDI
   see [the architecture notes](docs/ARCHITECTURE.md#cidv0-and-cidv1).
 - **Node dashboard.** Open `bucks://ipfs` for node status, peers and storage numbers, adding
   files or text to your node, browsing a path, and your pin list.
-- **Publish.** Adding a file returns its CID, an `ipfs://` address and a gateway URL.
+- **Publish.** Adding a file returns its CID, an `ipfs://` address and a gateway URL. To host a
+  whole site, see [docs/HOSTING.md](docs/HOSTING.md).
 - **Pin.** Pinning keeps content on your node so it stays available and survives garbage collection.
 - **Devices.** Pair your Bucks installs (for example an Ubuntu laptop and a MacBook) in the
   Devices section of `bucks://ipfs`, then use **Send to my devices** to offer a file to all of
@@ -128,7 +134,8 @@ unsigned-build caveats and the CI pipeline are in [docs/BUILDING.md](docs/BUILDI
 - **External node.** In Settings, switch the IPFS mode from `embedded` to `external` and enter the
   API address of a Kubo node you already run (for example `http://127.0.0.1:5001`). Bucks then
   uses that node and leaves its lifecycle alone. You can also prefer the public gateway
-  (`ipfs.preferredGateway = public`) or change which one is used as the fallback.
+  (`ipfs.preferredGateway = public`) or change which one is offered when the node is off
+  (`ipfs.publicGateway`, which must be `https://` on a public host).
 
 ## Agent providers
 

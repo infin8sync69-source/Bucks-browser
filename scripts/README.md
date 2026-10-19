@@ -8,7 +8,8 @@ modules and need Node 20+.
 | `install-linux.sh` | `curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-linux.sh \| bash` | Source installer for Linux: clone or update, build, add `bucks-browser` and an application menu entry. |
 | `install-macos.sh` | `curl -fsSL https://raw.githubusercontent.com/infin8sync69-source/Bucks-browser/electron-main/scripts/install-macos.sh \| bash` | Source installer for macOS (Apple Silicon and Intel): clone or update, build, create `~/Applications/Bucks Browser.app`. |
 | `dev.mjs` | `npm run dev` | Developer runner: starts the Vite dev server in `ui/` (port 1420, strict), waits for it, then launches Electron with `BUCKS_DEV_URL` and `BUCKS_DEBUG=1`. Extra arguments are passed to Electron. `--check` validates the setup and exits. |
-| `fetch-kubo.mjs` | `npm run fetch:kubo` | Downloads the Kubo binary (SHA-512 verified) into `resources/kubo/<os>-<arch>/`, trying several mirrors. Used for packaging and by both installers. |
+| `fetch-kubo.mjs` | `npm run fetch:kubo` | Downloads the pinned Kubo release into `resources/kubo/<os>-<arch>/`, verified against the SHA-512 digests stored in `src/main/ipfs/dist.js`, trying several mirrors. Used for packaging and by both installers. `--check-latest` reports whether a newer Kubo exists. |
+| `site.mjs` | `node scripts/site.mjs publish <folder>` | Host a site from the command line with the same service, profile and node as the browser: inspect, preview, publish, update (with a diff), list, status, rollback, export a CAR, back up the key, unpublish. See [docs/HOSTING.md](../docs/HOSTING.md). |
 | `check-main.mjs` | part of `npm run check` | Syntax-checks every file under `src/` and `scripts/` with `node --check`, without starting Electron. |
 
 ## Source installers

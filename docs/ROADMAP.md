@@ -14,7 +14,11 @@ platform they will be built on.
 - **Shell.** Electron 44, a frameless chrome window, and one `WebContentsView` per external tab with
   the tab list owned by the interface (see [ARCHITECTURE.md](ARCHITECTURE.md)).
 - **IPFS.** `ipfs://` and `ipns://` served by protocol handlers that stream from a local Kubo
-  node, with CIDv0 to CIDv1 normalisation and one web origin per CID. Public-gateway fallback.
+  node, with CIDv0 to CIDv1 normalisation and one web origin per CID. A public gateway only with
+  the visitor's consent.
+- **Hosting sites.** Publish a folder as `ipfs://` and `ipns://` from the browser: preflight checks,
+  SPA deep links, updates with a diff, rollback, key backup, health, and agent tools with approval
+  ([HOSTING.md](HOSTING.md)). The wizard and dashboard wait for the new chrome.
 - **Kubo sidecar.** Locate or download (SHA-512 verified), init, configure, spawn, health check,
   restart after crashes, clean shutdown; reuse of a running daemon; external-node mode; the
   `bucks://ipfs` dashboard (status, add, browse, pin).
