@@ -10,6 +10,7 @@ import tempfile
 import os
 from pathlib import Path
 from typing import Callable, Any
+from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
@@ -75,6 +76,146 @@ async def _ddg_html_search(query: str, max_results: int = 6) -> list[dict]:
     return results
 
 
+# Attribute order inside a <meta> tag is arbitrary — some sites emit
+# content= before property=, so match the whole tag and pull content out after.
+_OG_RE = re.compile(
+    r'<meta[^>]+(?:property|name)\s*=\s*["\'](?:og:image(?::secure_url|:url)?'
+    r'|twitter:image(?::src)?)["\'][^>]*>',
+    re.I,
+)
+_LINK_IMG_RE = re.compile(r'<link[^>]+rel\s*=\s*["\']image_src["\'][^>]*>', re.I)
+_CONTENT_RE = re.compile(r'content\s*=\s*["\']([^"\']+)["\']', re.I)
+_HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+)["\']', re.I)
+_JSONLD_IMG_RE = re.compile(r'"image"\s*:\s*(?:\{[^}]*?"url"\s*:\s*)?"(https?://[^"]+)"', re.I)
+
+# A full browser header set — several publishers (phys.org among them) 403 a
+# request that carries only a User-Agent.
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,"
+              "image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def _abs_url(src: str, base: str) -> str:
+    src = (src or "").strip()
+    if src.startswith("//"):
+        return "https:" + src
+    if src.startswith("/"):
+        return urljoin(base, src)
+    return src if src.startswith("http") else ""
+
+
+async def _og_thumbnail(client, url: str) -> str:
+    """Best-effort share image for one result. Never raises.
+
+    Tries og:image, then twitter:image, then <link rel=image_src>, then a
+    JSON-LD "image" — in that order of reliability. Reads only the head of the
+    response; social meta tags live in <head>, so pulling a whole article down
+    for a thumbnail would be wasted bandwidth.
+    """
+    try:
+        async with client.stream("GET", url, headers=_BROWSER_HEADERS,
+                                 timeout=4.0, follow_redirects=True) as r:
+            if r.status_code >= 400:
+                return ""
+            if "html" not in r.headers.get("content-type", "").lower():
+                return ""
+            head = ""
+            async for chunk in r.aiter_text(16384):
+                head += chunk
+                # </head> means every meta tag we care about has been seen.
+                if len(head) > 96000 or "</head" in head.lower():
+                    break
+
+        for tag in _OG_RE.findall(head):
+            m = _CONTENT_RE.search(tag)
+            if m and (src := _abs_url(m.group(1), url)):
+                return src
+        for tag in _LINK_IMG_RE.findall(head):
+            m = _HREF_RE.search(tag)
+            if m and (src := _abs_url(m.group(1), url)):
+                return src
+        if m := _JSONLD_IMG_RE.search(head):
+            if src := _abs_url(m.group(1), url):
+                return src
+    except Exception:
+        pass
+    return ""
+
+
+_YT_ID_RE = re.compile(
+    r'(?:youtube\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/)|youtu\.be/)'
+    r'([A-Za-z0-9_-]{11})', re.I)
+_VIMEO_ID_RE = re.compile(r'vimeo\.com/(?:video/)?(\d{6,})', re.I)
+
+
+def _derived_media(url: str) -> tuple[str, str]:
+    """(thumbnail, kind) derivable from the URL alone, without a fetch.
+
+    Video hosts render their pages client-side, so an og:image scrape is both
+    slow and unreliable there — but their thumbnail URLs are deterministic.
+    """
+    if m := _YT_ID_RE.search(url or ""):
+        return f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg", "video"
+    if _VIMEO_ID_RE.search(url or ""):
+        return "", "video"
+    return "", ""
+
+
+async def _enrich_thumbnails(results: list[dict], limit: int = 8) -> list[dict]:
+    """Attach a `thumbnail` to each search hit, concurrently.
+
+    Bounded by an overall deadline so a slow site can never stall the answer —
+    whatever has resolved by then is used, the rest simply render text-only.
+    """
+    import asyncio
+    targets = []
+    for r in results[:limit]:
+        url = r.get("href") or r.get("url")
+        if not url:
+            continue
+        thumb, kind = _derived_media(url)
+        if kind:
+            r["kind"] = kind
+        if thumb:
+            # Known media host — no fetch needed.
+            r["thumbnail"] = thumb
+            continue
+        targets.append(r)
+    if not targets:
+        return results
+    try:
+        # max_redirects caps hosts that 308-loop between the slashed and
+        # unslashed form of a URL; without it one such host burns the timeout
+        # twenty times over.
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True,
+                                     max_redirects=5) as client:
+            tasks = [
+                asyncio.create_task(_og_thumbnail(client, r.get("href") or r.get("url")))
+                for r in targets
+            ]
+            done, pending = await asyncio.wait(tasks, timeout=6.0)
+            for t in pending:
+                t.cancel()
+            for r, t in zip(targets, tasks):
+                if t in done:
+                    try:
+                        r["thumbnail"] = t.result() or ""
+                    except Exception:
+                        r["thumbnail"] = ""
+    except Exception:
+        pass
+    return results
+
+
 async def web_search(query: str, max_results: int = 6):
     """Search the web with DuckDuckGo.
 
@@ -107,6 +248,7 @@ async def web_search(query: str, max_results: int = 6):
     )
     try:
         from genui import search_results_component
+        results = await _enrich_thumbnails(results)
         return {"text": text, "_ui": search_results_component(query, results)}
     except Exception:
         return text
@@ -367,6 +509,124 @@ async def _wrap_weather_lookup(place: str, days: int = 5):
     from tools.weather_tools import weather_lookup
     return await weather_lookup(place, days)
 
+# ── Task Orchestration Wrappers ───────────────────────────────────────────
+_ORCHESTRATOR = None
+
+async def _registry_tool_executor(tool_name: str, tool_args: dict):
+    """Run a workflow step against the real tool registry.
+
+    Without this the orchestrator falls back to its mock executor, which logs
+    "would execute …" and returns a placeholder — so a workflow reported
+    status=completed at 100% having run nothing at all.
+    """
+    tool = TOOLS.get(tool_name)
+    if tool is None:
+        raise ValueError(f"Unknown tool: {tool_name}")
+    return await tool.run(**(tool_args or {}))
+
+def _get_orchestrator():
+    """Lazy-load the orchestrator, wired to this registry."""
+    global _ORCHESTRATOR
+    if _ORCHESTRATOR is None:
+        from task_orchestrator import TaskOrchestrator
+        _ORCHESTRATOR = TaskOrchestrator(tool_executor=_registry_tool_executor)
+    return _ORCHESTRATOR
+
+async def _wrap_create_workflow(name: str, description: str = None):
+    """Create a new workflow."""
+    orch = _get_orchestrator()
+    workflow = orch.create_workflow(name, description)
+    return {
+        "workflow_id": workflow.workflow_id,
+        "name": workflow.name,
+        "description": workflow.description,
+        "status": workflow.status.value
+    }
+
+async def _wrap_add_task(
+    workflow_id: str,
+    name: str,
+    tool_name: str,
+    tool_args: dict,
+    depends_on: list = None,
+    description: str = None,
+    max_retries: int = 3,
+    timeout_seconds: int = None
+):
+    """Add a task to a workflow."""
+    orch = _get_orchestrator()
+    task = orch.add_task(
+        workflow_id=workflow_id,
+        name=name,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        depends_on=depends_on,
+        description=description,
+        max_retries=max_retries,
+        timeout_seconds=timeout_seconds
+    )
+    return {
+        "task_id": task.task_id,
+        "name": task.name,
+        "tool_name": task.tool_name,
+        "status": task.status.value,
+        "depends_on": task.depends_on
+    }
+
+async def _wrap_execute_workflow(workflow_id: str):
+    """Execute a workflow."""
+    orch = _get_orchestrator()
+    workflow = await orch.execute_workflow(workflow_id)
+    return {
+        "workflow_id": workflow.workflow_id,
+        "name": workflow.name,
+        "status": workflow.status.value,
+        "completed_at": workflow.completed_at,
+        "error": workflow.error,
+        "results_count": len(workflow.results or {})
+    }
+
+async def _wrap_get_workflow_status(workflow_id: str):
+    """Get workflow status."""
+    orch = _get_orchestrator()
+    status = orch.get_workflow_status(workflow_id)
+    if not status:
+        return {"error": f"Workflow not found: {workflow_id}"}
+    return status
+
+async def _wrap_watch_directory(
+    path: str,
+    duration_seconds: float = 5.0,
+    patterns: list = None,
+    recursive: bool = True,
+):
+    """Watch a directory for a fixed window and report what changed."""
+    from tools.watch_impl import collect_events
+    return await collect_events(
+        path,
+        duration_seconds=duration_seconds,
+        patterns=patterns,
+        recursive=recursive,
+    )
+
+async def _wrap_list_workflows():
+    """List all workflows."""
+    orch = _get_orchestrator()
+    workflows = orch.list_workflows()
+    return {
+        "count": len(workflows),
+        "workflows": [
+            {
+                "workflow_id": w.workflow_id,
+                "name": w.name,
+                "status": w.status.value,
+                "tasks": len(w.tasks or {}),
+                "created_at": w.created_at
+            }
+            for w in workflows
+        ]
+    }
+
 TOOLS: dict[str, Tool] = {
     "web_search":            Tool("web_search",            "Search the web with DuckDuckGo",                       web_search),
     "fetch_url":             Tool("fetch_url",             "Fetch and read a URL's text content",                  fetch_url),
@@ -398,6 +658,13 @@ TOOLS: dict[str, Tool] = {
     "cluster_unrecommend":     Tool("cluster_unrecommend",     "Mark a file as not recommended (a vote; does not unpin)", wrap_cluster_unrecommend, safe=False),
     "cluster_pin":             Tool("cluster_pin",             "Pin/host a file locally (standalone; no vote)",          wrap_cluster_pin, safe=False),
     "cluster_unpin":           Tool("cluster_unpin",           "Unpin a file, stop hosting it (standalone; no vote)",    wrap_cluster_unpin, safe=False),
+    # ── Task Orchestration & Workflows ────────────────────────────────────
+    "create_workflow":         Tool("create_workflow",         "Create a new workflow (task orchestration)",              _wrap_create_workflow, safe=False),
+    "add_task":                Tool("add_task",                "Add a task to a workflow",                               _wrap_add_task, safe=False),
+    "execute_workflow":        Tool("execute_workflow",        "Execute a workflow (run all tasks with dependencies)",  _wrap_execute_workflow, safe=False),
+    "get_workflow_status":     Tool("get_workflow_status",     "Get workflow execution status and progress",            _wrap_get_workflow_status),
+    "list_workflows":          Tool("list_workflows",          "List all workflows and their status",                   _wrap_list_workflows),
+    "watch_directory":         Tool("watch_directory",         "Watch a folder for a few seconds and report file changes", _wrap_watch_directory),
 }
 
 
@@ -419,6 +686,8 @@ AGENT_TOOL_MAPPINGS = {
     "cluster":  ["cluster_list_members", "cluster_list_discovered", "cluster_get_my_identity",
                  "cluster_list_files", "cluster_recommend", "cluster_unrecommend",
                  "cluster_pin", "cluster_unpin"],
+    "workflow": ["create_workflow", "add_task", "execute_workflow", "get_workflow_status", "list_workflows"],
+    "files":    ["read_file", "write_file", "list_directory", "watch_directory"],
 }
 
 def tools_for_agent(agent_type: str) -> list[Tool]:

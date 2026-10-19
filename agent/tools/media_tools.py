@@ -24,9 +24,18 @@ import httpx
 
 log = logging.getLogger("bucks.tools.media")
 
+# Real Chrome sends a four-part version ("120.0.0.0"). The truncated "124.0"
+# here reads as non-browser traffic and gets a thinner page back.
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-_HEADERS = {"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"}
+       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+# The Accept header is load-bearing: without it Bing serves a degraded page
+# whose tiles are unrelated to the query (one stray shopping result rather
+# than image hits), which silently poisoned every gallery it topped up.
+_HEADERS = {
+    "User-Agent": _UA,
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 
 # ── Image search ───────────────────────────────────────────────────────────────
