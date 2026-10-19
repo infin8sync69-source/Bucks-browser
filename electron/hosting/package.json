@@ -1,0 +1,16 @@
+{
+  "name": "bucks-hosting",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Publish a folder from Bucks over ipfs:// and ipns:// (ported from Bucks-browser, runs a pinned Kubo node on demand)",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/unit/**/*.test.js\"",
+    "fetch:kubo": "node scripts/fetch-kubo.mjs"
+  },
+  "dependencies": {
+    "extract-zip": "^2.0.1",
+    "multiformats": "^14.0.5",
+    "tar": "^7.5.22"
+  }
+}

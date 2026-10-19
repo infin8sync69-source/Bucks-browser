@@ -342,7 +342,36 @@ const bucksDocs = {
   createPdf: (title, content) => ipcRenderer.invoke('docs:createPdf', { title, content }),
 };
 
+// Site hosting (hosting-bridge.js): publish a folder over ipfs:// and ipns://. Folders, key
+// backups and CAR files come from main-process dialogs; the page only ever holds a folder token
+// or a site id, never a path.
+const bucksSites = {
+  chooseFolder: () => ipcRenderer.invoke('bucks:sites:choose-folder'),
+  inspect: (p) => ipcRenderer.invoke('bucks:sites:inspect', p),
+  preview: (p) => ipcRenderer.invoke('bucks:sites:preview', p),
+  publish: (p) => ipcRenderer.invoke('bucks:sites:publish', p),
+  update: (p) => ipcRenderer.invoke('bucks:sites:update', p),
+  list: () => ipcRenderer.invoke('bucks:sites:list'),
+  status: (id) => ipcRenderer.invoke('bucks:sites:status', { id }),
+  rollback: (id, cid) => ipcRenderer.invoke('bucks:sites:rollback', { id, cid }),
+  unpublish: (id, mode, confirm) => ipcRenderer.invoke('bucks:sites:unpublish', { id, mode, confirm }),
+  backupKey: (id, passphrase) => ipcRenderer.invoke('bucks:sites:backup-key', { id, passphrase }),
+  restoreKey: (id, passphrase, withCar) => ipcRenderer.invoke('bucks:sites:restore-key', { id, passphrase, withCar }),
+  exportCar: (id) => ipcRenderer.invoke('bucks:sites:export-car', { id }),
+  pinningServices: () => ipcRenderer.invoke('bucks:sites:pinning-services'),
+  addPinningService: (p) => ipcRenderer.invoke('bucks:sites:add-pinning-service', p),
+  removePinningService: (name) => ipcRenderer.invoke('bucks:sites:remove-pinning-service', { name }),
+  nodeStatus: () => ipcRenderer.invoke('bucks:sites:node-status'),
+  nodeStart: () => ipcRenderer.invoke('bucks:sites:node-start'),
+  onProgress: (cb) => {
+    const listener = (_e, payload) => cb(payload);
+    ipcRenderer.on('bucks:sites:progress', listener);
+    return () => ipcRenderer.removeListener('bucks:sites:progress', listener);
+  },
+};
+
 Object.freeze(bucksAPI);
+Object.freeze(bucksSites);
 Object.freeze(nexusAPI);
 Object.freeze(bucksTabs);
 Object.freeze(bucksDocs);
@@ -351,3 +380,4 @@ contextBridge.exposeInMainWorld('bucksAPI', bucksAPI);
 contextBridge.exposeInMainWorld('nexusAPI', nexusAPI);
 contextBridge.exposeInMainWorld('bucksTabs', bucksTabs);
 contextBridge.exposeInMainWorld('bucksDocs', bucksDocs);
+contextBridge.exposeInMainWorld('bucksSites', bucksSites);

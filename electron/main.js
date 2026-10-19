@@ -86,6 +86,7 @@ if (typeof global.crypto === 'undefined' || !global.crypto.getRandomValues) {
 }
 
 let ipfs = null; // Lazy-loaded after app is ready
+let hostingBridge = null; // Site hosting over ipfs:// / ipns:// (hosting-bridge.js); null until ready
 
 /* ─── Ad-block filter list (common tracker / ad domains) ─── */
 const AD_BLOCK_PATTERNS = [
@@ -1267,6 +1268,8 @@ function setupProtocols() {
   });
 
   protocol.handle('ipfs', async (request) => {
+    // Sites hosted by this browser go through the hosting handler (SPA fallback, headers).
+    if (hostingBridge && hostingBridge.serves(request.url)) return hostingBridge.handle(request);
     try {
       let urlStr = request.url.replace(/^ipfs:\/\//i, '');
       urlStr = urlStr.split('?')[0].split('#')[0];
@@ -1292,6 +1295,7 @@ function setupProtocols() {
   });
 
   protocol.handle('ipns', async (request) => {
+    if (hostingBridge && hostingBridge.serves(request.url)) return hostingBridge.handle(request);
     try {
       let urlStr = request.url.replace(/^ipns:\/\//i, '');
       urlStr = urlStr.split('?')[0].split('#')[0];
@@ -1397,6 +1401,15 @@ ipcMain.handle('is-default-browser', () => ({
 app.whenReady().then(async () => {
   // Lazy-load IPFS module after app is ready
   ipfs = require('./ipfs-node');
+  // Hosting: registers bucks:sites:* IPC; the Kubo node itself starts only on first publish.
+  try {
+    hostingBridge = require('./hosting-bridge');
+    hostingBridge.init({ app, ipcMain, getMainWindow: () => mainWindow })
+      .catch((e) => console.error('[Hosting] init failed:', e.message));
+  } catch (e) {
+    console.error('[Hosting] unavailable:', e.message);
+    hostingBridge = null;
+  }
   const agentSwarm = require('./agent-swarm');
   const soulBridge = require('./ipfs-agent-soul');
   const nexusBridge = require('./nexus-ipc-bridge');
@@ -2020,6 +2033,7 @@ app.on('before-quit', async () => {
   try { require('./ipfs-agent-soul').stop(); } catch (_) {}
   try { require('./ipfs-bridge').stop(); } catch (_) {}
   try { require('./bucks-node').stop(); } catch (_) {}
+  if (hostingBridge) await hostingBridge.shutdown();
   if (ipfs) await ipfs.stopNode();
 });
 

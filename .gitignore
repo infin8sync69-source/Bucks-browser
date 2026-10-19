@@ -56,3 +56,6 @@ agent/soul/.frozen_cid_cache
 
 # Composer attachments (written at runtime, agent-readable, never committed)
 .bucks-attachments/
+
+# Hosting: downloaded Kubo binaries (npm run fetch:kubo in electron/hosting)
+electron/hosting/resources/
