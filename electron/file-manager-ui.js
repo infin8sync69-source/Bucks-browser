@@ -836,7 +836,7 @@
         // Render text snippet
         const text = new TextDecoder().decode(new Uint8Array(dataArray));
         const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        previewBody.innerHTML = `<pre style="width:100%; height:42vh; padding:12px; margin:0; overflow:auto; text-align:left; font-family:monospace; font-size:12px; line-height:1.5; color:#a978ff; white-space:pre-wrap;">${escapedText}</pre>`;
+        previewBody.innerHTML = `<pre style="width:100%; height:42vh; padding:12px; margin:0; overflow:auto; text-align:left; font-family:monospace; font-size:12px; line-height:1.5; color:#ffffff; white-space:pre-wrap;">${escapedText}</pre>`;
       } else {
         // Fallback for binaries
         previewBody.innerHTML = `<div style="text-align:center; padding:20px; color:rgba(255,255,255,0.6);">

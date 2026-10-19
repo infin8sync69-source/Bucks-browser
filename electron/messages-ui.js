@@ -12,7 +12,7 @@
   try { contacts = JSON.parse(localStorage.getItem('bucks-msg-contacts') || '[]'); } catch (_) { contacts = []; }
 
   // DOM
-  let listEl, threadBodyEl, threadTitleEl, threadSessionEl, composerEl, sendBtn,
+  let listEl, notificationsEl, threadBodyEl, threadTitleEl, threadSessionEl, composerEl, sendBtn,
       attachBtn, fileInput, addPeerInput, addPeerBtn, ownPeerEl, unreadBadge, viewEl;
 
   const toast = (msg) => (window._showToast ? window._showToast(msg) : console.log('[Messages]', msg));
@@ -58,6 +58,7 @@
   function init() {
     viewEl = document.getElementById('view-messages');
     listEl = document.getElementById('msg-conversation-list');
+    notificationsEl = document.getElementById('msg-notifications-list');
     threadBodyEl = document.getElementById('msg-thread-body');
     threadTitleEl = document.getElementById('msg-thread-title');
     threadSessionEl = document.getElementById('msg-thread-session');
@@ -72,6 +73,7 @@
     if (!viewEl) return;
 
     wireEvents(); // always wire DOM events so buttons are clickable
+    renderNotificationsList();
 
     if (!window.bucksAPI || typeof window.bucksAPI.chatConversations !== 'function') {
       if (ownPeerEl) ownPeerEl.textContent = 'P2P node offline';
@@ -90,6 +92,8 @@
       }
       refreshConversations();
     });
+
+    window.addEventListener('bucks:app-alert', () => renderNotificationsList());
 
     // Refresh identity + list while the view is visible
     setInterval(() => {
@@ -120,6 +124,18 @@
   }
 
   function wireEvents() {
+    document.querySelectorAll('.msg-view-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.msg-view-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const subview = tab.dataset.subview;
+        const isNotifications = subview === 'notifications';
+        listEl.classList.toggle('hidden', isNotifications);
+        notificationsEl.classList.toggle('hidden', !isNotifications);
+        if (isNotifications) renderNotificationsList();
+      });
+    });
+
     sendBtn.addEventListener('click', sendCurrent);
     composerEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCurrent(); }
@@ -138,7 +154,7 @@
       threadBodyEl.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        threadBodyEl.style.outline = '2px dashed rgba(169,120,255,0.5)';
+        threadBodyEl.style.outline = '2px dashed var(--accent-ring)';
         threadBodyEl.style.outlineOffset = '-4px';
       });
       threadBodyEl.addEventListener('dragleave', (e) => {
@@ -181,8 +197,8 @@
 
     // Show sending indicator
     const indicator = document.createElement('div');
-    indicator.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px; background:rgba(169,120,255,0.15); border:1px solid rgba(169,120,255,0.3); margin:4px 0; align-self:flex-end;';
-    indicator.innerHTML = `<span style="font-size:11px; color:rgba(255,255,255,0.7);">📎 Sending ${escapeHtml(file.name)} (${formatFileSize(file.size)})…</span><span style="width:14px; height:14px; border:2px solid rgba(169,120,255,0.3); border-top-color:#a978ff; border-radius:50%; display:inline-block; animation:spin 0.8s linear infinite;"></span>`;
+    indicator.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:10px; background:var(--accent-soft); border:1px solid var(--accent-ring); margin:4px 0; align-self:flex-end;';
+    indicator.innerHTML = `<span style="font-size:11px; color:rgba(255,255,255,0.7);">Sending ${escapeHtml(file.name)} (${formatFileSize(file.size)})…</span><span style="width:14px; height:14px; border:2px solid var(--accent-ring); border-top-color:var(--accent); border-radius:50%; display:inline-block; animation:spin 0.8s linear infinite;"></span>`;
     threadBodyEl.appendChild(indicator);
     threadBodyEl.scrollTop = threadBodyEl.scrollHeight;
 
@@ -191,7 +207,7 @@
       const res = await window.bucksAPI.chatSendFile(activePeer, bytes, file.name);
       indicator.remove();
       if (res.success) {
-        toast(`File sent: ${file.name} 📎`);
+        toast(`File sent: ${file.name}`);
         openThread(activePeer);
       } else {
         toast('File send failed: ' + (res.error || 'unknown'));
@@ -280,7 +296,7 @@
     if (!conversations.length) {
       listEl.innerHTML = `
         <div style="display:flex; flex-direction:column; align-items:center; padding:30px 16px; text-align:center;">
-          <div style="font-size:36px; margin-bottom:10px;">💬</div>
+          <div style="font-size:36px; margin-bottom:10px;">•</div>
           <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0;">No conversations yet.</p>
           <p style="font-size:11px; color:rgba(255,255,255,0.35); margin:4px 0 0;">Paste a friend's PeerID above to start chatting.</p>
         </div>`;
@@ -290,11 +306,11 @@
       const time = c.timestamp ? new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       const active = c.peer_id === activePeer;
       const peerName = getPeerName(c.peer_id);
-      const sessionIcon = c.hasSession ? '🔒' : '🔓';
+      const sessionIcon = c.hasSession ? 'Encrypted' : 'Pending';
       return `
-        <div class="msg-conv-item" data-peer="${escapeHtml(c.peer_id)}" role="button" tabindex="0" aria-label="${escapeHtml(peerName)} conversation" style="display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; cursor:pointer; background:${active ? 'rgba(169,120,255,0.15)' : 'rgba(255,255,255,0.04)'}; border:1px solid rgba(255,255,255,${active ? '0.22' : '0.06'}); transition:background 0.15s;">
+        <div class="msg-conv-item" data-peer="${escapeHtml(c.peer_id)}" role="button" tabindex="0" aria-label="${escapeHtml(peerName)} conversation" style="display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; cursor:pointer; background:${active ? 'var(--accent-soft)' : 'rgba(255,255,255,0.04)'}; border:1px solid rgba(255,255,255,${active ? '0.22' : '0.06'}); transition:background 0.15s;">
           <div style="display:flex; align-items:center; gap:6px;">
-            <div style="width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg, #a978ff55, #7b3fe455); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:rgba(255,255,255,0.8); flex-shrink:0;">${escapeHtml(peerName.charAt(0).toUpperCase())}</div>
+            <div style="width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg, var(--accent)55, var(--accent)55); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:rgba(255,255,255,0.8); flex-shrink:0;">${escapeHtml(peerName.charAt(0).toUpperCase())}</div>
             <span style="font-size:12px; font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(peerName)}</span>
             ${c.unread_count ? `<span style="min-width:16px; height:16px; border-radius:8px; background:#ff4757; color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; padding:0 4px;">${c.unread_count}</span>` : ''}
             <span style="font-size:10px; color:rgba(255,255,255,0.45);">${time}</span>
@@ -312,6 +328,37 @@
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openThread(el.dataset.peer); }
       });
     });
+  }
+
+  function renderNotificationsList() {
+    if (!notificationsEl) return;
+    let alerts = [];
+    try {
+      alerts = JSON.parse(localStorage.getItem('bucks-app-alerts') || '[]');
+    } catch (_) {}
+
+    if (!alerts.length) {
+      notificationsEl.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; padding:30px 16px; text-align:center;">
+          <div style="font-size:36px; margin-bottom:10px;">•</div>
+          <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0;">No notifications yet.</p>
+          <p style="font-size:11px; color:rgba(255,255,255,0.35); margin:4px 0 0;">System alerts and status updates will appear here.</p>
+        </div>`;
+      return;
+    }
+
+    notificationsEl.innerHTML = alerts.map((alert) => {
+      const type = alert.type || 'info';
+      const when = new Date(alert.at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return `
+        <div class="msg-notification-item" style="display:flex; gap:8px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);">
+          <span class="msg-notification-dot" style="width:8px; height:8px; border-radius:50%; background:${type === 'error' ? '#ff6b6b' : type === 'success' ? '#42d392' : '#8ab4ff'}; margin-top:4px; flex-shrink:0;"></span>
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:12px; font-weight:600; color:rgba(255,255,255,0.92);">${escapeHtml(alert.text || '')}</div>
+            <div style="font-size:10px; color:rgba(255,255,255,0.45); margin-top:4px;">${when}</div>
+          </div>
+        </div>`;
+    }).join('');
   }
 
   function updateBadge() {
@@ -338,7 +385,7 @@
     // Session / reachability status
     let status = '';
     if (data.hasSession) {
-      status = '🔒 Encrypted session active';
+      status = 'Encrypted session active';
       if (data.sessionInfo) {
         status += ` · ${data.sessionInfo.messagesSent || 0} sent · ${data.sessionInfo.messagesReceived || 0} received`;
       }
@@ -346,8 +393,8 @@
       let hasBundle = false;
       try { hasBundle = await window.bucksAPI.chatHasBundle(peerId); } catch (_) {}
       status = hasBundle
-        ? '🔑 Key bundle received — session starts with your first message'
-        : '⏳ Waiting for peer to come online (no key bundle yet)';
+        ? 'Key bundle received — session starts with your first message'
+        : 'Waiting for peer to come online (no key bundle yet)';
     }
     threadSessionEl.textContent = status;
 
@@ -355,7 +402,7 @@
     if (!data.history.length) {
       threadBodyEl.innerHTML = `
         <div style="margin:auto; text-align:center; padding:40px 20px;">
-          <div style="font-size:48px; margin-bottom:12px;">👋</div>
+          <div style="font-size:48px; margin-bottom:12px;">•</div>
           <p style="font-size:13px; color:rgba(255,255,255,0.6); margin:0;">No messages yet — say hi!</p>
           <p style="font-size:11px; color:rgba(255,255,255,0.35); margin:6px 0 0;">Messages are end-to-end encrypted.<br/>You can also drag & drop files here to share them.</p>
         </div>`;
@@ -393,7 +440,7 @@
 
     let attachmentHtml = '';
     if (message.cid) {
-      const fname = (message.text || '').replace(/^📎\s*/, '') || 'attachment';
+      const fname = (message.text || '').replace(/^\s*Attachment\s*/i, '') || 'attachment';
       attachmentHtml = `
         <div class="msg-attachment" data-cid="${escapeHtml(message.cid)}" data-name="${escapeHtml(fname)}" style="margin-top:6px; display:flex; align-items:center; gap:6px; padding:6px 10px; border-radius:8px; background:rgba(255,255,255,0.08); cursor:pointer; transition:background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7ec8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -409,7 +456,7 @@
         ${escapeHtml(message.text || '')}
         ${attachmentHtml}
       </div>
-      <span style="font-size:9px; color:rgba(255,255,255,0.4); margin-top:2px;">${time}${message.encrypted ? ' · 🔒' : ''}</span>`;
+      <span style="font-size:9px; color:rgba(255,255,255,0.4); margin-top:2px;">${time}${message.encrypted ? ' · encrypted' : ''}</span>`;
 
     const att = wrap.querySelector('.msg-attachment');
     if (att) {
@@ -441,7 +488,7 @@
       const res = await window.bucksAPI.chatSend(activePeer, text, null);
       if (res.success) {
         appendBubble({ sender: ownPeerId, text, timestamp: new Date().toISOString(), encrypted: true });
-        threadSessionEl.textContent = '🔒 Encrypted session active';
+        threadSessionEl.textContent = 'Encrypted session active';
         refreshConversations();
       } else {
         composerEl.value = text; // give the draft back

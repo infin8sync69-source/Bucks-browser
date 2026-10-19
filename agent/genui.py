@@ -130,19 +130,19 @@ def video_component(query: str, videos: list[dict], title: str = "") -> dict:
     }
 
 
-def research_component(topic: str, *, hero: str = "", summary: str = "",
-                       sections: list[dict] | None = None,
-                       images: list[dict] | None = None,
-                       sources: list[dict] | None = None,
-                       stats: list[dict] | None = None,
-                       actions: list[dict] | None = None) -> dict:
-    """Build a `research` dossier layout — the flagship ephemeral-UI component.
+def research_component(topic: str, hero: str = "", summary: str = "",
+                       sections: list[dict] = None, images: list[dict] = None,
+                       videos: list[dict] = None,
+                       sources: list[dict] = None, stats: list[dict] = None,
+                       actions: list[dict] = None) -> dict:
+    """Build a comprehensive `research` dossier spec.
 
     hero:     banner image URL
     summary:  one-paragraph deterministic digest (the model streams the refined
               narrative separately as tokens)
     sections: [{heading, text, url?, image?}]  — one per source/insight
     images:   image_gallery-shaped items rendered as a strip
+    videos:   video items rendered as a video rail/cards
     sources:  [{title, url, domain, favicon}]
     stats:    [{label, value, delta?}]
     actions:  cta_row-shaped follow-up actions
@@ -156,6 +156,7 @@ def research_component(topic: str, *, hero: str = "", summary: str = "",
             "summary": summary,
             "sections": sections or [],
             "images": images or [],
+            "videos": videos or [],
             "sources": sources or [],
             "stats": stats or [],
             "actions": actions or [],

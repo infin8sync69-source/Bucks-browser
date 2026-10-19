@@ -1,6 +1,6 @@
 {
   "name": "bucks-browser",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Bucks Web3 Browser",
   "main": "main.js",
   "author": "Bucks Developer",
@@ -34,6 +34,7 @@
     "helia": "5.5.1",
     "leaflet": "^1.9.4",
     "libp2p": "2.10.0",
+    "marked": "^18.0.9",
     "multiformats": "13.4.2",
     "node-llama-cpp": "^3.19.0"
   },

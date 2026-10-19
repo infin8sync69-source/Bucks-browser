@@ -93,7 +93,7 @@ function _authPromptWindow(host, realm, parent) {
             background:rgba(255,255,255,.07);color:#fff;font-size:12.5px;outline:none}
       .row{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
       button{padding:7px 16px;border-radius:8px;border:none;font-size:12.5px;font-weight:600;cursor:pointer}
-      .ok{background:#7b3fe4;color:#fff}.no{background:rgba(255,255,255,.1);color:#ddd}
+      .ok{background:#ffffff;color:#fff}.no{background:rgba(255,255,255,.1);color:#ddd}
     </style></head><body>
       <h1>Sign in to ${esc(host)}</h1>
       <p>${esc(realm ? `Realm: ${realm}. ` : '')}Your credentials are sent to this site, not stored by Bucks.</p>

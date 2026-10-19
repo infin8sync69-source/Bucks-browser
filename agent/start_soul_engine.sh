@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PROVIDER="${MODEL_PROVIDER:-edge}"
+PROVIDER="${MODEL_PROVIDER:-nim}"
 PORT="${BUCKS_PORT:-8765}"
 
 # 1. Ensure a venv with deps exists

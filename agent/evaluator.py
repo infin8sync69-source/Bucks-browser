@@ -17,6 +17,12 @@ _LOW_QUALITY = [
     r"\b(error|exception|traceback|failed)\b",
     r"^(N/A|None|null|\{\}|\[\])$",
     r"\b(as\s+an\s+AI|as\s+a\s+language\s+model)\b",
+    # Search-failure fallbacks — these are non-answers that should trigger NIM
+    r"couldn't find specific results",
+    r"could not find specific results",
+    r"No results found",
+    r"try visiting a search engine directly",
+    r"I searched for .{0,80} but couldn't",
 ]
 
 _ERROR_SIGNALS = [

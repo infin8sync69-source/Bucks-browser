@@ -52,6 +52,10 @@ const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell } 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-webgl');
 const path = require('path');
+const os   = require('os');
+// QNN_PATH env var lets users install the Soul Engine outside ~/Desktop/QNN.
+// Set QNN_PATH=/path/to/qnn in the environment before launching the app.
+const QNN_PATH = process.env.QNN_PATH || path.join(os.homedir(), 'Desktop', 'QNN');
 // lazy load serve
 let loadURL;
 
@@ -166,6 +170,13 @@ function saveSettings(settings) {
   }
 }
 
+function isInternalOrigin(sender) {
+  const url = sender.getURL();
+  if (url.startsWith("file://") && (url.includes("index.html") || url.includes("bucks-browser"))) return true;
+  if (url.startsWith("http://localhost:3000")) return true;
+  return false;
+}
+
 /* ─── Window creation ─── */
 function createWindow(settings, opts = {}) {
   const isMac = process.platform === 'darwin';
@@ -193,6 +204,17 @@ function createWindow(settings, opts = {}) {
   // Release this window's WebContentsView tabs with it. (Capture the id now —
   // the BrowserWindow is already destroyed inside its 'closed' handler.)
   const tabWinId = win.id;
+
+  // A shell reload (Cmd+R, a crash-recovery reload, devtools reload) rebuilds
+  // the renderer's tab registry from an empty state, but the WebContentsViews
+  // it created live in THIS process and survive. Left attached they keep
+  // painting over the fresh UI, so a brand-new tab shows the previous page and
+  // the dashboard never becomes visible. Release them with the document that
+  // owned them.
+  win.webContents.on('did-start-loading', () => {
+    try { require('./tab-manager').destroyTabsForWindow(tabWinId); } catch (_) {}
+  });
+
   win.on('closed', () => {
     try { require('./tab-manager').destroyTabsForWindow(tabWinId); } catch (_) {}
     // BUG FIX: null out the mainWindow reference so IPC handlers (window-close,
@@ -210,6 +232,8 @@ function createWindow(settings, opts = {}) {
   // Load local index.html as the Chrome shell UI.
   // Private windows pass a #private hash so the renderer runs in incognito mode
   // (in-memory webview partition, no history persistence, private badge).
+win.webContents.on("console-message", (event, level, message, line, sourceId) => { console.log(`[RENDERER] ${message} (${sourceId}:${line})`); });
+
   win.loadFile(path.join(__dirname, 'index.html'), isPrivate ? { hash: 'private' } : undefined).catch(err => {
     console.error('Failed to load local index.html:', err);
   });
@@ -333,7 +357,7 @@ function setupRequestFilters() {
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com",
           "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://tileserver.memomaps.de https://*.tiles.openrailwaymap.org",
-          "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:* https://nominatim.openstreetmap.org https://api.open-meteo.com https://routing.openstreetmap.de https://router.project-osrm.org https://ipapi.co https://ipwho.is https://www.google.com https://ipfs.io https://*.bucks.network",
+          "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:* https://nominatim.openstreetmap.org https://api.open-meteo.com https://routing.openstreetmap.de https://router.project-osrm.org https://ipapi.co https://ipwho.is https://www.google.com https://ipfs.io https://*.bucks.network https://integrate.api.nvidia.com",
           "frame-src 'self' bucks:",
           "object-src 'none'",
         ].join('; ');
@@ -445,47 +469,41 @@ function setupIPC() {
   // Platform info
   ipcMain.handle('get-platform', () => process.platform);
 
-  // Wallet Reset (delete stored wallets to allow creating a new one)
-  ipcMain.handle('wallet-reset', async () => {
-    return require('./bucks-node').resetWallets();
-  });
+  // V2: deferred to next release — wallet-reset handler
+  // ipcMain.handle('wallet-reset', async () => {
+  //   return require('./bucks-node').resetWallets();
+  // });
 
   // ─── Phase 7: Security Hardening ───
 
-  const ALLOWED_WALLET_METHODS = ['GET', 'POST'];
-  const ALLOWED_WALLET_ENDPOINTS = [
-    '/api/economy/status',
-    '/api/wallets',
-    '/api/wallets/create',
-    '/api/wallets/restore',
-    '/api/transactions/send',
-    '/api/transactions/broadcast',
-    '/api/wallets/mnemonic/generate',
-    '/api/wallets/primary',
-    '/api/blockchain/info',
-    '/api/mining/mine',
-    '/api/mining/start',
-    '/api/mining/stop',
-    '/api/mining/status',
-    '/api/mining/address',
-    '/api/wallets/sign'
-  ];
+  // V2: deferred to next release — wallet endpoint allowlists
+  // const ALLOWED_WALLET_METHODS = ['GET', 'POST'];
+  // const ALLOWED_WALLET_ENDPOINTS = [
+  //   '/api/economy/status',
+  //   '/api/wallets',
+  //   '/api/wallets/create',
+  //   '/api/wallets/restore',
+  //   '/api/transactions/send',
+  //   '/api/transactions/broadcast',
+  //   '/api/wallets/mnemonic/generate',
+  //   '/api/wallets/primary',
+  //   '/api/blockchain/info',
+  //   '/api/mining/mine',
+  //   '/api/mining/start',
+  //   '/api/mining/stop',
+  //   '/api/mining/status',
+  //   '/api/mining/address',
+  //   '/api/wallets/sign'
+  // ];
 
-  // Dynamic endpoints that match via prefix (for address-based routes)
-  const ALLOWED_WALLET_PREFIXES = [
-    '/api/address/'
-  ];
+  // V2: deferred to next release — wallet address prefix routes
+  // const ALLOWED_WALLET_PREFIXES = [
+  //   '/api/address/'
+  // ];
 
   let originAllowlist = loadSettings().originAllowlist || [];
 
-  function isInternalOrigin(sender) {
-    const url = sender.getURL();
-    // Trusted internal shell is allowed by default
-    if (url.startsWith('file://') && (url.includes('index.html') || url.includes('bucks-browser'))) return true;
-    // Allow Next.js dev server in development
-    if (url.startsWith('http://localhost:3000')) return true;
-    return false;
-  }
+
 
   function validateOriginAccess(event) {
     const sender = event.sender;
@@ -505,114 +523,86 @@ function setupIPC() {
     return 'PENDING_APPROVAL';
   }
 
-  function validateWalletSchema(params) {
-    if (!params || typeof params !== 'object') {
-      console.error('[ATTACK SIGNAL] Malformed IPC: Request is not an object');
-      return false;
-    }
+  // V2: deferred to next release — validateWalletSchema (wallet request schema enforcement)
+  // function validateWalletSchema(params) {
+  //   if (!params || typeof params !== 'object') {
+  //     console.error('[ATTACK SIGNAL] Malformed IPC: Request is not an object');
+  //     return false;
+  //   }
+  //   const { method, endpoint, body } = params;
+  //   const endpointAllowed = ALLOWED_WALLET_ENDPOINTS.includes(endpoint) ||
+  //     ALLOWED_WALLET_PREFIXES.some(p => endpoint.startsWith(p));
+  //   if (!ALLOWED_WALLET_METHODS.includes(method) || !endpointAllowed) {
+  //     console.error(`[ATTACK SIGNAL] Invalid Endpoint/Method: ${method} ${endpoint}`);
+  //     return false;
+  //   }
+  //   if (method === 'POST') {
+  //     const bodyOptionalEndpoints = ['/api/wallets/create', '/api/mining/mine',
+  //       '/api/mining/start', '/api/mining/stop'];
+  //     if (body && typeof body === 'object') {
+  //       const keys = Object.keys(body);
+  //       const schemas = {
+  //         '/api/transactions/send': ['from', 'to', 'amount'],
+  //         '/api/wallets/restore': ['mnemonic'],
+  //         '/api/wallets/sign': ['address', 'message'],
+  //         '/api/transactions/broadcast': ['rawTx'],
+  //         '/api/mining/address': ['address']
+  //       };
+  //       const allowedKeys = schemas[endpoint];
+  //       if (allowedKeys) {
+  //         const hasExtra = keys.some(k => !allowedKeys.includes(k));
+  //         if (hasExtra) {
+  //           console.error(`[ATTACK SIGNAL] Unauthorized keys detected in ${endpoint}: ${keys}`);
+  //           return false;
+  //         }
+  //       }
+  //     } else if (!bodyOptionalEndpoints.includes(endpoint)) {
+  //       console.error(`[ATTACK SIGNAL] Missing or invalid POST body for ${endpoint}`);
+  //       return false;
+  //     }
+  //   } else if (body) {
+  //     console.error(`[ATTACK SIGNAL] Forbidden body detected in GET request to ${endpoint}`);
+  //     return false;
+  //   }
+  //   return true;
+  // }
 
-    const { method, endpoint, body } = params;
+  // V2: deferred to next release — pendingApprovals (wallet access approval flow)
+  // const pendingApprovals = new Map();
 
-    // 1. Method/Endpoint Allowlist (exact match or prefix match)
-    const endpointAllowed = ALLOWED_WALLET_ENDPOINTS.includes(endpoint) ||
-      ALLOWED_WALLET_PREFIXES.some(p => endpoint.startsWith(p));
-    if (!ALLOWED_WALLET_METHODS.includes(method) || !endpointAllowed) {
-      console.error(`[ATTACK SIGNAL] Invalid Endpoint/Method: ${method} ${endpoint}`);
-      return false;
-    }
-
-    // 2. Body Validation (Strict Schema)
-    if (method === 'POST') {
-      // Endpoints that don't require a body
-      const bodyOptionalEndpoints = [
-        '/api/wallets/create',
-        '/api/mining/mine',
-        '/api/mining/start',
-        '/api/mining/stop'
-      ];
-
-      if (body && typeof body === 'object') {
-        const keys = Object.keys(body);
-
-        // Intent-specific schemas
-        const schemas = {
-          '/api/transactions/send': ['from', 'to', 'amount'],
-          '/api/wallets/restore': ['mnemonic'],
-          '/api/wallets/sign': ['address', 'message'],
-          '/api/transactions/broadcast': ['rawTx'],
-          '/api/mining/address': ['address']
-        };
-
-        const allowedKeys = schemas[endpoint];
-        if (allowedKeys) {
-          // Must contain ONLY allowed keys
-          const hasExtra = keys.some(k => !allowedKeys.includes(k));
-          if (hasExtra) {
-            console.error(`[ATTACK SIGNAL] Unauthorized keys detected in ${endpoint}: ${keys}`);
-            return false;
-          }
-        }
-      } else if (!bodyOptionalEndpoints.includes(endpoint)) {
-        console.error(`[ATTACK SIGNAL] Missing or invalid POST body for ${endpoint}`);
-        return false;
-      }
-    } else if (body) {
-      console.error(`[ATTACK SIGNAL] Forbidden body detected in GET request to ${endpoint}`);
-      return false;
-    }
-
-    return true;
-  }
-
-  const pendingApprovals = new Map();
-
-  ipcMain.handle('wallet-rpc', async (event, params) => {
-    // 1. Origin Gating (Phase 7: Gatekeeper)
-    const access = validateOriginAccess(event);
-    const origin = new URL(event.sender.getURL()).origin;
-
-    if (access === 'BLOCKED') {
-      console.error(`[ATTACK SIGNAL] Blocked unauthorized origin: ${origin}`);
-      return { error: 'Access Denied: Origin blocked by policy' };
-    }
-
-    if (access === 'PENDING_APPROVAL') {
-      // 1.1 Signal the shell to show the approval modal
-      const requestId = Math.random().toString(36).substring(7);
-      mainWindow.webContents.send('wallet-access-request', { requestId, origin });
-
-      // 1.2 Wait for user response
-      const approved = await new Promise((resolve) => {
-        pendingApprovals.set(requestId, resolve);
-      });
-
-      if (!approved) {
-        return { error: 'User denied wallet access.' };
-      }
-
-      // Update allowlist & save
-      originAllowlist.push(origin);
-      const settings = loadSettings();
-      settings.originAllowlist = originAllowlist;
-      saveSettings(settings);
-    }
-
-    // 2. Schema Validation (STRIDE: Tampering Mitigation)
-    if (!validateWalletSchema(params)) {
-      console.error(`[ATTACK SIGNAL] Blocked malformed wallet-rpc request: ${JSON.stringify(params)}`);
-      return { error: 'Invalid request schema' };
-    }
-
-    const method = params.method || 'GET';
-    const endpoint = params.endpoint;
-    const body = params.body || null;
-    try {
-      // Embedded Bucks Node — in-process, no localhost server needed
-      return await require('./bucks-node').handleRPC(method, endpoint, body);
-    } catch (err) {
-      return { error: err.message };
-    }
-  });
+  // V2: deferred to next release — wallet-rpc IPC handler
+  // ipcMain.handle('wallet-rpc', async (event, params) => {
+  //   const access = validateOriginAccess(event);
+  //   const origin = new URL(event.sender.getURL()).origin;
+  //   if (access === 'BLOCKED') {
+  //     console.error(`[ATTACK SIGNAL] Blocked unauthorized origin: ${origin}`);
+  //     return { error: 'Access Denied: Origin blocked by policy' };
+  //   }
+  //   if (access === 'PENDING_APPROVAL') {
+  //     const requestId = Math.random().toString(36).substring(7);
+  //     mainWindow.webContents.send('wallet-access-request', { requestId, origin });
+  //     const approved = await new Promise((resolve) => {
+  //       pendingApprovals.set(requestId, resolve);
+  //     });
+  //     if (!approved) return { error: 'User denied wallet access.' };
+  //     originAllowlist.push(origin);
+  //     const settings = loadSettings();
+  //     settings.originAllowlist = originAllowlist;
+  //     saveSettings(settings);
+  //   }
+  //   if (!validateWalletSchema(params)) {
+  //     console.error(`[ATTACK SIGNAL] Blocked malformed wallet-rpc request: ${JSON.stringify(params)}`);
+  //     return { error: 'Invalid request schema' };
+  //   }
+  //   const method = params.method || 'GET';
+  //   const endpoint = params.endpoint;
+  //   const body = params.body || null;
+  //   try {
+  //     return await require('./bucks-node').handleRPC(method, endpoint, body);
+  //   } catch (err) {
+  //     return { error: err.message };
+  //   }
+  // });
 
   /* ─── Social RPC (proxied to port 8000) ─── */
   ipcMain.handle('social-rpc', async (event, params) => {
@@ -646,13 +636,14 @@ function setupIPC() {
     }
   });
 
-  ipcMain.on('wallet-access-response', (_e, { requestId, approved }) => {
-    const resolve = pendingApprovals.get(requestId);
-    if (resolve) {
-      resolve(approved);
-      pendingApprovals.delete(requestId);
-    }
-  });
+  // V2: deferred to next release — wallet-access-response handler
+  // ipcMain.on('wallet-access-response', (_e, { requestId, approved }) => {
+  //   const resolve = pendingApprovals.get(requestId);
+  //   if (resolve) {
+  //     resolve(approved);
+  //     pendingApprovals.delete(requestId);
+  //   }
+  // });
 
   /* ─── Web Intelligence: Fetch & Search (Agent Browser) ─── */
   const https = require('https');
@@ -1415,14 +1406,13 @@ app.whenReady().then(async () => {
 
   const settings = loadSettings();
 
-  // Embedded blockchain node (wallets, mining, txs) — works offline,
-  // syncs with peers once gossip attaches below.
-  const bucksNode = require('./bucks-node');
-  try {
-    bucksNode.init({ dataDir: path.join(app.getPath('userData'), 'bucks-chain') });
-  } catch (e) {
-    console.error('[App] Bucks node failed to init:', e.message);
-  }
+  // V2: deferred to next release — embedded blockchain node (wallets, mining, txs)
+  // const bucksNode = require('./bucks-node');
+  // try {
+  //   bucksNode.init({ dataDir: path.join(app.getPath('userData'), 'bucks-chain') });
+  // } catch (e) {
+  //   console.error('[App] Bucks node failed to init:', e.message);
+  // }
 
   setupProtocols();
 
@@ -1439,6 +1429,47 @@ app.whenReady().then(async () => {
   // Chrome extensions: unpacked folders under ~/.bucks/extensions.
   require('./extension-loader').loadUserExtensions();
   setupIPFS();
+
+  // ─── App Store IPC ────────────────────────────────────────────────────────
+  const appRunner = require('./app-runner');
+  const { BUCKS_APPS } = require('./app-store-data');
+
+  ipcMain.handle('app-store-get-apps', async () => {
+    const installed = appRunner.getInstalled();
+    return BUCKS_APPS.map(app => ({
+      ...app,
+      installed: !!installed[app.id]
+    }));
+  });
+
+  ipcMain.handle('app-store-launch-web', async (event, { appId }) => {
+    const app = BUCKS_APPS.find(a => a.id === appId);
+    if (!app) return { success: false, error: 'App not found' };
+    return appRunner.launchWeb(mainWindow, app);
+  });
+
+  ipcMain.handle('app-store-install', async (event, { appId }) => {
+    const app = BUCKS_APPS.find(a => a.id === appId);
+    if (!app) return { success: false, error: 'App not found' };
+    return appRunner.installLocal(appId, app.repo, event);
+  });
+
+  ipcMain.handle('app-store-launch-local', async (event, { appId }) => {
+    const app = BUCKS_APPS.find(a => a.id === appId);
+    if (!app) return { success: false, error: 'App not found' };
+    return appRunner.launchLocal(mainWindow, app);
+  });
+
+  ipcMain.handle('app-store-uninstall', async (event, { appId }) => {
+    return appRunner.uninstall(appId);
+  });
+
+  ipcMain.handle('app-store-close', async () => {
+    appRunner.closeAppView(mainWindow);
+    return { success: true };
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
   startIpfsServer();
   createWindow(settings);
 
@@ -1472,6 +1503,304 @@ app.whenReady().then(async () => {
   }).catch((e) => console.error('[App] Soul Engine supervisor error:', e.message));
   ipcMain.handle('soul-engine-status', () => soulEngine.getStatus());
 
+  // ─── Soul Engine QNN Swarm IPC ───────────────────────────────────────────
+  // soul-bridge.js manages the persistent Python subprocess (soul_bridge.py)
+  // that keeps BGE-M3 + FAISS + pheromone swarm hot in memory.
+  const qnnBridge = require('./soul-bridge');
+  qnnBridge.start().catch((e) =>
+    console.warn('[App] QNN bridge start failed (non-fatal):', e.message)
+  );
+
+  // Helper: call NVIDIA NIM API as cloud fallback
+  async function _callNIM(query, apiKey) {
+    const NIM_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+    const NIM_MODEL = process.env.NIM_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct';
+    const { default: fetch } = await import('node-fetch').catch(() => ({ default: null }));
+    const fetcher = fetch || require('https');
+    const body = JSON.stringify({
+      model: NIM_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: `You are the Soul Engine, an intelligent assistant embedded inside Bucks — a privacy-first, decentralised browser built on IPFS and peer-to-peer technology. \n\nYou run alongside a local neural search system powered by a proprietary neural architecture trained on an ancient corpus of human wisdom (114 resonance layers, 6,236 resonance units). Together, you form a dual-engine intelligence: the local system handles deep semantic retrieval, you handle reasoning, synthesis, and generation.\n\nBucks users value: privacy, data sovereignty, open-source tools, decentralisation, and self-hosting. When answering questions about tools or architecture, favour self-hosted and open-source options. Be direct, substantive, and technically precise. Never mention the names of underlying AI models or training infrastructure.`,
+        },
+        { role: 'user', content: query },
+      ],
+      max_tokens: 3000,
+      temperature: 0.5,
+    });
+    return new Promise((resolve, reject) => {
+      const url = new URL(NIM_URL);
+      const req = require('https').request({
+        hostname: url.hostname,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const text = json.choices?.[0]?.message?.content || '';
+            resolve({ response: text, model: NIM_MODEL });
+          } catch (e) { reject(new Error('NIM parse error: ' + e.message)); }
+        });
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  /**
+   * soul-query — Primary entry point for all Soul Engine queries.
+   * Chain: local QNN → NIM cloud → offline fallback.
+   * Payload in:  { query: string, sessionId?: string }
+   * Payload out: { query_id, response, citations, quality, strategy, latency_ms,
+   *               source: 'local'|'nim'|'offline' }
+   */
+  ipcMain.handle('soul-query', async (event, { query, sessionId }) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    if (!query || typeof query !== 'string') return { error: 'query must be a non-empty string' };
+
+    // 1. Try local QNN bridge
+    if (qnnBridge.isConnected()) {
+      try {
+        const result = await qnnBridge.query(query, sessionId || null);
+        if (result && (result.quality === null || result.quality === undefined || result.quality > 0.15)) {
+          return { ...result, source: 'local' };
+        }
+        console.log('[SoulQuery] Local quality too low (' + result.quality + ') — falling back to NIM');
+      } catch (e) {
+        console.warn('[SoulQuery] Local bridge error:', e.message);
+      }
+    }
+
+    // 2. NIM cloud fallback
+    const nimKey = process.env.NVIDIA_API_KEY || process.env.NGC_API_KEY || (() => {
+      try {
+        const settings = loadSettings();
+        return settings.nimApiKey || '';
+      } catch (_) { return ''; }
+    })();
+
+    if (nimKey) {
+      try {
+        const nim = await _callNIM(query, nimKey);
+        return {
+          query_id  : `nim-${Date.now()}`,
+          response  : nim.response,
+          citations : [],
+          quality   : null,
+          strategy  : 'nim',
+          latency_ms: 0,
+          source    : 'nim',
+          model     : nim.model,
+        };
+      } catch (e) {
+        console.warn('[SoulQuery] NIM error:', e.message);
+      }
+    }
+
+    // 3. Offline fallback
+    return {
+      query_id  : `offline-${Date.now()}`,
+      response  : 'Soul Engine is offline. Start the QNN swarm or configure a NIM API key in Settings.',
+      citations : [],
+      quality   : 0,
+      strategy  : 'offline',
+      latency_ms: 0,
+      source    : 'offline',
+    };
+  });
+
+  /**
+   * soul-status — Lightweight health check for the status bar.
+   * Returns: { local: bool, nim: bool, activeModel: string, bridgeStatus: object }
+   */
+  ipcMain.handle('soul-status', async (event) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    const nimKey = process.env.NVIDIA_API_KEY || process.env.NGC_API_KEY || '';
+    const bridgeSt = qnnBridge.status();
+    let activeModel = 'offline';
+    if (bridgeSt.connected) activeModel = 'local-qnn';
+    else if (nimKey) activeModel = 'nim-cloud';
+    return {
+      local       : bridgeSt.connected,
+      nim         : !!nimKey,
+      activeModel,
+      bridgeStatus: bridgeSt,
+      soulEngine  : soulEngine.getStatus(),
+    };
+  });
+
+  /**
+   * soul-log-feedback — Record user rating to close the RL loop.
+   * Payload: { queryId: string, rating: 1|-1, correction?: string }
+   * Appends the rating to soul_interactions.jsonl in the QNN directory.
+   */
+  ipcMain.handle('soul-log-feedback', async (event, { queryId, rating, correction }) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    try {
+      const logPath = path.join(QNN_PATH, 'soul_interactions.jsonl');
+      const entry = JSON.stringify({
+        query_id   : queryId,
+        rating     : rating,        // 1 = thumbs up, -1 = thumbs down
+        correction : correction || null,
+        feedback_ts: new Date().toISOString(),
+      }) + '\n';
+      fs.appendFileSync(logPath, entry, 'utf8');
+
+      // If rating is very negative, nudge the bridge to re-load updated weights
+      if (rating === -1) {
+        qnnBridge.reload().catch(() => {});
+      }
+
+      return { ok: true };
+    } catch (e) {
+      console.error('[SoulFeedback] Failed to log:', e.message);
+      return { ok: false, error: e.message };
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ─── Agentic Interface IPC handlers (agent-interface.js) ─────────────────
+
+  // Initialise AgentInterface singleton with main-process references
+  const agentInterface = require('./agent-interface');
+  agentInterface.init({
+    mainWindow,
+    qnnBridge,
+    callNIM   : _callNIM,
+    loadSettings,
+  });
+
+  /**
+   * agent-submit — AG-UI entry point. Runs QNN + NIM in parallel (race mode).
+   * Quality gate at 0.65 — QNN wins if it passes, else NIM overrides silently.
+   * Emits 'agent-event' push events throughout the lifecycle.
+   *
+   * Payload in:  { query: string, sessionId?: string }
+   * Payload out: { query_id, response, citations, quality, strategy,
+   *               latency_ms, source, _winner }
+   */
+  ipcMain.handle('agent-submit', async (event, { query, sessionId }) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    if (!query || typeof query !== 'string') return { error: 'query must be a non-empty string' };
+    try {
+      const result = await agentInterface.submitQuery(query, sessionId || null);
+      agentInterface.pruneOldTasks();
+      return result;
+    } catch (err) {
+      console.error('[agent-submit] Error:', err.message);
+      return { error: err.message };
+    }
+  });
+
+  /**
+   * quality-history — Return rolling quality history (last N entries).
+   * Used by benchmark-panel.js sparklines and refresh polling.
+   *
+   * Payload in:  { n?: number }   (default 20)
+   * Payload out: Array<{ ts, quality, winner, latency_ms }>
+   */
+  ipcMain.handle('quality-history', async (event, { n } = {}) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    return agentInterface.getQualityHistory(n || 20);
+  });
+
+  /**
+   * agent-metrics — Return session-level metrics from AgentInterface.
+   *
+   * Payload out: { totalQueries, qnnWins, nimWins, offlineFalls,
+   *               avgQnnQuality, avgLatency, qnnWinRate }
+   */
+  ipcMain.handle('agent-metrics', async (event) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    return agentInterface.getSessionMetrics();
+  });
+
+  /**
+   * benchmark-run — Spawns soul_benchmark.py and returns the JSON summary.
+   * benchmark-panel.js calls this when the user hits "Run Benchmark".
+   *
+   * Payload in:  { nimKey?: string }
+   * Payload out: benchmark JSON summary (or { error })
+   */
+  ipcMain.handle('benchmark-run', async (event, { nimKey } = {}) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    const { spawn }  = require('child_process');
+    const scriptPath = path.join(QNN_PATH, 'soul_benchmark.py');
+    const outputPath = path.join(QNN_PATH, 'benchmark_results.json');
+    const key        = nimKey || process.env.NVIDIA_API_KEY || process.env.NGC_API_KEY || '';
+
+    return new Promise((resolve) => {
+      const args = ['--output', outputPath, '--parallel'];
+      if (key) args.push('--nim-key', key);
+
+      const child = spawn('python3', [scriptPath, ...args], {
+        env: { ...process.env, NVIDIA_API_KEY: key },
+      });
+
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      child.on('close', (code) => {
+        try {
+          const summary = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+          resolve(summary);
+        } catch (_) {
+          resolve({ error: `Benchmark exited with code ${code}`, stderr });
+        }
+      });
+
+      child.on('error', (err) => {
+        resolve({ error: err.message });
+      });
+    });
+  });
+
+  /**
+   * ephemeral-context — Lightweight semantic look-up for ephemeral overlays
+   * (selection insight, URL preview, etc.). Routes through QNN if available,
+   * falls back to NIM or a minimal offline response.
+   *
+   * Payload in:  { text: string, type?: string }
+   * Payload out: { summary, citations?, quality? }
+   */
+  ipcMain.handle('ephemeral-context', async (event, { text, type } = {}) => {
+    if (!isInternalOrigin(event.sender)) return { error: 'Unauthorized' };
+    if (!text) return { summary: '' };
+    try {
+      const prompt = type === 'url'
+        ? `Briefly summarise this URL or resource in 2–3 sentences: ${text}`
+        : `Explain briefly (2–3 sentences) the significance of: ${text}`;
+
+      if (qnnBridge.isConnected()) {
+        const r = await qnnBridge.query(prompt, null);
+        return { summary: r.response || '', citations: r.citations, quality: r.quality };
+      }
+
+      // NIM fallback
+      const key = process.env.NVIDIA_API_KEY || process.env.NGC_API_KEY || loadSettings().nimApiKey || '';
+      if (key) {
+        const r = await _callNIM(prompt, key);
+        return { summary: r.response || '' };
+      }
+
+      return { summary: 'Soul Engine is offline.' };
+    } catch (err) {
+      return { summary: '', error: err.message };
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   // ─── Phase 1.8: Context Menus ───
   app.on('web-contents-created', (event, contents) => {
     // Lock down any <webview> tag the shell attaches (the file manager panel
@@ -1491,6 +1820,7 @@ app.whenReady().then(async () => {
     contents.on('context-menu', (event, params) => {
       const { selectionText, isEditable, mediaType, linkURL, srcURL } = params;
       const menu = new Menu();
+      const isMainWindow = (mainWindow && contents === mainWindow.webContents);
 
       if (isEditable) {
         menu.append(new MenuItem({ role: 'undo' }));
@@ -1502,11 +1832,20 @@ app.whenReady().then(async () => {
         menu.append(new MenuItem({ role: 'selectAll' }));
       } else if (selectionText && selectionText.trim() !== '') {
         menu.append(new MenuItem({ role: 'copy' }));
+        if (isMainWindow) {
+          menu.append(new MenuItem({ type: 'separator' }));
+          menu.append(new MenuItem({ label: 'Ask Agent for Context', click: () => { mainWindow.webContents.send('ask-agent-context', { text: selectionText }); } }));
+          menu.append(new MenuItem({ label: 'Save Results', click: () => { mainWindow.webContents.send('save-agent-results', { text: selectionText }); } }));
+        }
         menu.append(new MenuItem({ type: 'separator' }));
       }
 
       if (linkURL) {
         menu.append(new MenuItem({ label: 'Copy Link Address', click: () => { require('electron').clipboard.writeText(linkURL); } }));
+        if (isMainWindow) {
+          menu.append(new MenuItem({ label: 'Open Link in New Tab', click: () => { mainWindow.webContents.send('new-window', { url: linkURL }); } }));
+          menu.append(new MenuItem({ label: 'Open Link in Split Pane', click: () => { mainWindow.webContents.send('open-in-pane', { url: linkURL }); } }));
+        }
       }
 
       if (mediaType === 'image') {
@@ -1676,6 +2015,7 @@ app.on('before-quit', async () => {
     }
   }
   try { require('./soul-engine-supervisor').stop(); } catch (_) {}
+  try { require('./soul-bridge').shutdown(); } catch (_) {}
   try { require('./agent-swarm').stop(); } catch (_) {}
   try { require('./ipfs-agent-soul').stop(); } catch (_) {}
   try { require('./ipfs-bridge').stop(); } catch (_) {}

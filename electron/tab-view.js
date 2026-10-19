@@ -36,13 +36,20 @@
   const SIDE_OVERLAYS = ['#left-dock-trigger', '.left-dock', '#wallet-sidebar', '#ipfs-sidebar', '#settings-panel'];
   // Dropdowns from the top bar (omnibox suggestions, find bar) push the
   // page down to stay visible — native views always paint above shell DOM.
-  const TOP_OVERLAYS = ['#find-bar', '#omnibox-dropdown'];
-  // The omnibar suggestion dropdown rises upward over the stage from the
-  // bottom band, so its footprint is subtracted from the view's BOTTOM edge.
-  // (#nt-ephemeral-zone no longer pushes: over a web page the agent panel is
-  // an ephemeral overlay — renderer.js freezes the page into
-  // #page-freeze-backdrop and sets body.agent-freeze, which hides the view.)
-  const BOTTOM_OVERLAYS = ['.command-suggestions-dropdown'];
+  const TOP_OVERLAYS = [
+    '#find-bar',
+    '#omnibox-dropdown',
+    '#hamburger-menu-dropdown',
+    '#profile-dropdown',
+    '#wallet-dropdown',
+    '#origin-approval'
+  ];
+  // Overlays subtracting footprint from the stage's bottom edge.
+  const BOTTOM_OVERLAYS = [
+    '.command-suggestions-dropdown',
+    '#nt-ephemeral-zone:not(.hidden)',
+    '#nav-chat-panel:not(.hidden):not(.nav-chat-min)'
+  ];
   const FULLSCREEN_OVERLAYS = ['#store-overlay'];
 
   function overlayVisible(el) {
@@ -70,6 +77,7 @@
       const partition = opts.partition || undefined;
       this._ready = window.bucksTabs.create(this.tabViewId, '', partition);
       instances.set(this.tabViewId, this);
+      this._ready.then(() => scheduleSync()).catch(() => {});
     }
 
     /* ── DOM-ish surface (renderer.js treats us like an element) ── */
@@ -99,6 +107,10 @@
       window.bucksTabs.close(this.tabViewId).catch(() => {});
       this.el.remove();
       scheduleSync();
+    }
+
+    sync() {
+      this._sync();
     }
 
     /* ── events ── */
@@ -151,9 +163,6 @@
       const visible = this.el.isConnected &&
         this.el.classList.contains('active') &&
         getComputedStyle(this.el).display !== 'none' &&
-        // Agent-panel overlay: the live page is swapped for a freeze-frame
-        // backdrop (renderer.js) so shell DOM can paint on top of "the page".
-        !document.body.classList.contains('agent-freeze') &&
         !FULLSCREEN_OVERLAYS.some((sel) => overlayVisible(document.querySelector(sel)));
 
       if (!visible) {
@@ -200,13 +209,13 @@
         this._lastSig = sig;
         window.bucksTabs.setBounds(this.tabViewId, bounds).catch(() => {});
         window.bucksTabs.setVisible(this.tabViewId, true).catch(() => {});
-        // Match the spatial-stage CSS: 18px inset box in web mode, 32px
-        // rounded dashboard look otherwise; panes (pane-manager.js) sit in a
-        // framed body whose bottom corners round at 10px.
+        // Native radius must mirror the CSS stage radius or the corners
+        // mismatch. Web mode uses --radius-bar (16) so the page, the top nav
+        // and the agent composer all share one corner; panes round at 10.
         const inPane = !!this.el.closest('.pane-body');
         window.bucksTabs.setBorderRadius(
           this.tabViewId,
-          inPane ? 10 : document.body.classList.contains('web-mode') ? 18 : 32
+          inPane ? 10 : document.body.classList.contains('web-mode') ? 16 : 32
         ).catch(() => {});
       }
     }

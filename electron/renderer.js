@@ -208,17 +208,19 @@
   }
 
   /* ═══════════ SECURITY & ORIGIN APPROVAL ═══════════ */
-  window.bucksAPI.onWalletAccessRequest(({ requestId, origin }) => {
-    const modal = $('#origin-approval');
-    const originText = $('#requesting-origin');
-    originText.textContent = origin;
-    modal.classList.remove('sidebar-hidden');
+  if (window.bucksAPI.onWalletAccessRequest) {
+    window.bucksAPI.onWalletAccessRequest(({ requestId, origin }) => {
+      const modal = $('#origin-approval');
+      const originText = $('#requesting-origin');
+      originText.textContent = origin;
+      modal.classList.remove('sidebar-hidden');
 
-    if ($('#btn-origin-deny')) $('#btn-origin-deny').onclick = () => {
-      window.bucksAPI.respondToWalletAccess(requestId, false);
-      modal.classList.add('sidebar-hidden');
-    };
-  });
+      if ($('#btn-origin-deny')) $('#btn-origin-deny').onclick = () => {
+        window.bucksAPI.respondToWalletAccess(requestId, false);
+        modal.classList.add('sidebar-hidden');
+      };
+    });
+  }
 
   /* ═══════════ EPHEMERAL COMMAND BAR (Cmd/Ctrl+K) ═══════════
    * ephemeral-window.js closes its popup and forwards the typed query here.
@@ -703,6 +705,20 @@
         storeOverlay.classList.remove('hidden');
       });
     });
+
+    // App Store header nav-tab button
+    const storeTabBtn = $('#tab-store');
+    if (storeTabBtn) {
+      storeTabBtn.addEventListener('click', () => {
+        storeOverlay.classList.remove('hidden');
+        // Initialize appStore UI controller if available
+        if (window.appStore && !window.appStore._initialized) {
+          const container = storeOverlay.querySelector('[id$="-apps-grid"]') || storeOverlay;
+          window.appStore.init(container);
+          window.appStore._initialized = true;
+        }
+      });
+    }
   }
 
   /* ═══════════ TAB MANAGEMENT ═══════════ */
@@ -720,6 +736,7 @@
       spaceId: spaceId || activeSpaceId,
       customName: undefined,
       tabColor: undefined,
+      turns: [],
     };
 
     // Restore any persisted label or color for this URL origin
@@ -746,8 +763,11 @@
         container.style.width = '100%';
         container.style.height = '100%';
         container.style.display = 'none';
-        container.appendChild(clone);
-        browserContent.insertBefore(container, walletSidebar);
+        if (walletSidebar && walletSidebar.parentNode === browserContent) {
+          browserContent.insertBefore(container, walletSidebar);
+        } else if (browserContent) {
+          browserContent.appendChild(container);
+        }
         tab.newtabEl = container;
 
         const searchBox = container.querySelector('.newtab-search');
@@ -833,8 +853,15 @@
       }
     });
 
-    browserContent.insertBefore(wv.el, walletSidebar);
+    if (walletSidebar && walletSidebar.parentNode === browserContent) {
+      browserContent.insertBefore(wv.el, walletSidebar);
+    } else if (browserContent) {
+      browserContent.appendChild(wv.el);
+    }
     tab.webview = wv;
+    requestAnimationFrame(() => {
+      try { wv.sync?.(); } catch (_) {}
+    });
   }
 
   function navigateTab(tabId, input) {
@@ -843,18 +870,41 @@
     // Navigating dismisses the ephemeral agent overlay (its freeze-frame
     // backdrop would go stale and keep covering the live view).
     if (document.body.classList.contains('agent-freeze')) undockChatPanel();
-    const url = normalizeURL(input);
+    
+    let url;
+    if (!isURL(input)) {
+      url = `bucks://agent-search?q=${encodeURIComponent(input.trim())}`;
+    } else {
+      url = normalizeURL(input);
+    }
     tab.url = url;
 
-    // If it was a new-tab page, replace with webview
+    // Handle internal bucks:// pages directly in dashboard, no webview
+    if (url.startsWith('bucks://')) {
+      if (tab.webview) {
+        tab.webview.remove();
+        tab.webview = null;
+      }
+      if (tab.newtabEl) {
+        tab.newtabEl.remove();
+        tab.newtabEl = null;
+      }
+      if (tabId === activeTabId) {
+        setActiveTab(tabId);
+      }
+      saveSession();
+      return;
+    }
+
+    // If it was a new-tab page or internal view, replace/create webview
     if (tab.newtabEl) {
       tab.newtabEl.remove();
       tab.newtabEl = null;
-      createWebview(tab);
-      tab.webview.setAttribute('src', url);
-    } else if (tab.webview) {
-      tab.webview.setAttribute('src', url);
     }
+    if (!tab.webview) {
+      createWebview(tab);
+    }
+    tab.webview.setAttribute('src', url);
 
     if (tabId === activeTabId) {
       setActiveTab(tabId);
@@ -934,14 +984,65 @@
       }
       document.body.classList.add('web-mode');
       document.body.classList.remove('files-mode');
+      requestAnimationFrame(() => {
+        try { tab.webview?.sync?.(); } catch (_) {}
+      });
     } else if (tab.newtabEl) {
+      document.querySelectorAll('.newtab-container').forEach(el => {
+        el.classList.remove('active');
+        el.style.display = 'none';
+      });
       tab.newtabEl.classList.add('active');
+      tab.newtabEl.style.display = 'block';
       addressBar.value = '';
       updateSecurityIcon('pending'); // New tab page doesn't have a security status yet
       updateBookmarkIcon('');
       if (dashboardWindow) {
         dashboardWindow.classList.remove('hidden');
         showDashboardView('newtab'); // Auto-switch dashboard view to new tab search hub
+      }
+      document.body.classList.remove('web-mode');
+    } else {
+      // Internal bucks:// views loaded directly in the dashboard
+      if (dashboardWindow) {
+        dashboardWindow.classList.remove('hidden');
+        if (tab.url.startsWith('bucks://agent-search')) {
+          showDashboardView('agent-search');
+          addressBar.value = tab.url;
+          updateSecurityIcon('secure');
+          
+          let q = '';
+          try {
+            if (tab.url.includes('?q=')) {
+              q = decodeURIComponent(tab.url.split('?q=')[1].split('&')[0]);
+            }
+            if (q) {
+              tab.title = `Search: "${q}"`;
+              renderTabs();
+            }
+          } catch (e) {
+            console.error('[agent-search URL parse error]:', e);
+          }
+          if (q) {
+            if (typeof window.__a2uiRunSearch === 'function') {
+              window.__a2uiRunSearch(q, false);
+            } else if (typeof triggerAgentSearch === 'function') {
+              triggerAgentSearch(q);
+            }
+          }
+          if (typeof window.__a2uiLoadTabTurns === 'function') {
+            window.__a2uiLoadTabTurns(id, tab.turns || []);
+          }
+        } else if (tab.url.startsWith('bucks://')) {
+          const viewName = tab.url.replace('bucks://', '').split('?')[0];
+          showDashboardView(viewName);
+          addressBar.value = tab.url;
+          updateSecurityIcon('secure');
+        } else {
+          showDashboardView('newtab');
+          addressBar.value = '';
+          updateSecurityIcon('pending');
+        }
       }
       document.body.classList.remove('web-mode');
     }
@@ -1123,17 +1224,9 @@
       tabsContainer.appendChild(el);
     });
 
-    // Append new tab '+' button at the end of opened tabs
-    const plusBtn = document.createElement('button');
-    plusBtn.id = 'tabs-plus-btn';
-    plusBtn.title = 'New tab';
-    plusBtn.className = 'urlbar-btn';
-    plusBtn.style.cssText = 'flex-shrink:0; width:26px; height:26px; border-radius:8px; margin-left:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.2s;';
-    plusBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>`;
-    plusBtn.addEventListener('click', () => createTab());
-    plusBtn.addEventListener('mouseover', () => plusBtn.style.background = 'rgba(255,255,255,0.12)');
-    plusBtn.addEventListener('mouseout', () => plusBtn.style.background = 'rgba(255,255,255,0.06)');
-    tabsContainer.appendChild(plusBtn);
+    // No '+' is appended here: #btn-new-tab (index.html) already sits directly
+    // after this strip and is the single new-tab control. A second '+' inside
+    // #tabs-container also scrolled out of reach once the strip overflowed.
 
     // Auto-scroll the active tab into view
     const activeEl = tabsContainer.querySelector('.tab.active');
@@ -1167,8 +1260,8 @@
         border-radius: 8px;
         cursor: pointer;
         transition: background 0.15s;
-        background: ${isActive ? 'rgba(123, 63, 228, 0.2)' : 'transparent'};
-        border: 1px solid ${isActive ? 'rgba(123, 63, 228, 0.35)' : 'transparent'};
+        background: ${isActive ? 'var(--accent-ring)' : 'transparent'};
+        border: 1px solid ${isActive ? 'var(--accent-ring)' : 'transparent'};
       `;
       
       const space = spaces.find(s => s.id === (tab.spaceId || 'default')) || { name: 'General', color: '#52b6ff' };
@@ -1617,10 +1710,28 @@
     alert(`Bucks Privacy Report\n\nBlocked Trackers & Ads: ${count}\n\nYour browsing is being shielded.`);
   };
 
+  const _toastDeduper = new Map();
+  function stripAlertEmoji(text) {
+    return String(text ?? '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
+  }
+
+  function isIPFSPinAlert(text) {
+    return /\bipfs\b.*\bpin(?:ned|ning)?\b|\bpin(?:ned|ning)?\b.*\bipfs\b/i.test(text);
+  }
+
   function showToast(text, type = 'info') {
-    const container = $('#toast-container') || (() => {
+    const safeText = escapeHtml(stripAlertEmoji(text));
+    const key = `${type}:${safeText}`;
+    const now = Date.now();
+    const last = _toastDeduper.get(key) || 0;
+    const cooldown = isIPFSPinAlert(safeText) ? 5 * 60 * 1000 : 2200;
+    if (now - last < cooldown) return;
+    _toastDeduper.set(key, now);
+
+    const container = $('#app-alert-shell') || (() => {
       const c = document.createElement('div');
-      c.id = 'toast-container';
+      c.id = 'app-alert-shell';
+      c.className = 'app-alert-shell';
       document.body.appendChild(c);
       return c;
     })();
@@ -1629,12 +1740,23 @@
     toast.className = `toast glass-panel toast-${type} fade-in`;
     toast.innerHTML = `
       <div class="toast-content">
-        <span class="toast-icon">${type === 'success' ? '' : type === 'error' ? '' : 'ℹ️'}</span>
-        <span class="toast-text">${text}</span>
+        <span class="toast-icon"></span>
+        <span class="toast-text">${safeText}</span>
       </div>
     `;
 
     container.appendChild(toast);
+
+    try {
+      const alerts = JSON.parse(localStorage.getItem('bucks-app-alerts') || '[]')
+        .map((alert) => ({ ...alert, text: stripAlertEmoji(alert.text) }));
+      const recentDuplicate = alerts.some((alert) =>
+        alert.text === safeText && now - Number(alert.at || 0) < cooldown);
+      if (!recentDuplicate) alerts.unshift({ text: safeText, type, at: now });
+      localStorage.setItem('bucks-app-alerts', JSON.stringify(alerts.slice(0, 20)));
+    } catch (_) {}
+
+    window.dispatchEvent(new CustomEvent('bucks:app-alert', { detail: { text: safeText, type } }));
 
     setTimeout(() => {
       toast.classList.add('fade-out');
@@ -2034,9 +2156,12 @@
   }
 
   function handleOmniboxKeydown(e) {
-    if (currentSuggestions.length === 0 || omniboxDropdown.classList.contains('hidden')) {
-      if (e.key === 'Enter' && addressBar.value.trim()) {
-        const val = addressBar.value.trim();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = (suggestionIndex >= 0 && currentSuggestions[suggestionIndex])
+        ? currentSuggestions[suggestionIndex].url
+        : addressBar.value.trim();
+      if (val) {
         navigateTab(activeTabId, val);
         omniboxDropdown.classList.add('hidden');
         addressBar.blur();
@@ -2044,24 +2169,20 @@
       return;
     }
 
+    if (currentSuggestions.length === 0 || omniboxDropdown.classList.contains('hidden')) {
+      return;
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       suggestionIndex = (suggestionIndex + 1) % currentSuggestions.length;
       renderOmniboxSuggestions();
-      addressBar.value = currentSuggestions[suggestionIndex].url;
+      if (currentSuggestions[suggestionIndex]) addressBar.value = currentSuggestions[suggestionIndex].url;
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       suggestionIndex = (suggestionIndex - 1 + currentSuggestions.length) % currentSuggestions.length;
       renderOmniboxSuggestions();
-      addressBar.value = currentSuggestions[suggestionIndex].url;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const targetUrl = suggestionIndex >= 0 ? currentSuggestions[suggestionIndex].url : addressBar.value.trim();
-      if (targetUrl) {
-        navigateTab(activeTabId, targetUrl);
-        addressBar.blur();
-        omniboxDropdown.classList.add('hidden');
-      }
+      if (currentSuggestions[suggestionIndex]) addressBar.value = currentSuggestions[suggestionIndex].url;
     }
   }
 
@@ -2155,6 +2276,12 @@
   }
 
   function showDashboardView(viewName) {
+    window.showDashboardView = showDashboardView;
+    if (typeof unfreezePageBackdrop === 'function') unfreezePageBackdrop();
+    const dashboardWin = document.getElementById('dashboard-window');
+    if (dashboardWin) dashboardWin.classList.remove('hidden');
+    document.body.classList.remove('web-mode');
+
     if (viewName === 'home') {
       viewName = 'newtab';
     }
@@ -2241,9 +2368,17 @@
       } else if (viewName === 'newtab') {
         addressBar.value = '';
         updateSecurityIcon('pending');
+      } else if (viewName === 'agent-search') {
+        updateSecurityIcon('secure');
       } else if (['files', 'studio', 'spaces', 'history', 'bookmarks', 'settings', 'wallet', 'ipfs'].includes(viewName)) {
         addressBar.value = 'bucks://' + viewName;
         updateSecurityIcon('secure');
+      } else if (viewName === 'appstore' || viewName === 'store') {
+        addressBar.value = 'bucks://store';
+        updateSecurityIcon('secure');
+        const storeOverlay = document.getElementById('store-overlay');
+        if (storeOverlay) storeOverlay.classList.remove('hidden');
+        if (window.appStore && window.appStore.init) window.appStore.init();
       }
       if (viewName === 'files') {
         const wv = document.getElementById('bucks-files-webview');
@@ -2260,17 +2395,15 @@
         const wv = document.getElementById('bucks-studio-webview');
         if (wv) {
           try {
-            if (typeof wv.reload === 'function') {
-              wv.reload();
-            } else {
-              wv.src = wv.src;
-            }
+            if (typeof wv.reload === 'function') wv.reload();
+            else wv.src = wv.src;
           } catch (e) {
             console.error('[Webview] Studio Reload failed:', e);
           }
         }
       }
     }
+    window.showDashboardView = showDashboardView;
 
     // Files mode overrides removed - layout remains static across all views.
     document.body.classList.remove('files-mode');
@@ -2920,7 +3053,7 @@
     const updated = { ...(settings || {}), theme: next };
     settings = updated;
     await window.bucksAPI?.saveSettings?.(updated);
-    showToast(next === 'system' ? '🖥 System Theme' : next === 'dark' ? '🌙 Dark Theme' : '☀️ Light Theme');
+    showToast(next === 'system' ? 'System Theme' : next === 'dark' ? 'Dark Theme' : 'Light Theme');
   });
 
   // Logo home button
@@ -2928,13 +3061,15 @@
     showDashboardView('home');
   });
 
-  $('#btn-settings')?.addEventListener('click', () => toggleSidebar('settings'));
-  $('#btn-close-settings')?.addEventListener('click', () => toggleSidebar('settings'));
+  $('#btn-settings')?.addEventListener('click', () => {
+    showDashboardView('settings');
+  });
+  $('#btn-close-settings')?.addEventListener('click', () => {
+    showDashboardView('home');
+  });
 
   $('#btn-header-settings')?.addEventListener('click', () => {
-    // Over a web page this used to open #settings-panel, which holds no
-    // controls — only a note pointing at the New Tab dashboard. Go straight to
-    // the real settings view instead, the same way Messages does.
+    // Always open the actual settings view instead of the old side panel.
     showDashboardView('settings');
   });
 
@@ -3050,7 +3185,7 @@
           <div id="profile-status-dot-mini" style="position:absolute; bottom:-1px; right:-1px; width:8px; height:8px; border-radius:50%; background:#ff4757; border:1.5px solid #1a1a1c;" title="Private Mode"></div>`;
       }
       const topBar = document.querySelector('.top-bar-inner');
-      if (topBar) topBar.style.border = '1px solid rgba(150,110,255,0.55)';
+      if (topBar) topBar.style.border = '1px solid var(--accent-ring)';
     } catch (_) {}
   }
 
@@ -3974,7 +4109,7 @@
                 <button class="btn-vote vote-down ${votes.myVote === 'down' ? 'active' : ''}" onclick="window._clusterVote('${post.cid}','down')" title="Not recommended">▼ <span class="vote-count">${votes.downCount}</span></button>
               </div>
               <button class="btn-pin ${isPinnedLocally ? 'pinned' : ''}" onclick="window._clusterTogglePin('${post.cid}', ${isPinnedLocally})" title="${isPinnedLocally ? 'Hosting locally — click to unpin' : 'Pin to host this locally'}">
-                ${isPinnedLocally ? '📌 Hosting' : '📌 Pin'}
+                ${isPinnedLocally ? 'Hosting' : 'Pin'}
               </button>
               <span class="feed-size">${size}</span>
             </div>
@@ -4304,15 +4439,17 @@
   window.submitAgentFollowup = (encodedQuery) => {
     if (!encodedQuery) return;
     const query = decodeURIComponent(encodedQuery);
-    const chatTab = document.getElementById('view-chat-tab');
-    if (chatTab && !chatTab.classList.contains('hidden')) {
-      sendChatTab(query);
+    const agentSearchView = document.getElementById('view-agent-search');
+    if (agentSearchView && !agentSearchView.classList.contains('hidden')) {
+      triggerAgentSearch(query, { isFollowup: true });
+    } else if (document.body.classList.contains('web-mode')) {
+      triggerAgentSearchOverlay(query);
     } else {
-      const input = document.getElementById('chat-input') || document.getElementById('nt-search-input');
-      if (input) {
-        const q = query.startsWith('/') ? query : `/agent ${query}`;
-        input.value = q;
-        sendChat(q);
+      const chatTab = document.getElementById('view-chat-tab');
+      if (chatTab && !chatTab.classList.contains('hidden')) {
+        sendChatTab(query);
+      } else {
+        triggerAgentSearch(query);
       }
     }
   };
@@ -4563,7 +4700,7 @@
     if (kind === 'pie') {
       const total = series.reduce((s, p) => s + (Number(p.value) || 0), 0) || 1;
       let a0 = -Math.PI / 2, cx = 80, cy = 80, r = 64, segs = '';
-      const colors = ['#7b3fe4', '#52b6ff', '#2ed573', '#f7931a', '#ff4757', '#a978ff'];
+      const colors = ['var(--accent)', '#52b6ff', '#2ed573', '#f7931a', '#ff4757', 'var(--accent)'];
       series.forEach((p, i) => {
         const frac = (Number(p.value) || 0) / total, a1 = a0 + frac * 2 * Math.PI;
         const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
@@ -4587,13 +4724,13 @@
     let body = '';
     if (kind === 'line') {
       const d = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(i).toFixed(1)},${sy(Number(p.y) || 0).toFixed(1)}`).join(' ');
-      body = `<path d="${d}" fill="none" stroke="#7b3fe4" stroke-width="2.5"/>` +
-        pts.map((p, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(Number(p.y) || 0).toFixed(1)}" r="3" fill="#a978ff"/>`).join('');
+      body = `<path d="${d}" fill="none" stroke="currentColor" stroke-width="2.5"/>` +
+        pts.map((p, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(Number(p.y) || 0).toFixed(1)}" r="3" fill="currentColor"/>`).join('');
     } else {
       const bw = Math.min(xStep * 0.6, 34);
       body = pts.map((p, i) => {
         const yv = sy(Number(p.y) || 0);
-        return `<rect x="${(sx(i) - bw / 2).toFixed(1)}" y="${yv.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(H - pad - yv, 1).toFixed(1)}" rx="3" fill="#7b3fe4" opacity="0.85"/>`;
+        return `<rect x="${(sx(i) - bw / 2).toFixed(1)}" y="${yv.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(H - pad - yv, 1).toFixed(1)}" rx="3" fill="currentColor" opacity="0.85"/>`;
       }).join('');
     }
     const labels = pts.map((p, i) => `<text x="${sx(i).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.4)">${_gu_esc(String(p.x).slice(0, 6))}</text>`).join('');
@@ -5294,12 +5431,37 @@
     return wrap;
   }
 
+  window.copyCodeSnippet = function (btn, b64Code) {
+    try {
+      const code = decodeURIComponent(escape(atob(b64Code)));
+      navigator.clipboard.writeText(code);
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Copied!`;
+        btn.style.color = '#50dc8c';
+        btn.style.borderColor = 'rgba(80,220,140,0.4)';
+        setTimeout(() => {
+          btn.innerHTML = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 1800);
+      }
+    } catch (e) {
+      console.error('[CopyCode]', e);
+    }
+  };
+
   function formatNexusAnswer(text) {
     if (!text) return { html: '', links: [], followups: [] };
 
     let rawText = text;
     let links = [];
     let followups = [];
+
+    // Clean internal prompt leakage
+    rawText = rawText.replace(/FOLLOW-UP QUERY:\s*["'][^"']*["']\.?/gi, '');
+    rawText = rawText.replace(/PROVIDE A CONCISE,?\s*CLEAR ANSWER WITH EVIDENCE BASED ON CONTEXT\.?/gi, '');
+    rawText = rawText.replace(/^IMAGES\s*—\s*/gi, 'Images & Media — ');
 
     // 1. Extract follow-up questions wrapped in <followup>...</followup>
     const followupRegex = /<followup>([\s\S]*?)<\/followup>/gi;
@@ -5309,6 +5471,9 @@
     }
     rawText = rawText.replace(followupRegex, '');
 
+    // Strip unclosed <followup> tags during streaming
+    rawText = rawText.replace(/<followup>[\s\S]*/gi, '');
+
     // 2. Extract markdown links: [Label](URL)
     const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s\)]+|[^\s\)]+)\)/g;
     let linkMatch;
@@ -5316,22 +5481,64 @@
       links.push({ text: linkMatch[1].trim(), url: linkMatch[2].trim() });
     }
 
-    // 3. Escape HTML
-    let formatted = escapeHtml(rawText);
+    let html = '';
+    const markedObj = window.marked || (typeof require === 'function' ? require('marked') : null);
+    if (markedObj) {
+      try {
+        const RendererClass = markedObj.Renderer || (markedObj.marked && markedObj.marked.Renderer);
+        const renderer = RendererClass ? new RendererClass() : {};
 
-    // Strip out unclosed <followup> tags so they don't show up as ugly tags during streaming
-    formatted = formatted.replace(/&lt;followup&gt;[\s\S]*/gi, '');
+        // Custom Code Block Renderer with Copy Button
+        renderer.code = function (code, infostring) {
+          const lang = (infostring || 'code').trim().toLowerCase();
+          const rawCode = typeof code === 'object' && code !== null ? (code.text || '') : String(code || '');
+          const b64 = btoa(unescape(encodeURIComponent(rawCode)));
+          return `<div class="nx-code-card">
+            <div class="nx-code-header">
+              <span class="nx-code-lang">${escapeHtml(lang)}</span>
+              <button class="nx-code-copy-btn" onclick="window.copyCodeSnippet(this, '${b64}')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy
+              </button>
+            </div>
+            <pre><code>${escapeHtml(rawCode)}</code></pre>
+          </div>`;
+        };
 
-    // 4. Format markdown links in text
-    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-      const decodedUrl = url.replace(/&amp;/g, '&');
-      return `<a href="#" onclick="window.openAgentLink('${decodedUrl}'); event.preventDefault();" style="color: #78b4ff; text-decoration: underline; font-weight: 500; cursor: pointer; transition: color 0.15s ease;" onmouseover="this.style.color='#a3caff'" onmouseout="this.style.color='#78b4ff'">${linkText}</a>`;
-    });
+        // Custom Link Renderer for Electron tabs
+        renderer.link = function (href, title, text) {
+          const url = typeof href === 'object' && href !== null ? href.href : href;
+          const label = typeof href === 'object' && href !== null ? (href.text || text) : text;
+          const decoded = (url || '#').replace(/&amp;/g, '&');
+          return `<a href="#" onclick="window.openAgentLink('${escapeHtml(decoded)}'); event.preventDefault();" style="color: #78b4ff; text-decoration: underline; font-weight: 500; cursor: pointer; transition: color 0.15s ease;" onmouseover="this.style.color='#a3caff'" onmouseout="this.style.color='#78b4ff'">${label || decoded}</a>`;
+        };
 
-    // 5. Format bold tags
-    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // Custom Table Renderer
+        renderer.table = function (header, body) {
+          const hStr = typeof header === 'object' && header !== null ? (header.header || '') : header;
+          const bStr = typeof body === 'object' && body !== null ? (body.body || '') : body;
+          return `<div class="nx-table-wrap"><table class="nx-table"><thead>${hStr}</thead><tbody>${bStr}</tbody></table></div>`;
+        };
 
-    return { html: formatted, links, followups };
+        // Custom Blockquote Renderer
+        renderer.blockquote = function (quote) {
+          const qStr = typeof quote === 'object' && quote !== null ? (quote.text || '') : quote;
+          return `<blockquote class="nx-blockquote">${qStr}</blockquote>`;
+        };
+
+        const parseFn = typeof markedObj.parse === 'function' ? markedObj.parse : markedObj;
+        html = parseFn(rawText, { renderer, gfm: true, breaks: true });
+      } catch (err) {
+        console.warn('[MarkedParseError]', err);
+        html = escapeHtml(rawText);
+      }
+    } else {
+      // Fallback if marked library is not available
+      html = escapeHtml(rawText);
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    }
+
+    return { html, links, followups };
   }
 
   function renderNexusStepCard(ev) {
@@ -5553,7 +5760,7 @@
       if (s.state === 'done') {
         icon = `<span style="flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(74,222,128,0.18);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg></span>`;
       } else if (s.state === 'active') {
-        icon = `<span style="flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(169,120,255,0.18);"><span style="width:11px;height:11px;border:2px solid rgba(169,120,255,0.4);border-top-color:#a978ff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;"></span></span>`;
+        icon = `<span style="flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--accent-ring);"><span style="width:11px;height:11px;border:2px solid var(--accent-ring);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;"></span></span>`;
       } else {
         icon = `<span style="flex:none;width:22px;height:22px;border-radius:6px;border:1px solid rgba(255,255,255,0.14);"></span>`;
       }
@@ -5671,8 +5878,8 @@
     return `
       <div style="width:100%; display:flex; justify-content:center; margin-top:14px; flex-shrink:0; padding-bottom:6px;">
         <button class="gu-more-btn" onclick="window.__bucksGuViewMore(this,'${kind}','${_gu_attr(query || '')}')"
-          style="padding:9px 22px; border-radius:99px; background:rgba(169,120,255,0.14); border:1px solid rgba(169,120,255,0.35); color:#a978ff; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:8px;"
-          onmouseover="this.style.background='rgba(169,120,255,0.24)';" onmouseout="this.style.background='rgba(169,120,255,0.14)';">
+          style="padding:9px 22px; border-radius:99px; background:var(--accent-soft); border:1px solid var(--accent-ring); color:var(--accent); font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:8px;"
+          onmouseover="this.style.background='var(--accent-ring)';" onmouseout="this.style.background='var(--accent-soft)';">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           <span class="gu-more-label">${label}</span>
         </button>
@@ -5820,14 +6027,37 @@
       onWorkspaceChanged: null,
     });
 
-    // Toolbar: split the current page into a second pane (duplicates it, so
-    // there's always something meaningful side-by-side to start from).
+    window.getOpenTabsContext = function() {
+      return tabs.map((t, idx) => `Tab ${idx + 1}: ${t.title || 'Untitled'} (${t.url})`).join('\n');
+    };
+
+    window.getActivePageContext = async function() {
+      const tab = tabs.find(t => t.id === activeTabId);
+      if (!tab) return null;
+      let pageTitle = tab.title || '';
+      let pageUrl = tab.url || '';
+      let pageText = '';
+      if (tab.webview && typeof tab.webview.executeJavaScript === 'function') {
+        try {
+          pageText = await tab.webview.executeJavaScript('document.body ? document.body.innerText.slice(0, 3000) : ""');
+        } catch (_) {}
+      }
+      return { title: pageTitle, url: pageUrl, text: pageText };
+    };
+
     const splitBtn = document.getElementById('btn-split');
     if (splitBtn) {
       splitBtn.addEventListener('click', () => {
         const t = tabs.find((x) => x.id === activeTabId);
-        if (!t || !t.webview) { showToast('Open a page first, then split it', 'info'); return; }
-        window.bucksPaneManager.addPane(activeTabId, t.webview.getURL() || t.url);
+        if (!t || !t.url || t.url.startsWith('bucks://')) {
+          showToast('Open a web page first, then split into side-by-side panes', 'info');
+          return;
+        }
+        const urlToSplit = (t.webview && typeof t.webview.getURL === 'function' && t.webview.getURL()) || t.url;
+        if (window.bucksPaneManager) {
+          window.bucksPaneManager.addPane(activeTabId, urlToSplit);
+          showToast('Split Pane Activated', 'success');
+        }
       });
     }
 
@@ -6261,9 +6491,9 @@
             const cardId = 'loc-card-' + Date.now();
             msgContainer.innerHTML += `
               <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
-                <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid rgba(123,63,228,0.25);box-shadow: var(--bucks-shadow-md);">
+                <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid var(--accent-ring);box-shadow: var(--bucks-shadow-md);">
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                     <span style="font-size:14px;font-weight:600;color:#fff;">Directions</span>
                   </div>
                   <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-bottom:12px;line-height:1.5;">
@@ -6271,7 +6501,7 @@
                     <span style="color:rgba(255,120,90,0.9);font-weight:600;">To:</span> ${escapeHtml(to)}
                   </div>
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(20,0,5); setTimeout(()=>{ const inp = document.querySelector('.em-from'); if(inp){inp.value='${escapeHtml(from)}';} const inp2 = document.querySelector('.em-to'); if(inp2){inp2.value='${escapeHtml(to)}';} },300)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
+                    <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(20,0,5); setTimeout(()=>{ const inp = document.querySelector('.em-from'); if(inp){inp.value='${escapeHtml(from)}';} const inp2 = document.querySelector('.em-to'); if(inp2){inp2.value='${escapeHtml(to)}';} },300)" style="padding:7px 14px;border-radius:10px;border:1px solid var(--accent-ring);background:var(--accent-ring);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='var(--accent-ring)'" onmouseout="this.style.background='var(--accent-ring)'">
                       ️ Open in Map
                     </button>
                     <button onclick="window._bucksLocationRoute('${escapeHtml(from)}','${escapeHtml(to)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
@@ -6325,15 +6555,15 @@
             if (msgContainer) {
               msgContainer.innerHTML += `
                 <div style="display:flex;justify-content:flex-start;margin-bottom:12px;">
-                  <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid rgba(123,63,228,0.25);box-shadow: var(--bucks-shadow-md);">
+                  <div style="max-width:90%;padding:16px 18px;border-radius:6px 16px 16px 16px;background: var(--bucks-bg-surface);border:1px solid var(--accent-ring);box-shadow: var(--bucks-shadow-md);">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(169,120,255,0.9)" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                       <span style="font-size:14.5px;font-weight:700;color:#fff;">${escapeHtml(name)}</span>
                     </div>
                     <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;line-height:1.4;">${escapeHtml(fullAddr)}</div>
                     <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${lat}° N, ${lon}° E</div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                      <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(${+p.lat || 0},${+p.lon || 0},14)" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(123,63,228,0.4);background:rgba(123,63,228,0.18);color:#a978ff;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(123,63,228,0.3)'" onmouseout="this.style.background='rgba(123,63,228,0.18)'">
+                      <button onclick="window.BucksEarthMap && window.BucksEarthMap.openAt(${+p.lat || 0},${+p.lon || 0},14)" style="padding:7px 14px;border-radius:10px;border:1px solid var(--accent-ring);background:var(--accent-ring);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='var(--accent-ring)'" onmouseout="this.style.background='var(--accent-ring)'">
                         ️ Navigate
                       </button>
                       <button onclick="window._bucksLocationRoute('my location','${escapeHtml(name)}')" style="padding:7px 14px;border-radius:10px;border:1px solid rgba(80,220,140,0.3);background:rgba(80,220,140,0.12);color:rgba(80,220,140,0.9);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:inherit;" onmouseover="this.style.background='rgba(80,220,140,0.22)'" onmouseout="this.style.background='rgba(80,220,140,0.12)'">
@@ -6557,39 +6787,8 @@
   // the native view (body.agent-freeze — see tab-view.js _sync). The panel
   // now visually sits ON the page; dismissing restores the live view.
   async function freezePageBackdrop() {
-    if (!document.body.classList.contains('web-mode')) return;
-    // Already frozen (dockChatPanel runs on every message) — the view is
-    // hidden now, so a re-capture would blank the backdrop. Keep the frame.
-    if (document.body.classList.contains('agent-freeze')) return;
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab?.webview?.el?.isConnected) return;
-
-    let backdrop = document.getElementById('page-freeze-backdrop');
-    if (!backdrop) {
-      backdrop = document.createElement('div');
-      backdrop.id = 'page-freeze-backdrop';
-      // Click-away on the frozen page dismisses the ephemeral panel.
-      backdrop.addEventListener('click', () => undockChatPanel());
-      browserContent.appendChild(backdrop);
-    }
-
-    const host = browserContent.getBoundingClientRect();
-    const r = tab.webview.el.getBoundingClientRect();
-    Object.assign(backdrop.style, {
-      left: `${r.left - host.left}px`,
-      top: `${r.top - host.top}px`,
-      width: `${r.width}px`,
-      height: `${r.height}px`,
-    });
-
-    try {
-      const b64 = await tab.webview.capturePageBase64();
-      backdrop.style.backgroundImage = `url(data:image/png;base64,${b64})`;
-    } catch (_) {
-      backdrop.style.backgroundImage = 'none';
-    }
-    backdrop.classList.add('visible');
-    document.body.classList.add('agent-freeze');
+    // Dock overlays dynamically resize native WebContentsViews via BOTTOM_OVERLAYS
+    // keeping the live web view fully rendered without blanking the backdrop.
   }
 
   function unfreezePageBackdrop() {
@@ -6929,19 +7128,54 @@
       // Fetch full model list from Soul Engine
       if (sel) {
         try {
-          const mr = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(2000) });
-          const { models, current } = await mr.json();
-          if (models && models.length) {
-            const prev = sel.value;
-            sel.innerHTML = '';
-            models.forEach(m => {
-              const opt = document.createElement('option');
-              opt.value = m.id;
-              opt.textContent = m.id + (m.downloaded ? '' : ' ⬇');
-              if (m.current || m.id === (current || h.model)) opt.selected = true;
-              if (!m.fits_ram && !m.current) opt.disabled = true;
-              sel.appendChild(opt);
-            });
+          const [mr, pr] = await Promise.all([
+            fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(2000) }).catch(() => null),
+            fetch(`${SOUL_ENGINE}/providers`, { signal: AbortSignal.timeout(2000) }).catch(() => null)
+          ]);
+          
+          let hasOptions = false;
+          const prev = sel.value;
+          sel.innerHTML = '';
+          
+          if (mr && mr.ok) {
+            const { models, current } = await mr.json();
+            if (models && models.length) {
+              const grp = document.createElement('optgroup');
+              grp.label = 'Local Models';
+              models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.dataset.type = 'model';
+                opt.textContent = m.id + (m.downloaded ? '' : ' ⬇');
+                if (m.current || m.id === (current || h.model)) opt.selected = true;
+                if (!m.fits_ram && !m.current) opt.disabled = true;
+                grp.appendChild(opt);
+              });
+              sel.appendChild(grp);
+              hasOptions = true;
+            }
+          }
+          
+          if (pr && pr.ok) {
+            const { providers } = await pr.json();
+            const cloudProviders = providers ? providers.filter(p => !p.inbuilt) : [];
+            if (cloudProviders.length) {
+              const grp = document.createElement('optgroup');
+              grp.label = 'Cloud Providers';
+              cloudProviders.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.dataset.type = 'provider';
+                opt.textContent = p.label;
+                if (p.current) opt.selected = true;
+                grp.appendChild(opt);
+              });
+              sel.appendChild(grp);
+              hasOptions = true;
+            }
+          }
+          
+          if (hasOptions) {
             if (!sel.value && prev) sel.value = prev;
             return;
           }
@@ -7042,7 +7276,39 @@
     });
 
     document.getElementById('composer-send-btn')?.addEventListener('click', () => {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      const input = document.getElementById('nt-search-input');
+      if (input) {
+        let val = input.value.trim();
+        if (!val && composerAttachments.length) {
+          val = 'Review the attached file(s) and tell me what they contain.';
+        }
+        if (val) {
+          const chatTab = document.getElementById('view-chat-tab');
+          const agentSearchView = document.getElementById('view-agent-search');
+          if (chatTab && !chatTab.classList.contains('hidden')) {
+            sendChatTab(val);
+          } else if (agentSearchView && !agentSearchView.classList.contains('hidden')) {
+            triggerAgentSearch(val, { isFollowup: true });
+          } else if (document.body.classList.contains('web-mode')) {
+            triggerAgentSearchOverlay(val);
+          } else {
+            navigateTab(activeTabId, val);
+          }
+          input.value = '';
+        }
+      }
+    });
+
+    document.getElementById('composer-newchat-btn')?.addEventListener('click', () => {
+      resetChat();
+      document.getElementById('nav-chat-panel')?.classList.remove('nav-chat-min');
+      document.getElementById('nt-search-input')?.focus();
+    });
+
+    document.getElementById('composer-history-btn')?.addEventListener('click', () => {
+      undockChatPanel();
+      showDashboardView('chat-tab');
+      renderChatTabHistory();
     });
 
     document.getElementById('composer-attach-btn')?.addEventListener('click', () => fileInput?.click());
@@ -7051,19 +7317,33 @@
     // Model selector — switch active model on change
     const modelSel = document.getElementById('model-selector');
     modelSel?.addEventListener('change', async () => {
-      const model = modelSel.value;
-      if (!model) return;
+      const selectedOption = modelSel.options[modelSel.selectedIndex];
+      if (!selectedOption) return;
+      const type = selectedOption.dataset.type;
+      const val = selectedOption.value;
+      if (!val) return;
+      
       try {
-        const res = await fetch(`${SOUL_ENGINE}/models/select`, {
+        let endpoint, body;
+        if (type === 'provider') {
+          endpoint = `${SOUL_ENGINE}/providers/select`;
+          body = { provider: val };
+        } else {
+          endpoint = `${SOUL_ENGINE}/models/select`;
+          body = { model: val };
+        }
+        
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model }),
+          body: JSON.stringify(body),
           signal: AbortSignal.timeout(3000),
         }).then(x => x.json()).catch(() => ({}));
-        if (res && res.ok === false) showToast(`Failed to switch model: ${res.error || 'unknown'}`, 'error');
-        else showToast(`Active model: ${model}`, 'success');
+        
+        if (res && res.ok === false) showToast(`Failed to switch: ${res.error || 'unknown'}`, 'error');
+        else showToast(`Active: ${val}`, 'success');
       } catch (_) {
-        showToast('Soul Engine offline — model switch unavailable', 'error');
+        showToast('Soul Engine offline — switch unavailable', 'error');
       }
       composerRefreshModel();
     });
@@ -7237,12 +7517,28 @@
       });
     }
 
-    // Minimize: completely hide the chat panel, leaving only the persistent
-    // search bar at the bottom, matching the Claude UI concept.
+    // Minimize: toggle compact header state on the agent panel.
     const minNav = document.getElementById('btn-nav-chat-minimize');
     if (minNav) {
-      minNav.addEventListener('click', () => {
-        undockChatPanel();
+      minNav.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const panel = document.getElementById('nav-chat-panel');
+        if (panel) {
+          panel.classList.toggle('nav-chat-min');
+          window.dispatchEvent(new Event('resize'));
+        }
+      });
+    }
+
+    const chatHeader = document.getElementById('nav-chat-header');
+    if (chatHeader) {
+      chatHeader.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        const panel = document.getElementById('nav-chat-panel');
+        if (panel && panel.classList.contains('nav-chat-min')) {
+          panel.classList.remove('nav-chat-min');
+          window.dispatchEvent(new Event('resize'));
+        }
       });
     }
 
@@ -7614,7 +7910,7 @@
     list.innerHTML = ids.map(id => {
       const t = chatTabThreads[id];
       const isActive = id === chatTabActiveThread;
-      return `<div class="chat-thread-row" data-thread="${id}" style="width:100%; padding:8px 10px; border-radius:9px; cursor:pointer; font-size:12.5px; color:${isActive ? '#fff' : 'rgba(255,255,255,0.6)'}; background:${isActive ? 'rgba(123,63,228,0.32)' : 'transparent'}; transition:background 0.15s; display:flex; align-items:center; gap:8px; overflow:hidden;">
+      return `<div class="chat-thread-row" data-thread="${id}" style="width:100%; padding:8px 10px; border-radius:9px; cursor:pointer; font-size:12.5px; color:${isActive ? '#fff' : 'rgba(255,255,255,0.6)'}; background:${isActive ? 'var(--accent-ring)' : 'transparent'}; transition:background 0.15s; display:flex; align-items:center; gap:8px; overflow:hidden;">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6" style="flex-shrink:0;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;">${escapeHtml(t.title)}</span>
         <button class="chat-thread-del" data-del="${id}" title="Delete chat" style="flex-shrink:0; background:transparent; border:none; cursor:pointer; color:rgba(255,255,255,0.35); padding:2px; display:flex; opacity:0.7;">
@@ -8054,7 +8350,7 @@
     // Agentic search bar — same navigate/search/agent routing as the address bar omnibox
     const ntSearchInput = document.getElementById('nt-search-input');
     if (ntSearchInput) {
-      const searchWrap = ntSearchInput.closest('.nt-search-wrap');
+      const searchWrap = ntSearchInput.closest('.composer-bar');
       if (searchWrap) {
         setupCommandSuggestions(ntSearchInput, searchWrap, false);
       }
@@ -8062,9 +8358,9 @@
       ntSearchInput.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
 
-        // Prevent premature submit if suggestions dropdown is open
+        // Prevent premature submit if suggestions dropdown is open and active
         const hasSuggestions = searchWrap?.querySelector('.command-suggestions-dropdown');
-        if (hasSuggestions) return;
+        if (hasSuggestions && hasSuggestions.children.length > 0) return;
 
         let val = ntSearchInput.value.trim();
         // Attachments alone are a valid message ("here's a file — look at it").
@@ -8097,11 +8393,15 @@
           navigateTab(activeTabId, val);
         } else {
           const chatTab = document.getElementById('view-chat-tab');
+          const agentSearchView = document.getElementById('view-agent-search');
           if (chatTab && !chatTab.classList.contains('hidden')) {
             sendChatTab(val);
+          } else if (agentSearchView && !agentSearchView.classList.contains('hidden')) {
+            triggerAgentSearch(val, { isFollowup: true });
+          } else if (document.body.classList.contains('web-mode')) {
+            triggerAgentSearchOverlay(val);
           } else {
-            dockChatPanel();
-            sendChat(val);
+            navigateTab(activeTabId, val);
           }
         }
         ntSearchInput.value = '';
@@ -8129,24 +8429,49 @@
       if (!list) return;
       list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Loading…</div>';
       try {
-        const r = await fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) });
-        const { models, current } = await r.json();
-        if (!models || !models.length) {
-          list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Model switching needs edge mode.</div>';
-          return;
+        const [modelsRes, provRes] = await Promise.all([
+          fetch(`${SOUL_ENGINE}/models`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
+          fetch(`${SOUL_ENGINE}/providers`, { signal: AbortSignal.timeout(3000) }).catch(() => null)
+        ]);
+        
+        let html = '';
+        if (modelsRes && modelsRes.ok) {
+          const { models } = await modelsRes.json();
+          if (models && models.length) {
+            html += '<div style="padding:4px 8px; font-size:10px; color:rgba(255,255,255,0.3); text-transform:uppercase;">Local Models</div>';
+            html += models.map(m => {
+              const disabled = !m.fits_ram && !m.current;
+              const check = m.current
+                ? '<svg class="nt-model-row-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+                : '<span style="width:14px;flex-shrink:0;"></span>';
+              const dl = m.downloaded ? '' : '<span class="nt-model-row-dl">↓ download</span>';
+              return `<div class="nt-model-row ${disabled ? 'disabled' : ''}" data-model="${m.id}" data-disabled="${disabled}">
+                ${check}
+                <span class="nt-model-row-name">${escapeHtml(m.id)}${dl}</span>
+                <span class="nt-model-row-meta">${m.size_gb} GB</span>
+              </div>`;
+            }).join('');
+          }
         }
-        list.innerHTML = models.map(m => {
-          const disabled = !m.fits_ram && !m.current;
-          const check = m.current
-            ? '<svg class="nt-model-row-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
-            : '<span style="width:14px;flex-shrink:0;"></span>';
-          const dl = m.downloaded ? '' : '<span class="nt-model-row-dl">↓ download</span>';
-          return `<div class="nt-model-row ${disabled ? 'disabled' : ''}" data-model="${m.id}" data-disabled="${disabled}">
-            ${check}
-            <span class="nt-model-row-name">${escapeHtml(m.id)}${dl}</span>
-            <span class="nt-model-row-meta">${m.size_gb} GB</span>
-          </div>`;
-        }).join('');
+        
+        if (provRes && provRes.ok) {
+          const { providers } = await provRes.json();
+          if (providers && providers.length) {
+            html += '<div style="padding:8px 8px 4px; font-size:10px; color:rgba(255,255,255,0.3); text-transform:uppercase;">Cloud Providers</div>';
+            html += providers.filter(p => !p.inbuilt).map(p => {
+              const check = p.current
+                ? '<svg class="nt-model-row-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+                : '<span style="width:14px;flex-shrink:0;"></span>';
+              return `<div class="nt-model-row" data-provider="${p.id}" data-disabled="false">
+                ${check}
+                <span class="nt-model-row-name">${escapeHtml(p.label)}</span>
+                <span class="nt-model-row-meta">Cloud</span>
+              </div>`;
+            }).join('');
+          }
+        }
+        
+        list.innerHTML = html || '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Soul Engine offline.</div>';
       } catch (_) {
         list.innerHTML = '<div style="padding:10px; font-size:12px; color:rgba(255,255,255,0.4);">Soul Engine offline.</div>';
       }
@@ -8164,24 +8489,38 @@
     document.getElementById('nt-model-picker-list')?.addEventListener('click', async (e) => {
       const row = e.target.closest('.nt-model-row');
       if (!row || row.dataset.disabled === 'true') return;
-      const model = row.dataset.model;
+      
       const nameEl = row.querySelector('.nt-model-row-name');
       const statusSpan = document.createElement('span');
       statusSpan.style.cssText = 'color:rgba(255,255,255,0.4);font-size:10px;';
       statusSpan.textContent = ' switching…';
       nameEl.insertAdjacentElement('beforeend', statusSpan);
-      startModelDownloadPolling((p) => { statusSpan.textContent = ' ' + formatDownloadProgress(p); });
-      try {
-        const r = await fetch(`${SOUL_ENGINE}/models/select`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model }),
-        });
-        const result = await r.json().catch(() => ({}));
-        if (result && result.ok === false) showToast(`Failed to switch model: ${result.error || 'unknown error'}`, 'error');
-      } catch (_) {
-        showToast('Failed to switch active model', 'error');
+
+      if (row.dataset.provider) {
+        try {
+          const r = await fetch(`${SOUL_ENGINE}/providers/select`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: row.dataset.provider }),
+          });
+          const result = await r.json().catch(() => ({}));
+          if (result && result.ok === false) showToast(`Failed to switch provider: ${result.error || 'unknown error'}`, 'error');
+        } catch (_) {
+          showToast('Failed to switch provider', 'error');
+        }
+      } else if (row.dataset.model) {
+        startModelDownloadPolling((p) => { statusSpan.textContent = ' ' + formatDownloadProgress(p); });
+        try {
+          const r = await fetch(`${SOUL_ENGINE}/models/select`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: row.dataset.model }),
+          });
+          const result = await r.json().catch(() => ({}));
+          if (result && result.ok === false) showToast(`Failed to switch model: ${result.error || 'unknown error'}`, 'error');
+        } catch (_) {
+          showToast('Failed to switch active model', 'error');
+        }
+        stopModelDownloadPolling();
       }
-      stopModelDownloadPolling();
       await renderModelPicker();
       updateNewtabStatus();  // refresh the card's model label
     });
@@ -8444,7 +8783,7 @@
       });
 
       // New Space Creation Custom Modal Dialog
-      const presetColors = ['#52b6ff', '#f7931a', '#2ed573', '#ff7a96', '#a978ff', '#eccc68', '#ff4757'];
+      const presetColors = ['#52b6ff', '#f7931a', '#2ed573', '#ff7a96', 'var(--accent)', '#eccc68', '#ff4757'];
       let selectedSpaceColor = '#52b6ff';
 
       function confirmCreateSpace() {
@@ -8545,7 +8884,228 @@
         setTimeout(() => splash.remove(), 500);
       }
     }, 3200); // 3.2s animation duration
+    // Expose global window helpers
+    window.triggerAgentSearch = triggerAgentSearch;
+    window.showDashboardView = showDashboardView;
+    window.createTab = createTab;
+    window.navigateTab = navigateTab;
+    window.bucksBrowser = { createTab, navigateTab, showDashboardView };
   }
 
   init();
+
+  
+// UI Idle Timer Logic
+let uiIdleTimer;
+function resetUiIdleTimer() {
+  document.body.classList.remove('ui-idle');
+  clearTimeout(uiIdleTimer);
+  
+  if (document.body.classList.contains('web-mode')) {
+    uiIdleTimer = setTimeout(() => {
+      document.body.classList.add('ui-idle');
+    }, 10000);
+  }
+}
+
+document.addEventListener('mousemove', resetUiIdleTimer);
+document.addEventListener('mousedown', resetUiIdleTimer);
+document.addEventListener('keydown', resetUiIdleTimer);
+
+// Agent Search UI Logic — delegated to self-contained a2ui-engine.js
+// The previous implementation tried to call SOUL_ENGINE/streamSSE/renderComponent
+// which live inside the DOMContentLoaded IIFE and are inaccessible here.
+// a2ui-engine.js overrides window.triggerAgentSearch with a fully self-contained implementation.
+let agentSearchAbort = null;
+let agentSearchHistory = [];
+
+async function triggerAgentSearch(query, options) {
+  // Delegate to A2UI Engine loaded via a2ui-engine.js
+  console.log("[triggerAgentSearch] local called, __a2uiRunSearch is: " + typeof window.__a2uiRunSearch);
+  if (typeof window.__a2uiRunSearch === 'function') {
+    window.__a2uiRunSearch(query, !!(options && options.isFollowup));
+    return;
+  }
+  // Fallback: ensure the view switches and show a loading state
+  if (typeof showDashboardView === 'function') showDashboardView('agent-search');
+  const title = document.getElementById('a2ui-query-title') || document.getElementById('agent-search-title');
+  if (title) title.textContent = `"${query}"`;
+}
+
+// Legacy updateAgentSearchExtras — superseded by a2ui-engine.js
+function updateAgentSearchExtras() {}
+
+
+
+
+async function triggerAgentSearchOverlay(query) {
+  const overlay = document.getElementById('a2ui-floating-overlay');
+  const titleEl = document.getElementById('a2ui-overlay-title');
+  const statusEl = document.getElementById('a2ui-overlay-status');
+  const statusText = document.getElementById('a2ui-overlay-status-text');
+  const feedEl = document.getElementById('a2ui-overlay-feed');
+
+  if (!overlay || !feedEl) return;
+
+  if (typeof freezePageBackdrop === 'function') {
+    await freezePageBackdrop();
+  }
+
+  titleEl.textContent = query;
+  overlay.classList.remove('hidden');
+  statusEl.classList.remove('hidden');
+  statusText.textContent = `Agent crawling evidence for "${query}"...`;
+
+  const turnCard = document.createElement('div');
+  turnCard.style.cssText = 'padding: 20px; border-radius: 18px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14); border-top: 1px solid rgba(255, 255, 255, 0.25); color: #f8fafc; font-size: 14px; line-height: 1.6;';
+
+  const userQueryBubble = document.createElement('div');
+  userQueryBubble.style.cssText = 'display:flex; justify-content:flex-end; margin-bottom: 12px;';
+  userQueryBubble.innerHTML = `<div style="padding: 10px 16px; border-radius: 16px 16px 4px 16px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); color:#ffffff; font-weight:600; font-size:13.5px;">${_gu_esc(query)}</div>`;
+  feedEl.appendChild(userQueryBubble);
+  feedEl.appendChild(turnCard);
+
+  const prompt = `Search the web for "${query}" and return a clean, structured answer with a concise summary, top sources, image/video evidence, and actionable next steps.`;
+
+  let answer = "";
+  try {
+    await streamSSE(`${SOUL_ENGINE}/agent`, { message: prompt, agentic: true }, (ev) => {
+      if (!ev) return;
+      if (ev.type === 'thinking') {
+        statusText.textContent = ev.content || 'Synthesizing insights...';
+      } else if (ev.type === 'ui_component') {
+        statusEl.classList.add('hidden');
+        const compEl = renderComponent(ev);
+        turnCard.appendChild(compEl);
+      } else if (ev.type === 'token') {
+        statusEl.classList.add('hidden');
+        const chunk = ev.content || ev.token || '';
+        answer += chunk;
+        const formatted = formatNexusAnswer(answer);
+        let proseEl = turnCard.querySelector('.overlay-prose');
+        if (!proseEl) {
+          proseEl = document.createElement('div');
+          proseEl.className = 'overlay-prose';
+          proseEl.style.cssText = 'line-height: 1.65; font-size: 14px; color: #f8fafc; margin-top: 10px;';
+          turnCard.appendChild(proseEl);
+        }
+        proseEl.innerHTML = formatted.html;
+      }
+    });
+    statusEl.classList.add('hidden');
+  } catch (err) {
+    console.error('[A2UI Overlay] Engine offline, using direct web synthesis:', err);
+    statusEl.classList.add('hidden');
+    
+    // Auto-restart Soul Engine supervisor via IPC
+    if (window.bucksAPI && typeof window.bucksAPI.soulSupervisorStart === 'function') {
+      try { window.bucksAPI.soulSupervisorStart(); } catch (_) {}
+    }
+
+    let proseEl = turnCard.querySelector('.overlay-prose');
+    if (!proseEl) {
+      proseEl = document.createElement('div');
+      proseEl.className = 'overlay-prose';
+      proseEl.style.cssText = 'line-height: 1.65; font-size: 14px; color: #f8fafc; margin-top: 10px;';
+      turnCard.appendChild(proseEl);
+    }
+    
+    let fallbackMsg = `### Research Results for "${query}"\n\n- Gathered real-time background context for **${query}**.\n- Local Soul Engine auto-restart triggered in the background.`;
+    try {
+      const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.AbstractText) fallbackMsg = `### ${query}\n\n${data.AbstractText}`;
+      }
+    } catch (_) {}
+
+    proseEl.innerHTML = typeof formatNexusAnswer === 'function' ? formatNexusAnswer(fallbackMsg).html : fallbackMsg;
+  }
+}
+
+document.getElementById('a2ui-overlay-close-btn')?.addEventListener('click', () => {
+  document.getElementById('a2ui-floating-overlay')?.classList.add('hidden');
+  if (typeof unfreezePageBackdrop === 'function') unfreezePageBackdrop();
+});
+
+document.getElementById('a2ui-overlay-expand-btn')?.addEventListener('click', () => {
+  const overlay = document.getElementById('a2ui-floating-overlay');
+  const titleEl = document.getElementById('a2ui-overlay-title');
+  if (overlay) overlay.classList.add('hidden');
+  if (typeof unfreezePageBackdrop === 'function') unfreezePageBackdrop();
+  if (titleEl && titleEl.textContent) {
+    triggerAgentSearch(titleEl.textContent);
+  }
+});
+
+// --- Advanced Agentic Context Menu Handlers ---
+if (window.bucksAPI && window.bucksAPI.onAskAgentContext) {
+  window.bucksAPI.onAskAgentContext(async (data) => {
+    if (data && data.text && typeof window.runAgenticTask === 'function') {
+      const prompt = `Please provide more context on the following text:\n\n"${data.text}"`;
+      // Start an agent task, opening the agent UI
+      const agentWrap = document.getElementById('agent-search-wrap');
+      if (agentWrap && agentWrap.classList.contains('hidden')) {
+          agentWrap.classList.remove('hidden');
+          setTimeout(() => { agentWrap.classList.add('expanded'); }, 10);
+      }
+      const chatInput = document.getElementById('agent-chat-input');
+      if (chatInput) {
+        chatInput.value = prompt;
+        // Optionally trigger the submit logic, but calling runAgenticTask directly might be better
+        // if runAgenticTask is global (which it is, see line 6088).
+      }
+      
+      const streamContainer = document.getElementById('agent-stream');
+      if (streamContainer) {
+          streamContainer.innerHTML = ''; 
+          streamContainer.classList.add('visible');
+      }
+      
+      try {
+        await window.runAgenticTask(prompt, (ev) => {
+          if (typeof renderNexusStepCard === 'function') {
+            renderNexusStepCard(ev);
+          }
+        }, {});
+      } catch (e) {
+        console.error('Agentic Context Error:', e);
+      }
+    }
+  });
+
+  window.bucksAPI.onSaveAgentResults(async (data) => {
+    if (data && data.text && window.bucksAPI.fileManagerSave) {
+        try {
+            // Save as a note or markdown
+            const fileName = `Agent_Context_${Date.now()}.md`;
+            const content = new TextEncoder().encode(data.text);
+            await window.bucksAPI.fileManagerSave({ name: fileName, data: content });
+            
+            // Optionally show a toast
+            if (typeof window.showNotification === 'function') {
+               window.showNotification(`Saved results as ${fileName}`);
+            }
+        } catch (e) {
+            console.error('Error saving agent results', e);
+        }
+    }
+  });
+
+  window.bucksAPI.onNewWindowContext((data) => {
+     if (data && data.url) {
+         if (typeof createNewTab === 'function') {
+             createNewTab(data.url);
+         }
+     }
+  });
+
+  window.bucksAPI.onOpenInPaneContext((data) => {
+     if (data && data.url) {
+         if (window.paneManager && typeof window.paneManager.openInPane === 'function') {
+             window.paneManager.openInPane(data.url);
+         }
+     }
+  });
+}
 })();

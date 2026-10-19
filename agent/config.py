@@ -23,15 +23,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Provider ──────────────────────────────────────────────────────────────────
-# "edge" = embedded llama-cpp-python, in-process, no external daemon (default).
+# "nim" = NVIDIA NIM cloud provider, default live agent backend for this app.
+# "edge" = embedded llama-cpp-python, in-process, no external daemon.
 # "ollama" = talk to a locally running Ollama server instead (opt-in).
-MODEL_PROVIDER  = os.getenv("MODEL_PROVIDER", "edge").lower()
+MODEL_PROVIDER  = os.getenv("MODEL_PROVIDER", "nim").lower()
 LITAI_API_KEY   = os.getenv("LITAI_API_KEY", "")
 LITAI_BASE_URL  = os.getenv("LITAI_BASE_URL", "https://lightning.ai/api/v1")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-NGC_API_KEY  = os.getenv("NGC_API_KEY", "")
-NIM_BASE_URL = os.getenv("NIM_BASE_URL", "http://localhost:8000/v1")
+NGC_API_KEY  = os.getenv("NGC_API_KEY", os.getenv("NVIDIA_API_KEY", ""))
+NIM_BASE_URL = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 NIM_MODEL    = os.getenv("NIM_MODEL", "deepseek-ai/deepseek-v4-pro")
 
 # ── Edge SLM catalogue ────────────────────────────────────────────────────────

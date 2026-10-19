@@ -116,17 +116,25 @@ async def _fetch_source(client: httpx.AsyncClient, res: dict) -> dict | None:
 
 
 async def deep_research(topic: str, max_sources: int = 4, max_images: int = 8):
-    """Gather multi-source research + images for `topic` and build the dossier."""
-    from tools.media_tools import image_search
+    """Gather multi-source research + images + videos for `topic` and build the dossier."""
+    from tools.media_tools import image_search, youtube_search
 
-    # Search + images in parallel.
+    # Search text, images, and videos in parallel with fast timeouts
     results_task = _text_search(topic, max_results=max_sources * 3)
     images_task = image_search(topic, max_results=max_images)
-    results, images_raw = await asyncio.gather(results_task, images_task)
+    videos_task = youtube_search(topic, max_results=4)
+    results, images_raw, videos_raw = await asyncio.gather(results_task, images_task, videos_task, return_exceptions=True)
 
     images = []
     if isinstance(images_raw, dict):
         images = (images_raw.get("_ui") or {}).get("data", {}).get("items", [])
+
+    videos = []
+    if isinstance(videos_raw, dict):
+        videos = (videos_raw.get("_ui") or {}).get("data", {}).get("items", [])
+
+    if not isinstance(results, list):
+        results = []
 
     sources: list[dict] = []
     if results:
@@ -140,18 +148,32 @@ async def deep_research(topic: str, max_sources: int = 4, max_images: int = 8):
             picked.append(res)
             if len(picked) >= max_sources * 2:
                 break
-        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as c:
-            fetched = await asyncio.gather(*(_fetch_source(c, r) for r in picked))
-        sources = [s for s in fetched if s][:max_sources]
+        try:
+            async with httpx.AsyncClient(timeout=2.0, follow_redirects=True) as c:
+                fetched = await asyncio.gather(*(_fetch_source(c, r) for r in picked), return_exceptions=True)
+            sources = [s for s in fetched if isinstance(s, dict) and s][:max_sources]
+        except Exception:
+            sources = []
 
-    if not sources and not images:
+        # Instant fallback to DDG search snippets if page scraping timed out
+        if not sources and picked:
+            sources = [{
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "domain": _domain(r.get("url", "")),
+                "favicon": _favicon(r.get("url", "")),
+                "snippet": r.get("snippet", ""),
+                "paras": [r.get("snippet", "")]
+            } for r in picked[:max_sources]]
+
+    if not sources and not images and not videos:
         return (f"Couldn't gather research on “{topic}” right now — search "
                 f"providers may be throttling. Try again in a moment.")
 
     # ── Build the dossier component ────────────────────────────────────────────
     sections = []
     for s in sources:
-        body = " ".join(s["paras"][:2]) if s["paras"] else s["snippet"]
+        body = " ".join(s["paras"][:2]) if s.get("paras") else s.get("snippet", "")
         sections.append({
             "heading": s["title"][:110],
             "text": body[:600],
@@ -159,8 +181,8 @@ async def deep_research(topic: str, max_sources: int = 4, max_images: int = 8):
             "domain": s["domain"],
         })
 
-    summary = sources[0]["paras"][0][:400] if sources and sources[0]["paras"] else \
-        (sources[0]["snippet"][:400] if sources else "")
+    summary = (sources[0]["paras"][0][:400] if sources and sources[0].get("paras") else \
+        (sources[0]["snippet"][:400] if sources else ""))
 
     actions = [
         {"label": "🔎 Go deeper", "kind": "agent", "value": f"research {topic} in more depth"},
@@ -176,6 +198,7 @@ async def deep_research(topic: str, max_sources: int = 4, max_images: int = 8):
             summary=summary,
             sections=sections,
             images=images[1:7],
+            videos=videos,
             sources=[{"title": s["title"], "url": s["url"], "domain": s["domain"],
                       "favicon": s["favicon"]} for s in sources],
             actions=actions,

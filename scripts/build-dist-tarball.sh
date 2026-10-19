@@ -55,13 +55,21 @@ tar -cf - \
   --exclude='.idea' \
   --exclude='.env' \
   --exclude='.env.local' \
+  --exclude='*.env' \
   --exclude='test-results' \
   --exclude='.claude' \
+  --exclude='bucks-browser-dist.tar.gz' \
+  --exclude='bucks-browser-src-*.tar.gz' \
+  --exclude='.pre-ipfs-fix-backup' \
+  --exclude='.bucks-attachments' \
   . | tar -xf - -C "$DEST"
 
 # Belt-and-suspenders: fail loudly instead of shipping secrets if anything
-# named .env slipped past the excludes above (e.g. a name variant we missed).
-if find "$DEST" -iname '.env*' ! -iname '*.example' | grep -q .; then
+# env-shaped slipped past the excludes above (e.g. a name variant we missed).
+# This originally only matched '.env*' — names *ending* in .env slipped
+# through, and ipfs/cluster-config.env (CLUSTER_SECRET, BOOTSTRAP, a live
+# TS_AUTHKEY) shipped in the pinned tarball as a result. Match both shapes.
+if find "$DEST" \( -iname '.env*' -o -iname '*.env' \) ! -iname '*.example' | grep -q .; then
   echo "REFUSING TO BUILD: found .env-like file(s) in staged tree:" >&2
   find "$DEST" -iname '.env*' ! -iname '*.example' >&2
   exit 1
