@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { fade, fly, scale } from "svelte/transition";
     import { isSwarmThinking, activeTab } from "./stores";
+    import { agentBarRequest } from "./uiState";
     import { cubicOut } from "svelte/easing";
     import { MessageSquare } from "lucide-svelte";
 
@@ -40,6 +41,17 @@
 
     onMount(() => {
         if (isNewTab) inputEl?.focus();
+    });
+
+    // "Start a task" and similar buttons elsewhere in the chrome hand the bar a prompt to finish.
+    let lastRequest = $agentBarRequest.n;
+    $effect(() => {
+        const r = $agentBarRequest;
+        if (r.n === lastRequest) return;
+        lastRequest = r.n;
+        if (r.text) query = r.text;
+        inputEl?.focus();
+        if (r.text) inputEl?.setSelectionRange(r.text.length, r.text.length);
     });
 
     function handleMouseMove(e: MouseEvent) {

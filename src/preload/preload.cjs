@@ -172,6 +172,21 @@ const api = Object.freeze({
     soulInstall: () => invoke('bucks:agent:soul-install'),
     /** (status: SoulStatus) */
     onSoulStatus: (cb) => subscribe('bucks:agent:soul-status', cb),
+    /** On-device model catalogue. @returns {Promise<SoulModels>} */
+    soulModels: () => invoke('bucks:agent:soul-models'),
+    /** Switch the on-device model (downloads it first if needed). @returns {Promise<SoulModels>} */
+    soulSelectModel: (id) => invoke('bucks:agent:soul-select-model', { id }),
+    /** @returns {Promise<SoulDownloadProgress>} */
+    soulDownloadProgress: () => invoke('bucks:agent:soul-download-progress'),
+    /** Updates trusted peers proposed, waiting for approval. @returns {Promise<SoulPendingUpdate[]>} */
+    soulPending: () => invoke('bucks:agent:soul-pending'),
+    /** @param {'approve'|'deny'} action @returns {Promise<SoulPendingUpdate[]>} the remaining ones */
+    soulDecide: (id, action) => invoke('bucks:agent:soul-decide', { id, action }),
+  }),
+
+  widgets: Object.freeze({
+    /** Current weather and a 3-day forecast for a city (Open-Meteo). @returns {Promise<WeatherReport>} */
+    weather: (city) => invoke('bucks:widgets:weather', { city }),
   }),
 
   wallet: Object.freeze({

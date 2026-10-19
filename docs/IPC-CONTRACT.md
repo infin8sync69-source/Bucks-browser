@@ -190,6 +190,12 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | agent | `bucks:agent:soul-status` → `SoulStatus`; event `bucks:agent:soul-status` `(SoulStatus)` |
 | agent | `bucks:agent:soul-start` / `soul-stop` → `SoulStatus` |
 | agent | `bucks:agent:soul-install` → `SoulStatus` (creates `<userData>/soul-engine/venv`, installs the engine's packages, then starts it) |
+| agent | `bucks:agent:soul-models` → `{ models: { id, sizeGb, fitsRam, downloaded, current }[], current, provider, activeModel }` (throws while the engine is not running) |
+| agent | `bucks:agent:soul-select-model` `{ id }` → same shape (on-device backend only; the first switch to a model downloads it and can take many minutes) |
+| agent | `bucks:agent:soul-download-progress` → `{ active, modelId, downloadedBytes, totalBytes }` |
+| agent | `bucks:agent:soul-pending` → `{ id, kind: 'fragment'\|'adapter', cid, summary, peerSoulId, peer: { locality, capabilities } \| null, createdAt }[]` (`[]` while the engine is not running) |
+| agent | `bucks:agent:soul-decide` `{ id, action: 'approve'\|'deny' }` → the updates still pending (approve adopts the fragment or pins the adapter CID) |
+| widgets | `bucks:widgets:weather` `{ city }` → `{ place, temperature, apparent, humidity, wind, isDay, label, icon, days: { date, max, min, label, icon }[], units, fetchedAt }` (Open-Meteo; only the city name is sent; cached 15 min) |
 | wallet | `bucks:wallet:rpc` `{ method, path, body }` → parsed JSON (throws on network / non-2xx) |
 | security | `bucks:security:stats` → `{ blockedRequests, httpsUpgrades, adBlockReady }` |
 | shell | `bucks:shell:open-external` `{ url }` (http, https, mailto only) |
@@ -222,8 +228,10 @@ installBrowsing({ sessions, getMainWindow })            → browsing { defaultSt
 registerShellIpc()
 createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
    → soul { start(), stop(), restart(), install(), status(): SoulStatus, onStatus(cb), isReady(),
-            isRunning(), connection(): { url, token } | null, engineDir }
+            isRunning(), connection(): { url, token } | null, engineDir,
+            models(), selectModel(id), downloadProgress(), pendingUpdates(), decideUpdate(id, action) }
 createAgent({ settings, tabs, kubo, soul })
+installWeather({ fetchImpl })                            // net.fetch; BUCKS_WEATHER_GEOCODE_URL / _FORECAST_URL override Open-Meteo
 createWalletProxy({ settings })
 createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)
 ```

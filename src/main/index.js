@@ -19,6 +19,7 @@ import { installDownloads } from './downloads.js';
 import { registerShellIpc } from './shell.js';
 import { installBrowsing } from './browsing.js';
 import { installExtensions } from './extensions.js';
+import { installWeather } from './weather.js';
 import { installSecurity } from './security/index.js';
 import { createAgent } from './agent/bridge.js';
 import { createSoulEngine, settingsAction } from './agent/soul-engine.js';
@@ -129,6 +130,7 @@ app.whenReady().then(async () => {
   // the selected agent provider.
   soul = createSoulEngine({ settings, userData, appRoot, resourcesDir: app.isPackaged ? resourcesDir() : null, getMainWindow });
   createAgent({ settings, tabs, kubo, soul });
+  installWeather({ fetchImpl });
   {
     const s = settings.get();
     // Same rule as a settings change from "nothing selected" (validates a hand-edited settings.json).

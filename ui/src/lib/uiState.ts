@@ -47,3 +47,13 @@ export function openFindBar() {
 
 /** Bumped on every open request so a second Ctrl+F refocuses the field. */
 export const findBarFocus = writable(0);
+
+/** Bumped to focus the agent command bar, optionally pre-filled ("Start a task" on the new tab). */
+export const agentBarRequest = writable<{ n: number; text: string }>({ n: 0, text: '' });
+
+export function requestAgentBar(text = '') {
+    agentBarRequest.update((r) => ({ n: r.n + 1, text }));
+}
+
+/** The profile panel (header avatar). */
+export const profilePanelOpen = writable(false);

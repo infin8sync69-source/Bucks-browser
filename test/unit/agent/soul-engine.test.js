@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   createSoulEngine, soulSettings, agentDirCandidates, pythonCandidates, parseDotenv, engineEnv,
-  describeHealth, settingsAction, pythonVersionOk, venvPython,
+  describeHealth, settingsAction, pythonVersionOk, venvPython, modelEntry, pendingEntry,
 } from '../../../src/main/agent/soul-engine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -232,6 +232,42 @@ test('no interpreter or no code: unavailable, with what to do', { timeout: 10_00
   const noCode = await setup(t, { soul: { agentDir: '/nonexistent/agent' } });
   assert.equal((await noCode.engine.start()).state, 'unavailable');
   assert.match(noCode.engine.status().message, /soul_engine\.py\) was not found/);
+});
+
+test('model and pending-update entries are normalised', () => {
+  assert.deepEqual(modelEntry({ id: 'q', size_gb: 1.5, fits_ram: false, downloaded: true, current: false }), { id: 'q', sizeGb: 1.5, fitsRam: false, downloaded: true, current: false });
+  assert.equal(modelEntry({ size_gb: 1 }), null);
+  const u = pendingEntry({ update_id: 'u1', kind: 'weird', cid: 'bafy', summary: 7, peer_soul_id: 'p', created_at: '12', peer: { locality: 'Lisbon', capabilities: ['a', 3, 'b'] } });
+  assert.deepEqual(u, { id: 'u1', kind: 'fragment', cid: 'bafy', summary: '', peerSoulId: 'p', peer: { locality: 'Lisbon', capabilities: ['a', 'b'] }, createdAt: 12 });
+  assert.equal(pendingEntry({}), null);
+});
+
+test('model picker and peer updates against the running engine', { timeout: 30_000 }, async (t) => {
+  const { engine, snapshot, call } = await setup(t);
+  await assert.rejects(engine.models(), /not running/);
+  assert.deepEqual(await engine.pendingUpdates(), [], 'nothing pending while stopped');
+  assert.equal((await engine.start()).state, 'ready');
+
+  const m = await engine.models();
+  assert.deepEqual(m.models.map((x) => [x.id, x.current, x.fitsRam]), [['qwen2.5-1.5b', true, true], ['qwen2.5-3b', false, true], ['huge-70b', false, false]]);
+  assert.equal(m.provider, 'edge', 'the backend was aligned with Settings');
+
+  const after = await engine.selectModel('qwen2.5-3b');
+  assert.equal(after.current, 'qwen2.5-3b');
+  assert.equal(await waitFor(() => engine.status().model === 'qwen2.5-3b'), true, 'the status follows the new model');
+  await assert.rejects(engine.selectModel('nope'), /unknown model id: nope/);
+  assert.deepEqual(await engine.downloadProgress(), { active: true, modelId: 'qwen2.5-3b', downloadedBytes: 500, totalBytes: 2000 });
+
+  const pending = await engine.pendingUpdates();
+  assert.deepEqual(pending.map((u) => [u.id, u.kind, u.peer?.locality ?? null]), [['abc123', 'fragment', 'Lisbon'], ['def456', 'adapter', null]]);
+  assert.deepEqual((await engine.decideUpdate('abc123', 'approve')).map((u) => u.id), ['def456']);
+  await assert.rejects(engine.decideUpdate('abc123', 'deny'), /no such pending update/);
+  await assert.rejects(engine.decideUpdate('def456', 'delete'), /approve or deny/);
+  await assert.rejects(engine.decideUpdate('../../x', 'deny'), /Invalid update id/);
+  assert.ok((await call('/_calls')).includes('POST /agent/pending/abc123/approve'));
+
+  snapshot.agent.soul.backend = 'ollama';
+  await assert.rejects(engine.selectModel('qwen2.5-1.5b'), /on-device backend first/);
 });
 
 test('settingsAction at startup tolerates a broken soul section', () => {

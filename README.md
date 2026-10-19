@@ -32,6 +32,10 @@ with privacy-protective defaults turned on.
   (Ctrl/Cmd+Shift+N), find in page, print and save as PDF, zoom and mute per site, address
   suggestions from your history and bookmarks, clearing browsing data, unpacked Chrome extensions,
   and Bucks as your default browser.
+- **New tab.** A clock that greets you by name, your apps, live wallet / IPFS / agent cards with a
+  model picker, peer updates waiting for your approval, and widgets you arrange: world clock,
+  weather (Open-Meteo, only the city name is sent), today's agenda, notes, what's playing, Spaces.
+  The header avatar opens your profile: name, bio, peer ID and a contact card to share.
 
 What Bucks Core (the older app in buckscore) has and where each feature stands here:
 [docs/FEATURE-PARITY.md](docs/FEATURE-PARITY.md).

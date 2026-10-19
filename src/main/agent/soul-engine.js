@@ -24,6 +24,8 @@ const HEALTH_POLL_MS = 1000;
 const HEALTH_RETRY_MS = 10_000; // engine up but not usable (model missing, Ollama down): keep checking
 const SPAWN_WAIT_MS = 60_000; // from spawn until /health first answers
 const REQUEST_TIMEOUT_MS = 5000;
+const MODEL_SWITCH_TIMEOUT_MS = 60 * 60_000; // a first switch downloads the model (GBs)
+const DECIDE_TIMEOUT_MS = 60_000; // approving fetches the CID from IPFS
 const RESTART_BACKOFF_MS = [2000, 5000, 15_000];
 const STABLE_RESET_MS = 120_000;
 const STOP_GRACE_MS = 5000;
@@ -182,6 +184,33 @@ export function pythonVersionOk(text) {
   if (!m) return false;
   const [maj, min] = [Number(m[1]), Number(m[2])];
   return maj > MIN_PYTHON[0] || (maj === MIN_PYTHON[0] && min >= MIN_PYTHON[1]);
+}
+
+const str = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+/** One entry of the engine's /models catalogue, in the chrome's shape (null when unusable). */
+export function modelEntry(m) {
+  const id = str(m?.id, 120);
+  if (!id) return null;
+  return { id, sizeGb: Number(m.size_gb) || 0, fitsRam: m.fits_ram !== false, downloaded: m.downloaded === true, current: m.current === true };
+}
+
+/** One pending peer update from /agent/pending, in the chrome's shape (null when unusable). */
+export function pendingEntry(u) {
+  const id = str(u?.update_id, 128);
+  if (!id) return null;
+  const peer = u.peer && typeof u.peer === 'object'
+    ? { locality: str(u.peer.locality, 80), capabilities: Array.isArray(u.peer.capabilities) ? u.peer.capabilities.map((c) => str(c, 60)).filter(Boolean).slice(0, 8) : [] }
+    : null;
+  return {
+    id,
+    kind: u.kind === 'adapter' ? 'adapter' : 'fragment',
+    cid: str(u.cid, 200),
+    summary: str(u.summary, 500),
+    peerSoulId: str(u.peer_soul_id, 128),
+    peer,
+    createdAt: Number(u.created_at) || 0,
+  };
 }
 
 /* ───────────────────────────── small node utilities ───────────────────────────── */
@@ -707,7 +736,67 @@ export function createSoulEngine({
     /** Where and how to reach the running engine; null unless it has been spawned and answered. */
     connection: () => (child && url && token && status.url ? { url, token } : null),
     engineDir,
+
+    /* ---------- model picker and peer updates (new-tab page) ---------- */
+
+    /** The on-device model catalogue plus the active backend and model label. */
+    async models() {
+      requireConnection();
+      const r = await request('/models');
+      const models = Array.isArray(r?.models) ? r.models.map(modelEntry).filter(Boolean) : [];
+      return { models, current: str(r?.current), provider: str(r?.provider), activeModel: str(r?.activeModel) };
+    },
+
+    /**
+     * Switch the on-device model (downloads it on first use, which can take many minutes). Only
+     * for the edge backend: the engine would otherwise switch backends behind Settings' back.
+     */
+    async selectModel(id) {
+      requireConnection();
+      if (soulSettings(settings.get?.()).backend !== 'edge') {
+        throw new Error('Choose the on-device backend first: other backends pick their model in Settings');
+      }
+      const r = await request('/models/select', { method: 'POST', body: { model: String(id) }, timeoutMs: MODEL_SWITCH_TIMEOUT_MS });
+      if (r?.ok === false) throw new Error(str(r.error) || 'The Soul Engine could not switch models');
+      if (child && !stopRequested) scheduleHealth(0); // show the new model in the status right away
+      return engine.models();
+    },
+
+    /** Byte progress of a model download in flight ({ active: false } otherwise). */
+    async downloadProgress() {
+      requireConnection();
+      const r = await request('/models/download-progress');
+      return {
+        active: r?.active === true,
+        modelId: str(r?.model_id),
+        downloadedBytes: Number(r?.downloaded_bytes) || 0,
+        totalBytes: Number(r?.total_bytes) || 0,
+      };
+    },
+
+    /** Knowledge fragments and adapters trusted peers proposed, waiting for the user's decision. */
+    async pendingUpdates() {
+      if (!engine.connection()) return [];
+      const r = await request('/agent/pending?status=pending');
+      return (Array.isArray(r?.updates) ? r.updates : []).map(pendingEntry).filter(Boolean);
+    },
+
+    /** Approve (adopt or pin the CID) or deny one pending update. */
+    async decideUpdate(id, action) {
+      requireConnection();
+      if (action !== 'approve' && action !== 'deny') throw new Error('action must be approve or deny');
+      const updateId = String(id || '');
+      if (!/^[\w-]{1,128}$/.test(updateId)) throw new Error('Invalid update id');
+      const r = await request(`/agent/pending/${encodeURIComponent(updateId)}/${action}`, { method: 'POST', timeoutMs: DECIDE_TIMEOUT_MS });
+      if (r?.ok === false) throw new Error(str(r.error) || `Could not ${action} the update`);
+      return engine.pendingUpdates();
+    },
   };
+
+  function requireConnection() {
+    if (!engine.connection()) throw new Error('The Soul Engine is not running');
+  }
+
 
   return engine;
 }

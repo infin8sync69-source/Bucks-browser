@@ -208,6 +208,68 @@ export interface SoulStatus {
     dataDir: string;
 }
 
+/** One on-device model of the Soul Engine's catalogue. */
+export interface SoulModel {
+    id: string;
+    sizeGb: number;
+    /** Enough free memory to run it. */
+    fitsRam: boolean;
+    downloaded: boolean;
+    current: boolean;
+}
+
+export interface SoulModels {
+    models: SoulModel[];
+    /** The active on-device model ('' when another backend is in use). */
+    current: string;
+    /** The engine's active backend (edge, ollama, nim, litai). */
+    provider: string;
+    /** Label of the model answering right now, whatever the backend. */
+    activeModel: string;
+}
+
+export interface SoulDownloadProgress {
+    active: boolean;
+    modelId: string;
+    downloadedBytes: number;
+    totalBytes: number;
+}
+
+/** A knowledge fragment or adapter a trusted peer proposed; nothing is adopted until approved. */
+export interface SoulPendingUpdate {
+    id: string;
+    kind: 'fragment' | 'adapter';
+    cid: string;
+    summary: string;
+    peerSoulId: string;
+    peer: { locality: string; capabilities: string[] } | null;
+    /** Unix seconds. */
+    createdAt: number;
+}
+
+export interface WeatherDay {
+    date: string;
+    max: number;
+    min: number;
+    label: string;
+    icon: string;
+}
+
+export interface WeatherReport {
+    place: { name: string; region: string; country: string; latitude: number; longitude: number; timezone: string };
+    temperature: number;
+    apparent: number | null;
+    humidity: number | null;
+    wind: number | null;
+    isDay: boolean;
+    label: string;
+    /** sun, cloud-sun, cloud, fog, drizzle, rain, snow, storm */
+    icon: string;
+    days: WeatherDay[];
+    units: { temperature: string; wind: string };
+    fetchedAt: number;
+}
+
 export type UiComponent =
     | { component: 'answer'; title: string; text: string }
     | { component: 'list'; title: string; items: { title: string; subtitle: string; url: string }[] }
@@ -541,6 +603,18 @@ export interface BucksApi {
         /** Create the engine's private Python environment, then start it. */
         soulInstall(): Promise<SoulStatus>;
         onSoulStatus(cb: (status: SoulStatus) => void): Unsubscribe;
+        soulModels(): Promise<SoulModels>;
+        /** Switch the on-device model; the first switch to a model downloads it (minutes). */
+        soulSelectModel(id: string): Promise<SoulModels>;
+        soulDownloadProgress(): Promise<SoulDownloadProgress>;
+        soulPending(): Promise<SoulPendingUpdate[]>;
+        /** Approve or deny one pending update; resolves with the ones still pending. */
+        soulDecide(id: string, action: 'approve' | 'deny'): Promise<SoulPendingUpdate[]>;
+    };
+
+    widgets: {
+        /** Current weather and a 3-day forecast for a city, from Open-Meteo through the main process. */
+        weather(city: string): Promise<WeatherReport>;
     };
 
     wallet: {
@@ -772,6 +846,14 @@ function createMockBridge(): BucksApi {
             soulStop: () => Promise.resolve(mockSoulStatus()),
             soulInstall: () => unavailable('agent.soulInstall'),
             onSoulStatus: () => noSub,
+            soulModels: () => unavailable('agent.soulModels'),
+            soulSelectModel: () => unavailable('agent.soulSelectModel'),
+            soulDownloadProgress: () => unavailable('agent.soulDownloadProgress'),
+            soulPending: () => Promise.resolve([]),
+            soulDecide: () => unavailable('agent.soulDecide'),
+        },
+        widgets: {
+            weather: () => unavailable('widgets.weather'),
         },
         wallet: {
             rpc: () => unavailable('wallet.rpc'),

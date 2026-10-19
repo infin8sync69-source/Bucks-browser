@@ -5,6 +5,9 @@
     import { tabColorClass } from "$lib/tabColors";
     import SpaceSwitcher from "./SpaceSwitcher.svelte";
     import TabContextMenu from "./TabContextMenu.svelte";
+    import ProfilePanel from "./ProfilePanel.svelte";
+    import { profileStore } from "./newtab/stores";
+    import { initial } from "./newtab/profile";
     import {
         LayoutGrid,
         X,
@@ -41,7 +44,7 @@
     import { cubicOut } from "svelte/easing";
     import { bucks, hasBridge, isMac } from "./bridge";
     import { settingsStore } from "./settingsStore";
-    import { focusOmniboxRequest, pushOverlay, popOverlay } from "./uiState";
+    import { focusOmniboxRequest, pushOverlay, popOverlay, profilePanelOpen } from "./uiState";
 
     let isSettingsOpen = $state(false);
     let menuWrapEl = $state<HTMLDivElement | null>(null);
@@ -729,6 +732,16 @@
                 <Wallet size={18} />
             </button>
 
+            <button
+                onclick={() => profilePanelOpen.update((v) => !v)}
+                title={$profileStore.name ? `Profile: ${$profileStore.name}` : "Profile"}
+                aria-label="Profile"
+                aria-expanded={$profilePanelOpen}
+                class="no-drag w-8 h-8 ml-1 flex-shrink-0 flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/80 to-blue-600/80 text-[13px] font-medium text-white hover:brightness-110 transition-all active:scale-90"
+            >
+                {initial($profileStore.name)}
+            </button>
+
             {#if showWindowControls}
                 <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
                 <div class="no-drag flex items-center flex-shrink-0 -mr-1">
@@ -774,4 +787,7 @@
 <!-- Outside the island: its backdrop-filter would make it the containing block of a fixed menu. -->
 {#if tabMenu}
     <TabContextMenu tab={tabMenu.tab} x={tabMenu.x} y={tabMenu.y} onclose={() => (tabMenu = null)} />
+{/if}
+{#if $profilePanelOpen}
+    <ProfilePanel onclose={() => profilePanelOpen.set(false)} />
 {/if}

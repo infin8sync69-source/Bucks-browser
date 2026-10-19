@@ -190,5 +190,18 @@ export function createAgent({ settings, tabs, kubo: _kubo, soul = null, provider
     });
   }
 
+  // Model picker and peer-update approvals (the new-tab page's agent card).
+  const soulData = {
+    'bucks:agent:soul-models': () => soul.models(),
+    'bucks:agent:soul-select-model': (p) => soul.selectModel(str(p?.id, 120)),
+    'bucks:agent:soul-download-progress': () => soul.downloadProgress(),
+    'bucks:agent:soul-pending': () => soul.pendingUpdates(),
+    'bucks:agent:soul-decide': (p) => soul.decideUpdate(str(p?.id, 128), p?.action),
+  };
+  for (const [channel, fn] of Object.entries(soulData)) {
+    ipcMain.removeHandler?.(channel);
+    ipcMain.handle(channel, (_e, p) => (soul ? fn(p) : soulMissing()));
+  }
+
   return api;
 }

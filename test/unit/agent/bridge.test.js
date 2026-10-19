@@ -157,6 +157,11 @@ function fakeSoul() {
     start: async () => { calls.push('start'); return s.status(); },
     stop: async () => { calls.push('stop'); },
     install: async () => { calls.push('install'); return s.status(); },
+    models: async () => { calls.push('models'); return { models: [], current: '', provider: 'edge', activeModel: '' }; },
+    selectModel: async (id) => { calls.push(`select ${id}`); return { models: [], current: id, provider: 'edge', activeModel: id }; },
+    downloadProgress: async () => ({ active: false, modelId: '', downloadedBytes: 0, totalBytes: 0 }),
+    pendingUpdates: async () => { calls.push('pending'); return []; },
+    decideUpdate: async (id, action) => { calls.push(`${action} ${id}`); return []; },
   };
   return s;
 }
@@ -215,6 +220,12 @@ test('soul: control channels reach the supervisor, or fail clearly without one',
   await invoke('bucks:agent:soul-stop');
   await invoke('bucks:agent:soul-install');
   assert.deepEqual(soul.calls, ['start', 'stop', 'install']);
+  assert.equal((await invoke('bucks:agent:soul-select-model', { id: 'qwen' })).current, 'qwen');
+  await invoke('bucks:agent:soul-models');
+  await invoke('bucks:agent:soul-pending');
+  await invoke('bucks:agent:soul-decide', { id: 'u1', action: 'deny' });
+  assert.deepEqual(soul.calls.slice(3), ['select qwen', 'models', 'pending', 'deny u1']);
   createAgent({ settings, tabs, providers, now: () => clock });
   assert.throws(() => invoke('bucks:agent:soul-status'), /not available/);
+  assert.throws(() => invoke('bucks:agent:soul-models'), /not available/);
 });

@@ -36,9 +36,15 @@ carried over** (reason given).
 
 | Feature | Bucks Core | Bucks Browser |
 |---|---|---|
-| App grid on the new-tab page | ✅ | ✅ |
-| Widgets board (clocks, greeting, notes, status cards) and widget library | ✅ | ⏳ batch B |
-| Profile panel (name, bio, avatar, peer id) | ✅ | ⏳ batch B |
+| App grid on the new-tab page | ✅ | ✅ (shows only the rows in use; all of them while arranging) |
+| Clock, greeting with your name, date | ✅ | ✅ e2e |
+| Live status cards: wallet balance, IPFS peers, agent | ✅ | ✅ e2e (each opens its page; nothing shown is a placeholder number) |
+| Model picker on the agent card (on-device models with size, memory fit, download progress; cloud backends) | ✅ | ✅ e2e; also switches between Soul Engine, Ollama (its installed models), remote and offline |
+| "Start a task" | ✅ | ✅ (focuses the command bar) |
+| Peer knowledge / skill updates waiting for approval | ✅ | ✅ e2e (approve or deny on the new tab) |
+| Widget library and board | ✅ (board hidden in the current build) | ✅ e2e: add, remove, reorder (drag or arrows), saved locally |
+| Widgets: clock, weather, calendar, music, notes, space, agent, IPFS, markets | ✅ (weather, calendar, music, markets and space show fixed sample data) | ✅ World clock (other time zones), Weather (Open-Meteo for a city you choose), Today (your own agenda), Notes, Now playing (tabs playing sound), Spaces (your Spaces); agent and IPFS are the status cards. — Markets: no data source |
+| Profile panel (name, bio, avatar, peer id, contact card, storage) | ✅ (storage bar is a fixed sample) | ✅ e2e; storage and peer count from the node; UUID derived from the peer ID left out (it identifies nothing) |
 
 ## Agent
 
