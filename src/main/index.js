@@ -20,6 +20,8 @@ import { registerShellIpc } from './shell.js';
 import { installBrowsing } from './browsing.js';
 import { installExtensions } from './extensions.js';
 import { installWeather } from './weather.js';
+import { installDocs } from './docs.js';
+import { createBrowserControl } from './agent/browser-control.js';
 import { installSecurity } from './security/index.js';
 import { createAgent } from './agent/bridge.js';
 import { createSoulEngine, settingsAction } from './agent/soul-engine.js';
@@ -129,7 +131,8 @@ app.whenReady().then(async () => {
   // Soul Engine: the Python agent in agent/, run as a token-protected loopback sidecar while it is
   // the selected agent provider.
   soul = createSoulEngine({ settings, userData, appRoot, resourcesDir: app.isPackaged ? resourcesDir() : null, getMainWindow });
-  createAgent({ settings, tabs, kubo, soul });
+  const docs = installDocs({ app, BrowserWindow });
+  createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl: createBrowserControl({ tabs, docs }) });
   installWeather({ fetchImpl });
   {
     const s = settings.get();

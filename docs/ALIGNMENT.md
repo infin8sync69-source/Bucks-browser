@@ -52,6 +52,9 @@ buckscore as the shipped v1.1.0 and as the reference for the ports still to come
 8. **No silent hang on a failed model load.** `/health` used to report `loading` forever when the
    embedded model could not load; it now reports `error` with the reason, and switching to the
    embedded backend at run time starts loading the model.
+9. **Acting in a tab really acts.** In agentic mode the engine still ran its shortcut pipelines
+   first, so "click the Buy now button" became a shopping search and nothing was clicked. Agentic
+   requests now go straight to the tool loop.
 
 The same agent fixes were applied to `Bucks-App/agent/` in buckscore (branch
 `claude/browser-repos-alignment-aew07f`), so the two copies have the same code and the shipped
@@ -64,12 +67,11 @@ Order follows the unification roadmap, phase 2, minus what is already here.
 
 | Bucks-App | What it does | Plan |
 |---|---|---|
-| `agent-browser-control.js`, the engine's `agentic` mode | The agent reads, clicks and types in the live tab after the user approves | Needs an approval prompt in the chrome and a `tabs` API for snapshots and input. Until then the provider sends `agentic: false` and declines approval-gated actions with a note |
 | `chat-engine.js` + `messages-ui.js`, `chat-ui-init.js` | End-to-end encrypted P2P chat | Port to Kubo pubsub (ROADMAP item 4); the reference code is in `src/main/chat/` |
 | `mcp-bridge.js` | Starts the MCP server for external AI clients | Start `agent/mcp_server.py` with `BUCKS_MCP_TOKEN` behind a Settings switch (ROADMAP item 5) |
 | `app-store.js`, `app-runner.js`, `bucks-calc/clock/converter/notes/qr.html` | Built-in mini apps | Serve them from `bucks://apps/…` with the chrome's CSP; `AppStore.svelte` already lists apps |
 | `universe-map.js`, `earth-maps.js`, `three.min.js` | 3D universe and map views | After the above; bundle libraries instead of loading from CDNs |
-| `dweb-studio.html`, `doc-factory.js`, `bucks-template-*.html` | Build a site from templates and publish it to IPFS | On top of `bucks://ipfs` add/publish |
+| `dweb-studio.html`, `bucks-template-*.html` | Build a site from templates and publish it to IPFS | On top of `bucks://ipfs` add/publish |
 | `cluster-membership.js`, `cluster-updater.js` | Invite-based IPFS cluster and updates through it | With the hosting layer (ROADMAP "Next" item 2) |
 | `pane-manager.js` | Several pages side by side in one tab | Needs multiple `WebContentsView`s per tab in `tabs.js` |
 
@@ -84,6 +86,8 @@ Order follows the unification roadmap, phase 2, minus what is already here.
 | `agent-connection.js`, `agent-engine.js`, `agent-swarm.js`, `agent-integration.js`, `intent-*.js`, `response-*.js`, `agent-composer.*`, `nim-panel.js` | `src/main/agent/bridge.js` and its providers; `ui/src/lib/swarmStore.ts`, `ChatPanel.svelte`, `AgenticBar.svelte` |
 | `version-controller.js`, `build-release.js` | `src/main/updater.js`, `electron-builder.yml`, `.github/workflows/build.yml` |
 | `file-manager-ui.js` | The `bucks://ipfs` dashboard |
+| `agent-browser-control.js`, the engine's `agentic` mode | `src/main/agent/browser-control.js` (runs in the main process, isolated world) and the approval card in `ChatPanel.svelte` |
+| `doc-factory.js` | `src/main/docs.js` (Markdown, HTML and PDF into `<Documents>/Bucks`) |
 
 ## Not carried over
 

@@ -46,14 +46,16 @@ function networkError(e, url) {
   return new Error(`Cannot reach Ollama at ${url}: ${cause}`);
 }
 
-/** Build the chat messages for a request. Exported for tests. */
-export function buildMessages({ prompt, currentUrl, currentTitle, pageText }) {
+/** Build the chat messages for a request: earlier turns, then this one. Exported for tests. */
+export function buildMessages({ prompt, currentUrl, currentTitle, pageText, history, attachments }) {
   const parts = [];
   if (currentUrl) parts.push(`Current page: ${currentTitle ? `${currentTitle} - ` : ''}${currentUrl}`);
   if (pageText) parts.push(`Page text (truncated):\n"""\n${String(pageText).slice(0, PAGE_TEXT_LIMIT)}\n"""`);
   parts.push(`User request: ${prompt}`);
+  if (attachments) parts.push(attachments);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
+    ...(Array.isArray(history) ? history.map((m) => ({ role: m.role, content: m.content })) : []),
     { role: 'user', content: parts.join('\n\n') },
   ];
 }

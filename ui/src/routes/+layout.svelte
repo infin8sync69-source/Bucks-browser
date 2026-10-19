@@ -14,6 +14,7 @@
     import { swarmStore } from '$lib/swarmStore';
     import { chatOpen } from '$lib/uiState';
     import { bucks } from '$lib/bridge';
+    import { parseSlash } from '$lib/agent/slash';
     import { onMount } from 'svelte';
 
     let { children } = $props();
@@ -53,7 +54,8 @@
     });
 
     function handleQuery(query: string) {
-        chatOpen.set(true);
+        // "/wallet", "/settings"… just open their page.
+        if (parseSlash(query)?.kind !== 'nav') chatOpen.set(true);
         void swarmStore.sendQuery(query);
     }
 

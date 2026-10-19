@@ -3,6 +3,8 @@
     import { fade, fly, scale } from "svelte/transition";
     import { isSwarmThinking, activeTab } from "./stores";
     import { agentBarRequest } from "./uiState";
+    import SlashMenu from "./agent/SlashMenu.svelte";
+    import { suggestSlash, type SlashCommand } from "./agent/slash";
     import { cubicOut } from "svelte/easing";
     import { MessageSquare } from "lucide-svelte";
 
@@ -68,6 +70,27 @@
         query = "";
     }
 
+    // Slash commands: suggestions while the command name is typed.
+    let slashIndex = $state(0);
+    const slashItems = $derived(suggestSlash(query, 6));
+    $effect(() => {
+        void slashItems.length;
+        slashIndex = 0;
+    });
+
+    function pickSlash(c: SlashCommand) {
+        query = `${c.cmd} `;
+        inputEl?.focus();
+    }
+
+    function onKeydown(e: KeyboardEvent) {
+        if (!slashItems.length) return;
+        if (e.key === "ArrowDown") { e.preventDefault(); slashIndex = (slashIndex + 1) % slashItems.length; }
+        else if (e.key === "ArrowUp") { e.preventDefault(); slashIndex = (slashIndex - 1 + slashItems.length) % slashItems.length; }
+        else if (e.key === "Tab" || (e.key === "Enter" && query.trim() !== slashItems[slashIndex]?.cmd)) { e.preventDefault(); pickSlash(slashItems[slashIndex]); }
+        else if (e.key === "Escape") query = "";
+    }
+
     function selectSuggestion(s: string) {
         query = s;
         if (!query.trim() || $isSwarmThinking) return;
@@ -92,6 +115,10 @@
             class="absolute -inset-4 rounded-[40px] blur-3xl pointer-events-none opacity-20 transition-opacity duration-1000"
             style="background: radial-gradient(circle at {mouseX}% {mouseY}%, #8b5cf6, #3b82f6, transparent);"
         ></div>
+    {/if}
+
+    {#if slashItems.length}
+        <SlashMenu items={slashItems} active={slashIndex} onpick={pickSlash} />
     {/if}
 
     <form
@@ -128,6 +155,8 @@
         <input
             bind:this={inputEl}
             bind:value={query}
+            onkeydown={onKeydown}
+            aria-label="Ask the agent"
             type="text"
             placeholder={$isSwarmThinking
                 ? "Thinking..."

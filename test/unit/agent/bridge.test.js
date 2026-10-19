@@ -79,7 +79,12 @@ test('configured provider is used when available', async () => {
   const r = await invoke('bucks:agent:query', { prompt: 'hello', currentUrl: 'https://a.b', currentTitle: 'A', tabId: 't1' });
   assert.equal(r.status, 'ok');
   assert.equal(r.evaluation, 'remote says hi');
-  assert.deepEqual(queries[0], { prompt: 'hello', currentUrl: 'https://a.b', currentTitle: 'A' });
+  const { onEvent, requestApproval, runTool, signal, ...plain } = queries[0];
+  assert.deepEqual(plain, { prompt: 'hello', currentUrl: 'https://a.b', currentTitle: 'A', history: [], attachments: '', agentic: false });
+  assert.equal(typeof onEvent, 'function');
+  assert.equal(typeof requestApproval, 'function');
+  assert.equal(typeof runTool, 'function');
+  assert.equal(signal.aborted, false);
   assert.deepEqual(tabCalls, []);
 });
 
@@ -228,4 +233,80 @@ test('soul: control channels reach the supervisor, or fail clearly without one',
   createAgent({ settings, tabs, providers, now: () => clock });
   assert.throws(() => invoke('bucks:agent:soul-status'), /not available/);
   assert.throws(() => invoke('bucks:agent:soul-models'), /not available/);
+});
+
+/* ---------- conversation, attachments, approvals, stop ---------- */
+
+const { cleanHistory, createApprovals } = await import('../../../src/main/agent/bridge.js');
+
+test('cleanHistory keeps the last 12 user/assistant turns, bounded', () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `m${i}` }));
+  const h = cleanHistory([...many, { role: 'system', content: 'evil' }, { role: 'user', content: '  ' }, { role: 'user', content: 'x'.repeat(5000) }]);
+  assert.equal(h.length, 12);
+  assert.equal(h.at(-1).content.length, 2000);
+  assert.ok(h.every((m) => m.role === 'user' || m.role === 'assistant'));
+  assert.deepEqual(cleanHistory('nope'), []);
+});
+
+test('history and attachments reach the provider; agentic only for the Soul Engine with a tab', async () => {
+  const cats = [];
+  createAgent({ settings, tabs, providers, now: () => clock, kubo: { isReady: () => true, rpc: { cat: async (cid) => { cats.push(cid); return new TextEncoder().encode('cid text'); } } } });
+  current.agent.provider = 'remote';
+  await invoke('bucks:agent:query', {
+    prompt: 'summarise these', tabId: 't1', agentic: true,
+    history: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }],
+    attachments: [{ kind: 'file', name: 'a.txt', mime: 'text/plain', dataBase64: Buffer.from('file text').toString('base64') },
+      { kind: 'cid', cid: 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi' }],
+  });
+  const q = queries[0];
+  assert.deepEqual(q.history, [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }]);
+  assert.match(q.attachments, /BEGIN ATTACHMENT: a\.txt -----\nfile text/);
+  assert.match(q.attachments, /cid text/);
+  assert.equal(cats.length, 1);
+  assert.equal(q.agentic, false, 'only the Soul Engine can act in a tab');
+  await assert.rejects(Promise.resolve().then(() => invoke('bucks:agent:query', { prompt: 'x', attachments: [{ kind: 'cid', cid: 'bad' }] })), /not a valid IPFS CID/);
+});
+
+test('approvals: asked in the chrome, answered once, denied on timeout or stop', async () => {
+  const sent = [];
+  let t = 0;
+  const approvals = createApprovals({ send: (e) => sent.push(e), timeoutMs: 40, now: () => t });
+  const a = approvals.request('q1', { name: 'browser_click', label: 'Click [3]' });
+  assert.deepEqual(sent[0], { queryId: 'q1', type: 'approval', requestId: sent[0].requestId, name: 'browser_click', label: 'Click [3]', expiresAt: 40 });
+  assert.equal(approvals.decide(sent[0].requestId, true), true);
+  assert.equal(approvals.decide(sent[0].requestId, false), false, 'answered already');
+  assert.equal(await a, true);
+  assert.deepEqual(sent[1], { queryId: 'q1', type: 'approval-done', requestId: sent[0].requestId, approved: true });
+
+  assert.equal(await approvals.request('q1', { name: 'browser_type', label: 'Type' }), false, 'no answer: denied');
+  const c = approvals.request('q2', { name: 'browser_navigate', label: 'Open' });
+  const d = approvals.request('q3', { name: 'browser_navigate', label: 'Open' });
+  const q3Request = sent.find((e) => e.queryId === 'q3' && e.type === 'approval').requestId;
+  approvals.denyAll('q2');
+  assert.equal(await c, false);
+  approvals.decide(q3Request, true);
+  assert.equal(await d, true, 'other queries are not affected');
+});
+
+test('stop: the running query is aborted and its approvals denied, through IPC', async () => {
+  let release;
+  const slow = {
+    name: 'remote',
+    isAvailable: async () => true,
+    query: (input) => new Promise((resolve, reject) => {
+      queries.push(input);
+      input.requestApproval({ name: 'browser_click', label: 'Click' }).then((ok) => { release = ok; });
+      input.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    }),
+  };
+  createAgent({ settings, tabs, providers: { ...providers, remote: slow }, now: () => clock });
+  current.agent.provider = 'remote';
+  const p = invoke('bucks:agent:query', { prompt: 'long task', queryId: 'q-stop' });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(await invoke('bucks:agent:cancel', { queryId: 'q-stop' }), true);
+  const r = await p;
+  assert.equal(r.evaluation, 'Stopped.');
+  assert.equal(release, false);
+  assert.equal(await invoke('bucks:agent:cancel', { queryId: 'q-stop' }), false, 'finished queries cannot be stopped');
+  assert.equal(await invoke('bucks:agent:approve', { requestId: 'nope', approve: true }), false);
 });

@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createSoulProvider, sseEvents, buildContext } from '../../../src/main/agent/providers/soul.js';
+import { createSoulProvider, sseEvents, buildContext, buildMessage, snapshotRefs } from '../../../src/main/agent/providers/soul.js';
 import { normalizeComponent, normalizeComponents, splitFollowups } from '../../../src/main/agent/genui.js';
 
 const TOKEN = 'secret-token';
@@ -34,6 +34,20 @@ before(async () => {
         if (mode === 'approval') {
           events.push(sse({ type: 'browser_action', id: 'a1', action_id: 'a1', name: 'cluster_pin', needs_approval: true, session_id: 'sess-1', label: 'Pin bafy… on this node' }));
         }
+        if (mode === 'agentic') {
+          events.push(
+            sse({ type: 'browser_action', id: 'r1', action_id: 'x1', name: 'browser_read_page', args: {}, needs_approval: false, session_id: 'sess-1', label: 'Read the page' }),
+            sse({ type: 'browser_action', id: 'r2', action_id: 'x2', name: 'browser_click', args: { ref: 3 }, needs_approval: true, session_id: 'sess-1', label: 'Click [3]' }),
+            // The engine forgot the flag: a click still needs the user.
+            sse({ type: 'browser_action', id: 'r3', action_id: 'x3', name: 'browser_type', args: { ref: 4, text: 'hi' }, needs_approval: false, session_id: 'sess-1', label: 'Type' }),
+            sse({ type: 'browser_action', id: 'r4', action_id: 'x4', name: 'create_pdf', args: { title: 'R', content: '# R' }, needs_approval: false, session_id: 'sess-1', label: 'PDF' }),
+          );
+        }
+        if (mode === 'slow') {
+          res.write(sse({ type: 'session', session_id: 'sess-slow' }));
+          res.write(sse({ type: 'token', content: 'Half an ' }));
+          return; // never ends: the client has to stop it
+        }
         if (mode === 'error') {
           events.push(sse({ type: 'error', content: 'Agent error: model crashed' }));
         } else {
@@ -53,7 +67,7 @@ before(async () => {
         res.end(all.slice(prev));
         return;
       }
-      if (req.url.startsWith('/agent/deny/')) return json(200, { ok: true });
+      if (req.url.startsWith('/agent/deny/') || req.url.startsWith('/agent/approve/') || req.url.startsWith('/agent/cancel/') || req.url === '/agent/tool_result') return json(200, { ok: true });
       if (req.url === '/agent/feedback') return json(200, parsed.session_id === 'sess-1' ? { ok: true } : { ok: false, error: 'unknown session_id' });
       if (req.url === '/models') return json(200, { models: [{ id: 'llama3.2:1b' }, { id: 'qwen2.5:3b' }, { nope: 1 }] });
       return json(404, {});
@@ -93,7 +107,7 @@ test('query streams the answer, cards and follow-ups, with the token', async () 
   assert.deepEqual(r.components, [{ component: 'table', title: 'Compare', columns: ['A', 'B'], rows: [['1', '2']] }], 'unknown components are dropped');
 });
 
-test('actions that need approval are declined at once and explained', async () => {
+test('an action that needs approval is denied without a way to ask, and explained', async () => {
   mode = 'approval'; seen.length = 0;
   const r = await soul.query({ prompt: 'pin it' }, cfg());
   const deny = seen.find((s) => s.url.startsWith('/agent/deny/'));
@@ -101,7 +115,64 @@ test('actions that need approval are declined at once and explained', async () =
   assert.equal(deny.url, '/agent/deny/sess-1');
   assert.deepEqual(deny.body, { action_id: 'a1' });
   assert.equal(deny.auth, `Bearer ${TOKEN}`);
-  assert.match(r.evaluation, /Not done, because approving actions is not available.*Pin bafy… on this node/);
+  assert.match(r.evaluation, /Not done \(not allowed, or not answered in time\): Pin bafy… on this node/);
+});
+
+test('approved engine-side action: the engine is told yes and runs it itself', async () => {
+  mode = 'approval'; seen.length = 0;
+  const asked = [];
+  const r = await soul.query({ prompt: 'pin it', requestApproval: async (a) => { asked.push(a); return true; } }, cfg());
+  assert.deepEqual(asked, [{ name: 'cluster_pin', label: 'Pin bafy… on this node' }]);
+  assert.deepEqual(seen.find((s) => s.url.startsWith('/agent/approve/'))?.body, { action_id: 'a1' });
+  assert.equal(seen.some((s) => s.url === '/agent/tool_result'), false, 'nothing to run here');
+  assert.doesNotMatch(r.evaluation, /Not done/);
+});
+
+test('agentic: tools run here, changes are asked for (even unflagged ones), results go back', async () => {
+  mode = 'agentic'; seen.length = 0;
+  const asked = [];
+  const labels = [];
+  const ran = [];
+  const events = [];
+  const r = await soul.query({
+    prompt: 'click the button', agentic: true,
+    onEvent: (e) => events.push(e),
+    requestApproval: async (a) => { asked.push(a.name); labels.push(a.label); return a.name === 'browser_click'; },
+    runTool: async (name, args, ctx) => {
+      ran.push([name, args, ctx.tabTools]);
+      if (name === 'create_pdf') { ctx.onFile('/docs/R.pdf'); return 'PDF report saved to /docs/R.pdf'; }
+      if (name === 'browser_read_page') return 'URL: https://shop.test/\nTitle: Shop\n[3] button: Buy now';
+      return `ran ${name}`;
+    },
+  }, cfg());
+  assert.equal(seen.find((s) => s.url === '/agent').body.agentic, true);
+  assert.deepEqual(asked, ['browser_click', 'browser_type']);
+  assert.deepEqual(ran.map((x) => x[0]), ['browser_read_page', 'browser_click', 'create_pdf'], 'the refused typing never ran');
+  assert.ok(ran.every((x) => x[2] === true));
+  const results = seen.filter((s) => s.url === '/agent/tool_result').map((s) => s.body);
+  assert.deepEqual(results, [
+    { id: 'r1', result: 'URL: https://shop.test/\nTitle: Shop\n[3] button: Buy now' },
+    { id: 'r2', result: 'ran browser_click' },
+    { id: 'r3', result: 'The user did not allow this action.' },
+    { id: 'r4', result: 'PDF report saved to /docs/R.pdf' },
+  ]);
+  assert.deepEqual(seen.find((s) => s.url.startsWith('/agent/approve/'))?.body, { action_id: 'x2' });
+  assert.deepEqual(r.documents, ['/docs/R.pdf']);
+  assert.equal(labels[0], 'Click [3]: button "Buy now"', 'the card says what will be clicked');
+  assert.ok(events.some((e) => e.type === 'status' && e.label === 'Thinking it through…'));
+  assert.ok(events.some((e) => e.type === 'status' && e.label === 'Read the page'));
+  assert.match(r.evaluation, /Not done .*: Type/);
+});
+
+test('stopping a query cancels the engine session and keeps what was said', async () => {
+  mode = 'slow'; seen.length = 0;
+  const controller = new AbortController();
+  const p = soul.query({ prompt: 'long one', signal: controller.signal }, cfg());
+  await new Promise((r) => setTimeout(r, 300));
+  controller.abort();
+  const r = await p;
+  assert.match(r.evaluation, /^Half an\s*\n\nStopped\.$/);
+  assert.ok(seen.some((s) => s.url === '/agent/cancel/sess-slow'));
 });
 
 test('errors: engine error event, HTTP error, not running', async () => {
@@ -137,6 +208,13 @@ test('buildContext', () => {
   assert.equal(buildContext({}), '');
   assert.equal(buildContext({ currentUrl: 'https://x.y' }), 'Page: https://x.y');
   assert.equal(buildContext({ pageText: 'z'.repeat(9000) }).length < 6200, true);
+  assert.equal(
+    buildContext({ history: [{ role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello!' }] }),
+    'Conversation so far (oldest first):\nUser: Hi\nAssistant: Hello!',
+  );
+  assert.deepEqual(snapshotRefs('URL: x\n[0] a: Pricing → https://x/p\n[3] input(search): Search shop\n[12] button: Buy now'), { 0: 'a "Pricing"', 3: 'input "Search shop"', 12: 'button "Buy now"' });
+  assert.equal(buildMessage({ prompt: 'Summarise' }), 'Summarise');
+  assert.equal(buildMessage({ prompt: 'Summarise', attachments: 'ATT' }), 'Summarise\n\nATT');
 });
 
 /* ---------- generative UI normalisation ---------- */

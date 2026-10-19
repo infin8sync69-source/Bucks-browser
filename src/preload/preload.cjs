@@ -157,8 +157,19 @@ const api = Object.freeze({
   agent: Object.freeze({
     /** @returns {Promise<{ online: boolean, provider: string, model?: string, providers: string[] }>} */
     status: () => invoke('bucks:agent:status'),
-    /** @returns {Promise<AgentResult>} */
-    query: ({ prompt, currentUrl, currentTitle, tabId }) => invoke('bucks:agent:query', { prompt, currentUrl, currentTitle, tabId }),
+    /**
+     * history: earlier turns [{ role, content }]; attachments: [{ kind: 'file', name, mime, dataBase64 } | { kind: 'cid', cid }];
+     * agentic: let the agent act in tab `tabId` (asks before changing anything); queryId: for cancel() and onEvent.
+     * @returns {Promise<AgentResult>}
+     */
+    query: ({ prompt, currentUrl, currentTitle, tabId, queryId, history, attachments, agentic }) =>
+      invoke('bucks:agent:query', { prompt, currentUrl, currentTitle, tabId, queryId, history, attachments, agentic }),
+    /** Stop a running query. @returns {Promise<boolean>} */
+    cancel: (queryId) => invoke('bucks:agent:cancel', { queryId }),
+    /** Answer an approval request from onEvent. @returns {Promise<boolean>} */
+    approve: (requestId, approve) => invoke('bucks:agent:approve', { requestId, approve }),
+    /** Progress of running queries: { queryId, type: 'status'|'approval'|'approval-done', … } */
+    onEvent: (cb) => subscribe('bucks:agent:event', cb),
     feedback: ({ taskId, score, correction }) => invoke('bucks:agent:feedback', { taskId, score, correction }),
     /** @returns {Promise<string[]>} models available for the current provider */
     listModels: () => invoke('bucks:agent:list-models'),
@@ -182,6 +193,13 @@ const api = Object.freeze({
     soulPending: () => invoke('bucks:agent:soul-pending'),
     /** @param {'approve'|'deny'} action @returns {Promise<SoulPendingUpdate[]>} the remaining ones */
     soulDecide: (id, action) => invoke('bucks:agent:soul-decide', { id, action }),
+  }),
+
+  docs: Object.freeze({
+    /** Save text as a document in Documents/Bucks. @returns {Promise<{ path: string }>} */
+    create: ({ title, content, format }) => invoke('bucks:docs:create', { title, content, format }),
+    /** Show a document Bucks saved in the file manager. */
+    showInFolder: (path) => invoke('bucks:docs:show', { path }),
   }),
 
   widgets: Object.freeze({

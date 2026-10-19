@@ -52,12 +52,14 @@ carried over** (reason given).
 |---|---|---|
 | Soul Engine (local model, tools, web research) | ✅ | ✅ e2e |
 | Generative cards (tables, charts, checklists, …) and follow-up questions | ✅ | ✅ e2e |
-| Chat threads with history | ✅ | ⏳ batch C |
-| Model / provider picker in the composer | ✅ | ⏳ batch C |
-| Attach files or CIDs to a question | ✅ | ⏳ batch C |
-| Slash commands (`/wallet`, `/ipfs`, …) | ✅ | ⏳ batch C |
-| Agent acts in the open tab, with your approval | ✅ | ⏳ batch C |
-| Create documents and PDFs from an answer | ✅ | ⏳ batch C |
+| Chat threads with history | ✅ (stored by the Soul Engine) | ✅ e2e: kept by the browser, so they work with every provider; the last turns go with each question |
+| Model / provider picker in the composer | ✅ | ✅ (the same picker as the new tab) |
+| Attach files or CIDs to a question | ✅ | ✅ e2e: read in the main process and sent as text with the question (drag and drop works too) |
+| Slash commands (`/wallet`, `/ipfs`, …) | ✅ | ✅ e2e: suggestions in the chat and the command bar; `/pdf` and `/ipfs-upload` run locally |
+| Stop a running answer | ✅ | ✅ e2e (every provider) |
+| Agent acts in the open tab, with your approval | ✅ | ✅ e2e with the real engine: clicks, typing and navigation always ask, even when the engine does not flag them; the card names the element. Fixed in both code bases: "click the Buy now button" was taken for a shopping search |
+| Create documents and PDFs from an answer | ✅ | ✅ e2e: the engine's create_document / create_pdf / page_to_pdf, and Save as document / PDF on every answer |
+| Split panes for the agent (pane_open, workspace_sweep) | ✅ | ⏳ with split view |
 | MCP server for other AI tools | ✅ (no auth) | 🟡 server in `agent/` with a token gate; not started by the browser yet |
 
 ## IPFS and peers

@@ -26,7 +26,10 @@ with privacy-protective defaults turned on.
 - **Built-in assistant.** An address-bar agent that can run on offline rules, a Bucks agent server,
   a local Ollama model, or the **Soul Engine**: the full Bucks agent (web research, IPFS tools,
   answers with tables, charts and checklists), which Bucks runs on your computer with an
-  on-device model by default.
+  on-device model by default. Chats are kept as threads; you can attach files or IPFS CIDs, use
+  slash commands (`/search`, `/summarize`, `/report`, `/agent`, …), pick the model, stop an answer,
+  and save any answer as a document or PDF. With the Soul Engine it can act in the open tab
+  (read, click, type, open pages), asking you before it changes anything.
 - **Wallet.** A wallet page that signs in the interface and talks to a Bucks node over HTTP.
 - **Everyday browsing.** Spaces, pinned / renamed / coloured tabs, reopen closed tab, private tabs
   (Ctrl/Cmd+Shift+N), find in page, print and save as PDF, zoom and mute per site, address

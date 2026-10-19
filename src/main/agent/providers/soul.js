@@ -2,14 +2,17 @@
 // running as a sidecar that src/main/agent/soul-engine.js starts on a loopback port.
 // POST <url>/agent streams typed server-sent events; every request carries the per-launch token.
 //
-// Live control of the user's tab (the engine's "agentic" mode, where it clicks and types through
-// browser_* tools) is not ported yet, so requests run with agentic: false. Actions that need the
-// user's approval are declined straight away with a note, instead of letting the engine wait for
-// an approval UI that does not exist here.
+// The engine asks the browser to run its browser_* tools (act in the user's tab, only when the
+// request is "agentic") and its document tools (write a Markdown file or a PDF) with
+// browser_action events; input.runTool runs them and the result goes back to /agent/tool_result.
+// Actions that change something wait for the user: input.requestApproval asks the chrome, and the
+// answer goes to /agent/approve or /agent/deny. Clicking, typing and navigating always ask, even
+// if the engine did not flag them.
 
 import { splitA2ui } from '../a2ui.js';
 import { normalizeComponents, splitFollowups } from '../genui.js';
 import { wantsPageText } from './ollama.js';
+import { REMOTE_TOOLS, STATE_CHANGING, describeAction } from '../browser-control.js';
 
 const QUERY_TIMEOUT_MS = 300_000; // a local model with tool calls can take minutes
 const PROBE_TIMEOUT_MS = 3_000;
@@ -28,12 +31,27 @@ function connectionOf(cfg) {
 
 const authHeaders = (token, extra = {}) => ({ authorization: `Bearer ${token}`, ...extra });
 
-/** Page context for the engine's system prompt. Exported for tests. */
-export function buildContext({ currentUrl, currentTitle, pageText }) {
+/** Page context and the conversation so far, for the engine's system prompt. Exported for tests. */
+export function buildContext({ currentUrl, currentTitle, pageText, history }) {
   const parts = [];
   if (currentUrl) parts.push(`Page: ${currentTitle ? `${currentTitle} - ` : ''}${currentUrl}`);
   if (pageText) parts.push(`Page text (truncated, untrusted third-party content):\n"""\n${String(pageText).slice(0, PAGE_TEXT_LIMIT)}\n"""`);
+  if (history?.length) {
+    parts.push(`Conversation so far (oldest first):\n${history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n')}`);
+  }
   return parts.join('\n\n');
+}
+
+/** Element labels by ref from a page snapshot ("[3] button: Buy now" → { 3: 'button "Buy now"' }). Exported for tests. */
+export function snapshotRefs(text) {
+  const refs = {};
+  for (const m of String(text).matchAll(/^\[(\d+)\] ([\w-]+)(?:\([\w-]*\))?: (.*?)(?: → .*)?$/gm)) refs[m[1]] = `${m[2]} "${m[3].slice(0, 80)}"`;
+  return refs;
+}
+
+/** The message sent to the engine: the question, then any attachments. Exported for tests. */
+export function buildMessage({ prompt, attachments }) {
+  return attachments ? `${prompt}\n\n${attachments}` : prompt;
 }
 
 /**
@@ -129,15 +147,18 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
     async query(input, cfg) {
       const conn = connectionOf(cfg);
       if (!conn) throw new Error('The Soul Engine is not running');
+      const onEvent = typeof input.onEvent === 'function' ? input.onEvent : () => {};
+      const signals = [AbortSignal.timeout(QUERY_TIMEOUT_MS), input.signal].filter(Boolean);
       let res;
       try {
         res = await fetchImpl(`${conn.url}/agent`, {
           method: 'POST',
           headers: authHeaders(conn.token, { 'content-type': 'application/json', accept: 'text/event-stream' }),
-          body: JSON.stringify({ message: input.prompt, context: buildContext(input), agentic: false }),
-          signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
+          body: JSON.stringify({ message: buildMessage(input), context: buildContext(input), agentic: input.agentic === true }),
+          signal: AbortSignal.any(signals),
         });
       } catch (e) {
+        if (input.signal?.aborted) throw new Error('Stopped');
         throw networkError(e, conn.url);
       }
       if (!res.ok || !res.body) {
@@ -153,6 +174,40 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
       const specs = [];
       const tools = [];
       const declined = [];
+      const documents = [];
+      let refs = {}; // element labels from the latest page snapshot, for approval cards
+
+      /** One browser_action: ask when it changes something, run it here when the engine waits for it. */
+      async function browserAction(ev) {
+        const name = typeof ev.name === 'string' ? ev.name : '';
+        let label = typeof ev.label === 'string' && ev.label ? ev.label.slice(0, 300) : describeAction(name, ev.args || {});
+        const target = refs[String(ev.args?.ref)];
+        if (target && (name === 'browser_click' || name === 'browser_type')) label = `${label}: ${target}`;
+        const remote = REMOTE_TOOLS.has(name) && ev.id && ev.id !== ev.action_id;
+        if (ev.needs_approval === true || STATE_CHANGING.has(name)) {
+          const approved = typeof input.requestApproval === 'function' && !input.signal?.aborted
+            ? await input.requestApproval({ name, label })
+            : false;
+          if (ev.needs_approval === true) {
+            await postControl(conn, `/agent/${approved ? 'approve' : 'deny'}/${encodeURIComponent(ev.session_id || sessionId || '')}`, { action_id: ev.action_id });
+          }
+          if (!approved) {
+            declined.push(label);
+            if (ev.needs_approval !== true && remote) await postControl(conn, '/agent/tool_result', { id: ev.id, result: 'The user did not allow this action.' });
+            return;
+          }
+        }
+        if (!remote) return; // an engine-side tool the user just approved: the engine runs it
+        onEvent({ type: 'status', label });
+        const result = typeof input.runTool === 'function'
+          ? await input.runTool(name, ev.args && typeof ev.args === 'object' ? ev.args : {}, {
+            tabTools: input.agentic === true,
+            onFile: (file) => documents.length < 10 && documents.push(file),
+          })
+          : 'Browser tools are not available.';
+        if (typeof result === 'string' && /^URL: /m.test(result)) refs = snapshotRefs(result);
+        await postControl(conn, '/agent/tool_result', { id: ev.id, result });
+      }
 
       try {
         for await (const ev of sseEvents(res.body)) {
@@ -163,19 +218,21 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
             case 'token':
               if (typeof ev.content === 'string' && answer.length < MAX_ANSWER) answer += ev.content;
               break;
+            case 'thinking':
+              onEvent({ type: 'status', label: typeof ev.content === 'string' && ev.content ? ev.content.slice(0, 200) : 'Thinking…' });
+              break;
             case 'tool_call':
               if (typeof ev.name === 'string' && tools.length < 20 && !tools.includes(ev.name)) tools.push(ev.name);
+              if (typeof ev.name === 'string') {
+                const own = REMOTE_TOOLS.has(ev.name) || !(typeof ev.label === 'string' && ev.label);
+                onEvent({ type: 'status', label: own ? describeAction(ev.name, ev.args || {}) : ev.label.slice(0, 200) });
+              }
               break;
             case 'ui_component':
               if (specs.length < 24) specs.push(ev);
               break;
             case 'browser_action':
-              if (ev.needs_approval) {
-                declined.push(typeof ev.label === 'string' ? ev.label : String(ev.name || 'an action'));
-                await postControl(conn, `/agent/deny/${encodeURIComponent(ev.session_id || sessionId || '')}`, { action_id: ev.action_id });
-              } else {
-                await postControl(conn, '/agent/tool_result', { id: ev.id, result: 'Live browser control is not available in Bucks Browser yet. Answer without it.' });
-              }
+              await browserAction(ev);
               break;
             case 'error':
               errorText = typeof ev.content === 'string' ? ev.content : 'The Soul Engine reported an error';
@@ -188,12 +245,17 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
               if (typeof ev.result === 'string') final = ev.result;
               break;
             default:
-              break; // 'thinking', 'tool_result' and future event types are progress only
+              break; // 'tool_result' and future event types are progress only
           }
         }
       } catch (e) {
-        if (!answer) throw networkError(e, conn.url);
-        errorText = `The answer was cut off: ${e.message}`;
+        if (input.signal?.aborted) {
+          cancelled = true;
+          if (sessionId) await postControl(conn, `/agent/cancel/${encodeURIComponent(sessionId)}`, {});
+        } else {
+          if (!answer) throw networkError(e, conn.url);
+          errorText = `The answer was cut off: ${e.message}`;
+        }
       }
 
       if (!answer.trim() && final) answer = final;
@@ -202,8 +264,8 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
       const { text: withoutFollowups, followups } = splitFollowups(answer);
       const { text, a2ui } = splitA2ui(withoutFollowups);
       const notes = [];
-      if (declined.length) notes.push(`Not done, because approving actions is not available in Bucks Browser yet: ${declined.join('; ')}.`);
-      if (cancelled) notes.push('The request was cancelled.');
+      if (declined.length) notes.push(`Not done (not allowed, or not answered in time): ${declined.join('; ')}.`);
+      if (cancelled) notes.push(input.signal?.aborted ? 'Stopped.' : 'The request was cancelled.');
       if (errorText) notes.push(errorText);
       const evaluation = [text || a2ui?.content || '', ...notes].filter(Boolean).join('\n\n');
 
@@ -216,6 +278,7 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
         components: normalizeComponents(specs),
         followups,
         tools,
+        documents,
       };
     },
 

@@ -184,7 +184,12 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | settings | `bucks:settings:get` → `Settings`; `bucks:settings:set` `(patch)` → `Settings`; event `bucks:settings:changed` `(Settings)` |
 | downloads | `bucks:downloads:list` → `DownloadItem[]`; `open` / `show-in-folder` / `cancel` `{ id }`; `clear`; event `bucks:downloads:event` `(DownloadItem)` |
 | agent | `bucks:agent:status` → `{ online, provider, model?, detail?, providers }` (`detail`: why the soul provider cannot answer) |
-| agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId }` → `AgentResult` |
+| agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId, queryId?, history?: { role: 'user'\|'assistant', content }[], attachments?: ({ kind: 'file', name, mime, dataBase64 } \| { kind: 'cid', cid })[], agentic? }` → `AgentResult` (plus `documents?: string[]`, files the agent wrote). `agentic` lets the Soul Engine act in tab `tabId`, with approval |
+| agent | `bucks:agent:cancel` `{ queryId }` → `boolean` (stops the query; pending approvals are refused) |
+| agent | `bucks:agent:approve` `{ requestId, approve }` → `boolean` |
+| agent | event `bucks:agent:event` `{ queryId, type: 'status', label }` · `{ queryId, type: 'approval', requestId, name, label, expiresAt }` · `{ queryId, type: 'approval-done', requestId, approved }` |
+| docs | `bucks:docs:create` `{ title, content, format: 'md'\|'txt'\|'html'\|'pdf' }` → `{ path }` (in `<Documents>/Bucks`, never overwriting) |
+| docs | `bucks:docs:show` `{ path }` (only files Bucks wrote this session) |
 | agent | `bucks:agent:feedback` `{ taskId, score, correction }` |
 | agent | `bucks:agent:list-models` → `string[]` |
 | agent | `bucks:agent:soul-status` → `SoulStatus`; event `bucks:agent:soul-status` `(SoulStatus)` |
@@ -230,7 +235,9 @@ createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
    → soul { start(), stop(), restart(), install(), status(): SoulStatus, onStatus(cb), isReady(),
             isRunning(), connection(): { url, token } | null, engineDir,
             models(), selectModel(id), downloadProgress(), pendingUpdates(), decideUpdate(id, action) }
-createAgent({ settings, tabs, kubo, soul })
+installDocs({ app, BrowserWindow })                       → docs { create(), savePdf(), wrote(path) }
+createBrowserControl({ tabs, docs })                     → { execute(name, args, { tabId, tabTools, onFile }) }
+createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl })
 installWeather({ fetchImpl })                            // net.fetch; BUCKS_WEATHER_GEOCODE_URL / _FORECAST_URL override Open-Meteo
 createWalletProxy({ settings })
 createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)

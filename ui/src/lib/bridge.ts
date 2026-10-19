@@ -163,6 +163,8 @@ export interface AgentResult {
     followups?: string[];
     /** Tools the agent used for this answer (Soul Engine). */
     tools?: string[];
+    /** Documents the agent wrote while answering (paths in Documents/Bucks). */
+    documents?: string[];
 }
 
 export interface AgentStatus {
@@ -294,7 +296,24 @@ export interface AgentQuery {
     currentUrl: string | null;
     currentTitle: string | null;
     tabId: string | null;
+    /** Identifies the query for cancel() and onEvent(). */
+    queryId?: string;
+    /** Earlier turns of the conversation, oldest first. */
+    history?: { role: 'user' | 'assistant'; content: string }[];
+    attachments?: AgentAttachment[];
+    /** Let the agent act in tab `tabId` (Soul Engine; it asks before clicking, typing or navigating). */
+    agentic?: boolean;
 }
+
+export type AgentAttachment =
+    | { kind: 'file'; name: string; mime: string; dataBase64: string }
+    | { kind: 'cid'; cid: string };
+
+/** Progress of a running query, pushed by the main process. */
+export type AgentEvent =
+    | { queryId: string; type: 'status'; label: string }
+    | { queryId: string; type: 'approval'; requestId: string; name: string; label: string; expiresAt: number }
+    | { queryId: string; type: 'approval-done'; requestId: string; approved: boolean };
 
 export interface AgentFeedback {
     taskId: string;
@@ -595,6 +614,11 @@ export interface BucksApi {
     agent: {
         status(): Promise<AgentStatus>;
         query(q: AgentQuery): Promise<AgentResult>;
+        /** Stop a running query. */
+        cancel(queryId: string): Promise<boolean>;
+        /** Answer an approval request. */
+        approve(requestId: string, approve: boolean): Promise<boolean>;
+        onEvent(cb: (ev: AgentEvent) => void): Unsubscribe;
         feedback(f: AgentFeedback): Promise<void>;
         listModels(): Promise<string[]>;
         soulStatus(): Promise<SoulStatus>;
@@ -610,6 +634,13 @@ export interface BucksApi {
         soulPending(): Promise<SoulPendingUpdate[]>;
         /** Approve or deny one pending update; resolves with the ones still pending. */
         soulDecide(id: string, action: 'approve' | 'deny'): Promise<SoulPendingUpdate[]>;
+    };
+
+    docs: {
+        /** Save text as a document (md, txt, html or pdf) in Documents/Bucks. */
+        create(d: { title: string; content: string; format: 'md' | 'txt' | 'html' | 'pdf' }): Promise<{ path: string }>;
+        /** Reveal a document Bucks saved in the file manager. */
+        showInFolder(path: string): Promise<void>;
     };
 
     widgets: {
@@ -839,6 +870,9 @@ function createMockBridge(): BucksApi {
                     task_id: null,
                     cid: null,
                 }),
+            cancel: () => Promise.resolve(false),
+            approve: () => Promise.resolve(false),
+            onEvent: () => noSub,
             feedback: resolved,
             listModels: () => Promise.resolve([]),
             soulStatus: () => Promise.resolve(mockSoulStatus()),
@@ -851,6 +885,10 @@ function createMockBridge(): BucksApi {
             soulDownloadProgress: () => unavailable('agent.soulDownloadProgress'),
             soulPending: () => Promise.resolve([]),
             soulDecide: () => unavailable('agent.soulDecide'),
+        },
+        docs: {
+            create: () => unavailable('docs.create'),
+            showInFolder: resolved,
         },
         widgets: {
             weather: () => unavailable('widgets.weather'),

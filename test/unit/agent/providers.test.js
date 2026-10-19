@@ -49,7 +49,7 @@ const ollama = createOllamaProvider();
 test('remote.query posts the task and extracts a2ui', async () => {
   mode = 'ok'; seen.length = 0;
   const r = await remote.query({ prompt: 'open example', currentUrl: 'https://a.b', currentTitle: 'A' }, { remoteUrl: `${base}/` });
-  assert.deepEqual(seen[0].body, { prompt: 'open example', current_url: 'https://a.b', current_title: 'A' });
+  assert.deepEqual(seen[0].body, { prompt: 'open example', current_url: 'https://a.b', current_title: 'A', history: [] });
   assert.equal(r.status, 'ok');
   assert.equal(r.cid, 'bafyresult');
   assert.equal(r.task_id, 't-1');

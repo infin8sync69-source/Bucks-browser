@@ -266,13 +266,50 @@ in `settings.agent.provider`:
 | `offline` | `providers/offline.js` | Pure rules: turns "go to ...", bare domains, CIDs, "search ..." and a few page names (wallet, IPFS, settings, downloads) into a navigation or UI action. Always available. |
 | `remote` | `providers/remote.js` | `POST <remoteUrl>/api/v1/swarm/task` with the prompt and current page; feedback to `/api/v1/swarm/feedback`. Probed for availability with a short ping. |
 | `ollama` | `providers/ollama.js` | Chat with a local Ollama model. The system prompt asks it to end with one JSON action block when the browser should act; page text is sent only when the question is about the current page. |
-| `soul` | `providers/soul.js` | The Soul Engine sidecar (below). `POST /agent` with the question and page context, read as server-sent events: answer tokens, generative-UI cards (`ui_component`, normalised by `genui.js`), `<followup>` suggestions, tool names. Runs with `agentic: false`; actions that need the user's approval are declined at once with a note. Feedback goes to `/agent/feedback`. |
+| `soul` | `providers/soul.js` | The Soul Engine sidecar (below). `POST /agent` with the question, attachments, page context and the conversation so far, read as server-sent events: answer tokens, generative-UI cards (`ui_component`, normalised by `genui.js`), `<followup>` suggestions, tool names, progress, and `browser_action` requests (see "The agent acting in a tab"). Feedback goes to `/agent/feedback`. |
+
+Every query carries the last turns of its thread (`history`, at most 12, 2,000 characters each)
+and any attachments. Attachments (files up to 5 MB, IPFS CIDs through the embedded node) are read
+in main by `agent/attachments.js` and handed to the provider as text (images and binaries are
+named, with a note), because a small model given only a file name invents its contents. Each query
+has an id: `bucks:agent:cancel` stops it (every provider stops at once; the Soul Engine is also told
+to cancel its session) and its progress arrives as `bucks:agent:event`.
+
+Threads are kept by the chrome (`localStorage`, 50 threads of 200 messages), so they work the same
+with every provider. Slash commands (`ui/src/lib/agent/slash.ts`) open Bucks pages, run local
+actions (new chat, save the page as PDF, publish text to IPFS) or become a clear request for the
+agent; `/agent <task>` asks the agent to act in the tab.
 
 Answers can carry an `a2ui` action (`navigate`, `open_tab`, `search`, `action`, `text`) that the
 interface executes. Availability is cached for 10 s. When the selected provider is unreachable or fails,
 the request is answered by the offline rules and the answer says why (status `offline_fallback`).
 Page text for the model comes from `tabs.extractText`, which reads `innerText` of the tab in an
 isolated world, truncated.
+
+## The agent acting in a tab
+
+With "act in this tab" (or `/agent <task>`) and the Soul Engine selected, the query is sent with
+`agentic: true` and the engine may call its browser tools. It asks Bucks to run each one with a
+`browser_action` event and waits for the result at `/agent/tool_result`.
+
+- `agent/browser-control.js` runs them on the tab the question came from (never another one):
+  `browser_read_page` (an indexed list of the page's links, buttons and fields; each gets a
+  `data-bucks-ref`), `browser_click`, `browser_type` (real text input through
+  `webContents.insertText`), `browser_scroll`, `browser_navigate` (http, https, ipfs and ipns
+  only), `browser_screenshot`. Page scripts run in an isolated world, so the page cannot replace
+  the functions they use; refs must be numbers.
+- **Approval.** Clicking, typing and navigating always wait for the user, whatever the engine's
+  `needs_approval` flag says; so do the engine's own state-changing tools (cluster votes and pins).
+  The chrome shows an Allow / Refuse card naming the element; no answer within 25 seconds is a
+  refusal (the engine itself gives up after 30). Stopping the query refuses everything pending.
+- Without "act in this tab" the browser tools answer that acting was not enabled, so a request that
+  did not ask for it cannot touch the page.
+- **Documents.** `create_document`, `create_pdf` (Markdown rendered by `docs.js` in a hidden window
+  with JavaScript off) and `page_to_pdf` write to `<Documents>/Bucks` under unique names; the answer
+  lists the files with a Show button. Any answer can also be saved as Markdown or PDF from the
+  chat. `bucks:docs:show` only reveals files Bucks wrote in this session.
+- The engine skips its shortcut pipelines (shopping, weather, video, images, research) in agentic
+  mode: "click the Buy now button" is a page action, not a shopping search.
 
 ## Soul Engine sidecar
 
