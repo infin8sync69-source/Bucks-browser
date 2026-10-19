@@ -744,9 +744,6 @@
     document.head.appendChild(s);
   }
 
-  // ─── Rebuild view-agent-search HTML ──────────────────────────
-  function rebuildViewHTML() {
-    const view = document.getElementById('view-agent-search');
   let _activeTabId = null;
   let _activeTabTurns = [];
 
