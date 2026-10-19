@@ -9,7 +9,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { KuboRpc } from './rpc.js';
-import { downloadKubo, latestStableVersion, FALLBACK_KUBO_VERSION, kuboBinaryName, builderOsName } from './dist.js';
+import { downloadKubo, PINNED_KUBO_VERSION, pinnedSha512, kuboBinaryName, builderOsName } from './dist.js';
 import { toGatewayUrl, isPeerId } from './cid.js';
 import { bases } from 'multiformats/basics';
 import * as Digest from 'multiformats/hashes/digest';
@@ -26,6 +26,9 @@ const OUTPUT_TAIL_LINES = 40;
 const DEFAULT_PUBLIC_GATEWAY = 'https://ipfs.io';
 const DEFAULT_EXTERNAL_API = 'http://127.0.0.1:5001';
 const DEFAULT_SWARM_ADDRS = ['/ip4/0.0.0.0/tcp/4001', '/ip6/::/tcp/4001', '/ip4/0.0.0.0/udp/4001/quic-v1', '/ip6/::/udp/4001/quic-v1'];
+/** Connection limits for a node that hosts sites (the lowpower profile's 20/40 starve a host). */
+export const HOSTING_CONN_MGR = Object.freeze({ LowWater: 50, HighWater: 150 });
+export const DEFAULT_STORAGE_MAX_GB = 10;
 
 /* ───────────────────────────── pure helpers (unit-tested) ───────────────────────────── */
 
@@ -171,6 +174,13 @@ export function normalizePeeringPeers(peers, { selfId = null } = {}) {
   return [...byId.values()];
 }
 
+/** settings.ipfs.storageMaxGB → Kubo's Datastore.StorageMax ('10GB'); invalid values use the default. */
+export function storageMaxValue(gb) {
+  const n = Number(gb);
+  const whole = Number.isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 100_000) : DEFAULT_STORAGE_MAX_GB;
+  return `${whole}GB`;
+}
+
 /**
  * Apply Bucks' settings to a Kubo config object (idempotent, returns a copy).
  * - API and Gateway are bound to loopback on the reserved ports; every Swarm listen address keeps
@@ -179,11 +189,17 @@ export function normalizePeeringPeers(peers, { selfId = null } = {}) {
  * - Pubsub is enabled with the gossipsub router and LAN mDNS discovery is on (device pairing).
  * - When `peers` is given (settings.ipfs.peers), Peering.Peers is replaced by the valid entries
  *   (see normalizePeeringPeers) so paired devices stay connected.
- * Everything else (profile, datastore, …) is untouched.
+ * - Hosting: no accelerated DHT client (it crawls the DHT hourly), only pinned content is announced
+ *   (Provide.Strategy = pinned), connection limits fit a host, Datastore.StorageMax is the user's
+ *   quota, and the gateway fetches from the network (visitors load through it). Routing.Type is set
+ *   to `auto` only when the repo has none, so a repo created with the lowpower profile keeps its
+ *   `autoclient`.
+ * Everything else (relay, hole punching, AutoNAT, IPNS lifetimes, delegated routers) keeps Kubo's
+ * value.
  * @param {object} config  parsed <repo>/config
- * @param {{ apiPort: number, gatewayPort: number, swarmPort?: number, peers?: unknown }} opts
+ * @param {{ apiPort: number, gatewayPort: number, swarmPort?: number, peers?: unknown, storageMaxGB?: number }} opts
  */
-export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort, peers }) {
+export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort, peers, storageMaxGB }) {
   const out = structuredClone(config || {});
   out.Addresses = { ...(out.Addresses || {}) };
   out.Addresses.API = `/ip4/127.0.0.1/tcp/${apiPort}`;
@@ -199,6 +215,14 @@ export function applyBucksConfig(config, { apiPort, gatewayPort, swarmPort, peer
     const selfId = typeof out.Identity?.PeerID === 'string' ? out.Identity.PeerID : null;
     out.Peering = { ...(isObject(out.Peering) ? out.Peering : {}), Peers: normalizePeeringPeers(peers, { selfId }) };
   }
+  const routing = isObject(out.Routing) ? out.Routing : {};
+  out.Routing = { ...routing, AcceleratedDHTClient: false };
+  if (typeof routing.Type !== 'string' || !routing.Type) out.Routing.Type = 'auto';
+  out.Provide = { ...(isObject(out.Provide) ? out.Provide : {}), Strategy: 'pinned' };
+  const swarm = isObject(out.Swarm) ? out.Swarm : {};
+  out.Swarm = { ...swarm, ConnMgr: { ...(isObject(swarm.ConnMgr) ? swarm.ConnMgr : {}), Type: 'basic', ...HOSTING_CONN_MGR } };
+  out.Datastore = { ...(isObject(out.Datastore) ? out.Datastore : {}), StorageMax: storageMaxValue(storageMaxGB) };
+  out.Gateway = { ...(isObject(out.Gateway) ? out.Gateway : {}), NoFetch: false };
   return out;
 }
 
@@ -456,13 +480,8 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
       } catch { /* next */ }
     }
     initializing('Downloading IPFS node…');
-    let version;
-    try {
-      version = await latestStableVersion(fetchImpl);
-    } catch (e) {
-      log.warn(`Could not determine latest Kubo version (${e.message}); using ${FALLBACK_KUBO_VERSION}`);
-      version = FALLBACK_KUBO_VERSION;
-    }
+    // Always the pinned release, verified against the digest built into Bucks (never "latest").
+    const version = PINNED_KUBO_VERSION;
     let lastPct = -1;
     let installed;
     try {
@@ -471,6 +490,7 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
         destDir: binDir,
         fetchImpl,
         log,
+        expectedSha512: pinnedSha512({ platform: process.platform, arch: process.arch, version }),
         onProgress: (received, total) => {
           if (!total) return;
           const pct = Math.floor((received / total) * 100);
@@ -512,7 +532,9 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     if (fs.existsSync(path.join(repoDir, 'config'))) return;
     initializing('Initializing IPFS repository…');
     await fsp.mkdir(repoDir, { recursive: true });
-    await runIpfs(['init', '--profile=lowpower', '--empty-repo=true']);
+    // Kubo's default profile: the node can be a DHT server when reachable, which hosting needs.
+    // Repos created earlier with --profile=lowpower keep it (applyBucksConfig leaves Routing.Type).
+    await runIpfs(['init', '--empty-repo=true']);
   }
 
   async function patchConfig(rt) {
@@ -523,10 +545,10 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
     } catch (e) {
       throw new Error(`The IPFS repository config at ${file} is unreadable (${e.message}). Delete the ${repoDir} folder to start over.`);
     }
-    // settings.ipfs.peers → Peering.Peers; pubsub + mDNS always on (device pairing).
-    const { peers: configured } = ipfsSettings();
+    // settings.ipfs.peers → Peering.Peers; pubsub + mDNS always on (device pairing); hosting keys.
+    const { peers: configured, storageMaxGB } = ipfsSettings();
     const peers = Array.isArray(configured) ? configured : [];
-    const next = applyBucksConfig(current, { ...rt, peers });
+    const next = applyBucksConfig(current, { ...rt, peers, storageMaxGB });
     if (JSON.stringify(next) === JSON.stringify(current)) return;
     const tmp = `${file}.bucks.tmp`;
     await fsp.writeFile(tmp, JSON.stringify(next, null, 2));
@@ -585,7 +607,9 @@ export function createKubo({ settings, userData, resourcesDir, getMainWindow = (
   /* ---------- daemon ---------- */
 
   function spawnDaemon() {
-    const proc = spawn(binaryPath, ['daemon', '--migrate=true', '--enable-gc'], {
+    // BUCKS_KUBO_OFFLINE=1: no network at all (integration tests, air-gapped machines).
+    const offline = process.env.BUCKS_KUBO_OFFLINE === '1' ? ['--offline'] : [];
+    const proc = spawn(binaryPath, ['daemon', '--migrate=true', '--enable-gc', ...offline], {
       env: { ...process.env, IPFS_PATH: repoDir },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,

@@ -18,8 +18,37 @@ import extractZip from 'extract-zip';
 export const DEFAULT_DIST_BASE_URL = 'https://dist.ipfs.tech/kubo';
 /** GitHub releases of ipfs/kubo (assets at <url>/download/<version>/<asset>). */
 export const GITHUB_RELEASES_URL = 'https://github.com/ipfs/kubo/releases';
-/** Used when no mirror can tell us the latest stable version. */
-export const FALLBACK_KUBO_VERSION = 'v0.43.1';
+/**
+ * The Kubo release Bucks installs. Updating it is a deliberate change: bump the version, replace
+ * every digest in PINNED_KUBO_SHA512 with the values from the release's .sha512 files, and run the
+ * integration tests (test/unit/ipfs/*.integration.test.js) against the new binary.
+ */
+export const PINNED_KUBO_VERSION = 'v0.43.1';
+/** Kept for older callers: the version used when no other is requested. */
+export const FALLBACK_KUBO_VERSION = PINNED_KUBO_VERSION;
+/**
+ * SHA-512 of every archive of PINNED_KUBO_VERSION, as published next to each release asset.
+ * A download of the pinned version must match these, whatever a mirror's own .sha512 says.
+ */
+export const PINNED_KUBO_SHA512 = Object.freeze({
+  'kubo_v0.43.1_linux-amd64.tar.gz': 'ff53b2428794fc8cca39505d28c15b4cceaef4b90a09284f291f611fcdc8c06399690575fc89cbd4d85ef71f3652581296c6f2e710386f887c8edf36b6e89d71',
+  'kubo_v0.43.1_linux-arm64.tar.gz': '70f082584651ef78fb5b07448be53bb0adf141aadcb7eea15ffa59bd9ca78fed46781c2cf5915b3528c591052f97486067fedb0a7a1415abd5bfd44942921501',
+  'kubo_v0.43.1_darwin-amd64.tar.gz': 'efe0c1561595fbf7b5bdc3fc651863697c2bf388eed5f8c94c163f60d9575201808538abba84f652718f015ad1af6e3c01ced1321ddb2082f934ba8952e4a4ab',
+  'kubo_v0.43.1_darwin-arm64.tar.gz': 'bc282d781d856736051ce6d216ba47d52bec703f1a54ab5fa20fba26a92e4af3e8fb131e220cdf01f20205f1effb1a5b7bedbdeff15e8edbbe8e5b01923a7cbb',
+  'kubo_v0.43.1_windows-amd64.zip': 'e611cecef25cddb10b7f907145383608d9b31219ad7120041aeacfe2313882da1944f2897fda29bc2d959dd357e4950089ec8f2cbd52b29f2fc472bcae4356d0',
+  'kubo_v0.43.1_windows-arm64.zip': 'a6f2578ad3386a567c437eeebac1646293276b5fb44a26a33195f4310ed7b06cab9dfe0e02e17f33ce8ba1beb4f1ccef45375a861c8cc60192f46da7e0c02166',
+});
+
+/**
+ * The embedded SHA-512 for one platform's archive of `version`, or null when the version is not
+ * the pinned one (or the platform has no pinned digest).
+ * @param {{ platform: string, arch: string, version: string }} opts
+ * @returns {string|null}
+ */
+export function pinnedSha512({ platform, arch, version = PINNED_KUBO_VERSION }) {
+  const { archiveName } = resolveKuboAsset({ platform, arch, version });
+  return Object.hasOwn(PINNED_KUBO_SHA512, archiveName) ? PINNED_KUBO_SHA512[archiveName] : null;
+}
 
 const STABLE_VERSION_RE = /^v\d+\.\d+\.\d+$/;
 const VERSION_TIMEOUT_MS = 15_000;
@@ -287,7 +316,7 @@ async function findFile(dir, name) {
  * Fetch, verify and extract the asset from ONE mirror into `work`; returns the extracted binary.
  * Throws with a short reason when this mirror cannot provide a verified archive.
  */
-async function fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum, onProgress, info, warn }) {
+async function fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum, expectedSha512, onProgress, info, warn }) {
   const { url, sha512Url } = mirrorAssetUrls(mirror, asset.version, asset.archiveName);
 
   // Checksum first: it is tiny, so an unreachable mirror fails in seconds, not after a 40 MB download.
@@ -302,7 +331,15 @@ async function fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum
   } else {
     checksumProblem = `no checksum available for ${asset.archiveName} (HTTP ${res.status} from ${sha512Url})`;
   }
-  if (!expected && requireChecksum) throw new Error(`${checksumProblem}; refusing to install an unverified binary`);
+  if (expectedSha512) {
+    // The digest embedded in Bucks wins: a mirror that publishes another one is not trusted at all.
+    if (expected && expected !== expectedSha512) {
+      throw new Error(`${sha512Url} lists a different SHA-512 than the one built into Bucks for ${asset.archiveName}`);
+    }
+    expected = expectedSha512;
+  } else if (!expected && requireChecksum) {
+    throw new Error(`${checksumProblem}; refusing to install an unverified binary`);
+  }
 
   const dir = path.join(work, mirror.id);
   await fsp.mkdir(dir, { recursive: true });
@@ -315,7 +352,7 @@ async function fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum
     if (actual !== expected) {
       throw new Error(`SHA-512 mismatch for ${asset.archiveName}: expected ${expected.slice(0, 16)}…, got ${actual.slice(0, 16)}…`);
     }
-    info(`Checksum verified (${mirror.label})`);
+    info(`Checksum verified (${expectedSha512 ? 'digest built into Bucks' : mirror.label})`);
   } else {
     warn(`${checksumProblem}; skipping verification`);
   }
@@ -344,7 +381,9 @@ async function fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum
  *   env?: object, mirrors?: ReturnType<typeof kuboMirrors>,
  *   onProgress?: (received: number, total: number) => void,
  *   onMirror?: (event: { mirror: object, url?: string, ok: boolean, error?: string }) => void,
- *   requireChecksum?: boolean   // default true: a mirror without <archive>.sha512 is skipped
+ *   requireChecksum?: boolean,  // default true: a mirror without <archive>.sha512 is skipped
+ *   expectedSha512?: string|null // the digest the archive must have (pinnedSha512); then a mirror's
+ *                                // own .sha512 is optional, and a mirror listing another digest is skipped
  * }} opts
  * @returns {Promise<string>} absolute path to <destDir>/ipfs[.exe]
  */
@@ -361,12 +400,14 @@ export async function downloadKubo({
   onProgress,
   onMirror,
   requireChecksum = true,
+  expectedSha512 = null,
 }) {
   if (!destDir) throw new Error('downloadKubo: destDir is required');
   if (typeof fetchImpl !== 'function') throw new Error('downloadKubo: no fetch implementation available');
   const info = (...a) => log.info?.(...a);
   const warn = (...a) => log.warn?.(...a);
   const asset = resolveKuboAsset({ platform, arch, version, baseUrl });
+  if (expectedSha512 !== null && !/^[0-9a-f]{128}$/.test(String(expectedSha512))) throw new Error('downloadKubo: expectedSha512 must be 128 lowercase hex digits');
   const list = mirrors || kuboMirrors({ baseUrl, env });
   const work = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-kubo-'));
   const attempts = [];
@@ -375,7 +416,7 @@ export async function downloadKubo({
       info(`Trying ${mirror.label}`);
       let result;
       try {
-        result = await fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum, onProgress, info, warn });
+        result = await fetchFromMirror({ mirror, asset, work, fetchImpl, requireChecksum, expectedSha512, onProgress, info, warn });
       } catch (e) {
         const reason = e?.message || String(e);
         attempts.push({ mirror: mirror.label, id: mirror.id, reason });

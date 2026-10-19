@@ -3,6 +3,46 @@
 // JSON { Message, Code, Type: 'error' } with a non-2xx status.
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const ADD_DIRECTORY_TIMEOUT_MS = 60 * 60_000; // a 500 MiB site on a slow disk
+const SAFE_SEGMENT = /^[^/\\\u0000-\u001f\u007f]+$/;
+const KEY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+
+/**
+ * Throw unless `p` is a clean relative POSIX path: no leading '/', no '.', '..' or empty segments,
+ * no backslashes or control characters.
+ */
+export function assertRelativePath(p) {
+  if (typeof p !== 'string' || !p || p.length > 4096) throw new Error('file path must be a non-empty string');
+  const parts = p.split('/');
+  if (parts.some((s) => !s || s === '.' || s === '..' || !SAFE_SEGMENT.test(s))) throw new Error(`unsafe file path: ${JSON.stringify(p)}`);
+  return p;
+}
+
+function assertKeyName(name) {
+  if (typeof name !== 'string' || !KEY_NAME.test(name) || name === 'self') throw new Error(`invalid key name: ${JSON.stringify(name)}`);
+  return name;
+}
+
+/** Parse a streamed NDJSON body line by line (Kubo's progress output). */
+async function* ndjsonStream(body) {
+  if (!body) return;
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      try { yield JSON.parse(line); } catch { /* partial or garbage line */ }
+    }
+  }
+  const rest = (buffer + decoder.decode()).trim();
+  if (rest) {
+    try { yield JSON.parse(rest); } catch { /* ignore */ }
+  }
+}
 
 /** Kubo's unixfs link types (numeric in `ls` output) plus the string forms newer builds emit. */
 function mapLinkType(t) {
@@ -410,6 +450,235 @@ export class KuboRpc {
     const encoded = json ? JSON.stringify(value) : String(value);
     const j = await this.call('config', { args: [key, encoded], query: { json: String(Boolean(json)) } });
     return j?.Value;
+  }
+
+  /* ───────────── hosting (docs/IPFS-HOSTING-IMPLEMENTATION.md §7.2) ───────────── */
+
+  /**
+   * Add a directory tree in one multipart request and pin it. Each file is one part named
+   * `<rootName>/<path>` (percent-encoded); Kubo builds the directories from the paths and its last
+   * NDJSON entry is the root directory. Contents are streamed from the Blobs (use fs.openAsBlob),
+   * never buffered here. Empty directories are not represented.
+   * @param {Array<{ path: string, content: Blob }>} files  relative POSIX paths ('assets/app.js')
+   * @param {{ pin?: boolean, rootName?: string, onProgress?: (bytes: number) => void, signal?: AbortSignal, timeoutMs?: number }} [opts]
+   *   onProgress: bytes read by Kubo so far, summed over all files
+   * @returns {Promise<{ cid: string, size: number }>}
+   */
+  async addDirectory(files, { pin = true, rootName = 'site', onProgress, signal, timeoutMs = ADD_DIRECTORY_TIMEOUT_MS } = {}) {
+    if (!Array.isArray(files) || files.length === 0) throw new Error('addDirectory(): no files to add');
+    if (!SAFE_SEGMENT.test(rootName)) throw new Error('addDirectory(): invalid rootName');
+    const seen = new Set();
+    for (const f of files) {
+      assertRelativePath(f?.path);
+      if (!(f.content instanceof Blob)) throw new Error(`addDirectory(): ${f.path} has no Blob content`);
+      if (seen.has(f.path)) throw new Error(`addDirectory(): duplicate path ${f.path}`);
+      seen.add(f.path);
+    }
+    // Lexical order keeps every directory's entries contiguous, as Kubo's multipart reader expects.
+    const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const form = new FormData();
+    for (const f of sorted) form.append('file', f.content, encodeURIComponent(`${rootName}/${f.path}`));
+    const res = await this.request('add', {
+      query: {
+        recursive: 'true',
+        'cid-version': '1',
+        'raw-leaves': 'true',
+        pin: String(Boolean(pin)),
+        'wrap-with-directory': 'false',
+        progress: String(typeof onProgress === 'function'),
+      },
+      body: form,
+      timeoutMs,
+      signal,
+    });
+    const perFile = new Map();
+    let root = null;
+    let errorText = null;
+    for await (const entry of ndjsonStream(res.body)) {
+      if (typeof entry?.Message === 'string' && entry.Type === 'error') errorText = entry.Message;
+      if (typeof entry?.Name !== 'string') continue;
+      if (entry.Bytes !== undefined && typeof onProgress === 'function') {
+        perFile.set(entry.Name, toNumber(entry.Bytes));
+        let total = 0;
+        for (const v of perFile.values()) total += v;
+        onProgress(total);
+      }
+      if (typeof entry.Hash === 'string' && entry.Name === rootName) root = { cid: entry.Hash, size: toNumber(entry.Size) };
+    }
+    if (errorText) throw new Error(`Kubo add failed: ${errorText}`);
+    if (!root) throw new Error('Kubo add did not report the root directory');
+    return root;
+  }
+
+  /** Create an IPNS key. @returns {Promise<{ name: string, id: string }>} id is the base36 k51… name */
+  async keyGen(name, { type = 'ed25519' } = {}) {
+    const j = await this.call('key/gen', { args: [assertKeyName(name)], query: { type, 'ipns-base': 'base36' } });
+    return { name: j?.Name ?? name, id: j?.Id ?? '' };
+  }
+
+  /** @returns {Promise<Array<{ name: string, id: string }>>} every key, ids in base36 (k51…) */
+  async keyList() {
+    const j = await this.call('key/list', { query: { l: 'true', 'ipns-base': 'base36' } });
+    return (j?.Keys || []).map((k) => ({ name: k.Name, id: k.Id }));
+  }
+
+  /** Delete a key: its ipns:// name can never be updated again. @returns {Promise<string[]>} removed names */
+  async keyRm(name) {
+    const j = await this.call('key/rm', { args: [assertKeyName(name)], query: { 'ipns-base': 'base36' } });
+    return (j?.Keys || []).map((k) => k.Name);
+  }
+
+  /**
+   * Import a private key (the bytes of a Kubo keystore file).
+   * @param {string} name
+   * @param {Uint8Array} bytes  libp2p protobuf-encoded private key
+   * @returns {Promise<{ name: string, id: string }>}
+   */
+  async keyImport(name, bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > 8192) throw new Error('keyImport(): key bytes must be a non-empty Uint8Array');
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), 'key');
+    const j = await this.call('key/import', {
+      args: [assertKeyName(name)],
+      query: { format: 'libp2p-protobuf-cleartext', 'ipns-base': 'base36' },
+      body: form,
+    });
+    return { name: j?.Name ?? name, id: j?.Id ?? '' };
+  }
+
+  /**
+   * Point an IPNS name (key) at a CID.
+   * @param {string} keyName
+   * @param {string} cid
+   * @param {{ lifetime?: string, ttl?: string, allowOffline?: boolean, timeoutMs?: number }} [opts]
+   *   allowOffline: only for a node started with --offline (Kubo refuses to publish there otherwise)
+   * @returns {Promise<{ name: string, value: string }>}
+   */
+  async namePublish(keyName, cid, { lifetime = '48h', ttl = '5m', allowOffline = false, timeoutMs } = {}) {
+    const j = await this.call('name/publish', {
+      args: [`/ipfs/${cid}`],
+      query: {
+        key: assertKeyName(keyName),
+        lifetime,
+        ttl,
+        resolve: 'false',
+        'ipns-base': 'base36',
+        ...(allowOffline ? { 'allow-offline': 'true' } : {}),
+      },
+      timeoutMs: timeoutMs ?? Math.max(this.timeoutMs, 120_000),
+    });
+    return { name: j?.Name ?? '', value: j?.Value ?? '' };
+  }
+
+  /**
+   * Announce a CID (and, recursively, its blocks) to the routing system. Needs an online node with
+   * peers; Kubo answers "cannot provide, no connected peers" otherwise.
+   */
+  async provide(cid, { recursive = true, timeoutMs } = {}) {
+    await this.callNdjson('routing/provide', { args: [cid], query: { recursive: String(Boolean(recursive)) }, timeoutMs: timeoutMs ?? Math.max(this.timeoutMs, 120_000) });
+  }
+
+  /**
+   * Size and block count of a DAG. With offline=true Kubo never fetches missing blocks, so this also
+   * proves the whole DAG is stored locally (it fails otherwise).
+   * @returns {Promise<{ size: number, blocks: number }>}
+   */
+  async dagStat(cid, { offline = false, timeoutMs } = {}) {
+    const j = await this.call('dag/stat', { args: [cid], query: { progress: 'false', ...(offline ? { offline: 'true' } : {}) }, timeoutMs });
+    return { size: toNumber(j?.TotalSize), blocks: toNumber(j?.UniqueBlocks) };
+  }
+
+  /** Stream a DAG as a CAR file. @returns {Promise<Response>} body: application/vnd.ipld.car */
+  dagExport(cid, { signal, timeoutMs = ADD_DIRECTORY_TIMEOUT_MS } = {}) {
+    return this.request('dag/export', { args: [cid], signal, timeoutMs });
+  }
+
+  /**
+   * Import a CAR file and pin its roots (restoring a site on another computer).
+   * @param {Blob} car
+   * @returns {Promise<{ roots: string[] }>}
+   */
+  async dagImport(car, { timeoutMs = ADD_DIRECTORY_TIMEOUT_MS } = {}) {
+    if (!(car instanceof Blob)) throw new Error('dagImport(): car must be a Blob');
+    const form = new FormData();
+    form.append('file', car, 'site.car');
+    const lines = await this.callNdjson('dag/import', { query: { 'pin-roots': 'true' }, body: form, timeoutMs });
+    const failed = lines.find((l) => l?.Root?.PinErrorMsg);
+    if (failed) throw new Error(`Kubo could not pin the CAR's root: ${failed.Root.PinErrorMsg}`);
+    return { roots: lines.map((l) => l?.Root?.Cid?.['/']).filter((c) => typeof c === 'string') };
+  }
+
+  /**
+   * CIDs of every block below a root (not the root itself), each once.
+   * @returns {Promise<string[]>}
+   */
+  async refs(cid, { offline = true, timeoutMs } = {}) {
+    const lines = await this.callNdjson('refs', {
+      args: [cid],
+      query: { recursive: 'true', unique: 'true', ...(offline ? { offline: 'true' } : {}) },
+      timeoutMs: timeoutMs ?? Math.max(this.timeoutMs, 120_000),
+    });
+    const failed = lines.find((l) => l?.Err);
+    if (failed) throw new Error(`Kubo refs failed: ${failed.Err}`);
+    return lines.map((l) => l?.Ref).filter((r) => typeof r === 'string' && r);
+  }
+
+  /** @returns {Promise<string[]>} the node's listen addresses (fails on a node started with --offline) */
+  async swarmAddrsLocal() {
+    const j = await this.call('swarm/addrs/local', { timeoutMs: Math.min(this.timeoutMs, 5000) });
+    return Array.isArray(j?.Strings) ? j.Strings : [];
+  }
+
+  /** False when the daemon runs with --offline (no routing, no swarm), true otherwise. */
+  async isOnline() {
+    try {
+      await this.swarmAddrsLocal();
+      return true;
+    } catch (e) {
+      if (/online mode/i.test(e.kuboMessage || e.message)) return false;
+      throw e;
+    }
+  }
+
+  /** @returns {Promise<{ peers: number, blocksSent: number, dataSent: number, blocksReceived: number, dataReceived: number }>} */
+  async bitswapStat() {
+    const j = await this.call('bitswap/stat', { timeoutMs: Math.min(this.timeoutMs, 5000) });
+    return {
+      peers: Array.isArray(j?.Peers) ? j.Peers.length : 0,
+      blocksSent: toNumber(j?.BlocksSent),
+      dataSent: toNumber(j?.DataSent),
+      blocksReceived: toNumber(j?.BlocksReceived),
+      dataReceived: toNumber(j?.DataReceived),
+    };
+  }
+
+  /**
+   * The reprovider's view (Kubo ≥ 0.39 sweep provider): whether it can reach the DHT, and how many
+   * keys it keeps announcing.
+   * @returns {Promise<{ connectivity: string|null, keys: number|null }>}
+   */
+  async provideStat() {
+    const j = await this.call('provide/stat', { timeoutMs: Math.min(this.timeoutMs, 5000) });
+    const sweep = j?.Sweep;
+    return {
+      connectivity: typeof sweep?.connectivity?.status === 'string' ? sweep.connectivity.status : null,
+      keys: Number.isFinite(sweep?.schedule?.keys) ? sweep.schedule.keys : null,
+    };
+  }
+
+  /**
+   * The newest IPNS record the routing system has for a name, decoded.
+   * @returns {Promise<{ value: string, sequence: number, validity: string|null }>}
+   */
+  async ipnsRecord(name, { timeoutMs = 10_000 } = {}) {
+    const lines = await this.callNdjson('routing/get', { args: [`/ipns/${name}`], timeoutMs });
+    const extra = lines.map((l) => l?.Extra).filter((x) => typeof x === 'string' && x).at(-1);
+    if (!extra) throw new Error(`No IPNS record found for ${name}`);
+    const form = new FormData();
+    form.append('file', new Blob([Buffer.from(extra, 'base64')], { type: 'application/octet-stream' }), 'record');
+    const j = await this.call('name/inspect', { body: form, timeoutMs });
+    const entry = j?.Entry || {};
+    return { value: String(entry.Value ?? ''), sequence: toNumber(entry.Sequence), validity: typeof entry.Validity === 'string' ? entry.Validity : null };
   }
 
   /** Ask the daemon to shut down gracefully. */

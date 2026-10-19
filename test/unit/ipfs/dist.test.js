@@ -21,6 +21,9 @@ import {
   mirrorAssetUrls,
   parseGithubLatestTag,
   FALLBACK_KUBO_VERSION,
+  PINNED_KUBO_VERSION,
+  PINNED_KUBO_SHA512,
+  pinnedSha512,
 } from '../../../src/main/ipfs/dist.js';
 
 /** Only the mirror under test, so a fake fetch never sees the real dist/GitHub URLs. */
@@ -416,4 +419,39 @@ test('downloadKubo: archive without the binary fails clearly', async (t) => {
     downloadKubo({ platform: 'darwin', arch: 'arm64', version: 'v9.9.9', destDir: path.join(work, 'out'), fetchImpl: s.fetchImpl, mirrors: ONLY('https://dist.example/kubo'), requireChecksum: false }),
     /did not contain kubo\/ipfs/,
   );
+});
+
+test('pinned Kubo: one embedded SHA-512 per platform archive of the pinned version', () => {
+  assert.equal(FALLBACK_KUBO_VERSION, PINNED_KUBO_VERSION);
+  const combos = [['linux', 'x64'], ['linux', 'arm64'], ['darwin', 'x64'], ['darwin', 'arm64'], ['win32', 'x64'], ['win32', 'arm64']];
+  for (const [platform, arch] of combos) {
+    const digest = pinnedSha512({ platform, arch });
+    assert.match(digest, /^[0-9a-f]{128}$/, `${platform}-${arch}`);
+    assert.equal(digest, PINNED_KUBO_SHA512[resolveKuboAsset({ platform, arch, version: PINNED_KUBO_VERSION }).archiveName]);
+  }
+  assert.equal(Object.keys(PINNED_KUBO_SHA512).length, combos.length);
+  assert.ok(Object.keys(PINNED_KUBO_SHA512).every((name) => name.includes(`_${PINNED_KUBO_VERSION}_`)));
+  assert.equal(pinnedSha512({ platform: 'linux', arch: 'x64', version: 'v0.44.0' }), null, 'other versions have no embedded digest');
+});
+
+test('downloadKubo with expectedSha512: the embedded digest wins over the mirror', async (t) => {
+  const work = await fsp.mkdtemp(path.join(os.tmpdir(), 'bucks-dist-pinned-'));
+  t.after(() => fsp.rm(work, { recursive: true, force: true }));
+  const { bytes, sha } = await buildTarGz(work, '#!/bin/sh\necho pinned\n');
+  const name = 'kubo_v9.9.9_linux-amd64.tar.gz';
+  const base = 'https://dist.example/kubo/v9.9.9';
+  const fetchFor = (routes) => async (url) => {
+    const body = routes[url];
+    if (body === undefined) return new Response('nope', { status: 404 });
+    return new Response(body);
+  };
+  const opts = (dir, routes, expectedSha512) => ({ platform: 'linux', arch: 'x64', version: 'v9.9.9', destDir: path.join(work, dir), fetchImpl: fetchFor(routes), mirrors: ONLY('https://dist.example/kubo'), expectedSha512 });
+
+  // the mirror has no .sha512 at all: the embedded digest is enough
+  assert.ok(fs.existsSync(await downloadKubo(opts('a', { [`${base}/${name}`]: bytes }, sha))));
+  // the mirror lists another digest: refused before the download, even though the archive is fine
+  await assert.rejects(downloadKubo(opts('b', { [`${base}/${name}`]: bytes, [`${base}/${name}.sha512`]: `${'1'.repeat(128)}  ${name}\n` }, sha)), /different SHA-512 than the one built into Bucks/);
+  // the archive does not match the embedded digest
+  await assert.rejects(downloadKubo(opts('c', { [`${base}/${name}`]: bytes }, '2'.repeat(128))), /SHA-512 mismatch/);
+  await assert.rejects(downloadKubo(opts('d', {}, 'not-hex')), /expectedSha512 must be/);
 });

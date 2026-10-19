@@ -11,6 +11,8 @@ import {
   splitP2pSuffix,
   normalizePeeringPeers,
   ipfsSettingsNeedRestart,
+  storageMaxValue,
+  HOSTING_CONN_MGR,
 } from '../../../src/main/ipfs/kubo.js';
 
 const PEER_A = '12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN';
@@ -45,9 +47,8 @@ test('applyBucksConfig pins API/Gateway to loopback and moves every swarm listen
   assert.equal(out.Addresses.API, '/ip4/127.0.0.1/tcp/41001');
   assert.equal(out.Addresses.Gateway, '/ip4/127.0.0.1/tcp/41002');
   assert.deepEqual(out.Addresses.Swarm, ['/ip4/0.0.0.0/tcp/41003', '/ip6/::/tcp/41003', '/ip4/0.0.0.0/udp/41003/quic-v1', '/ip4/0.0.0.0/udp/41003/quic-v1/webtransport', '/ip6/::/udp/41003/webrtc-direct']);
-  // everything else is left alone, and the input is not mutated
-  assert.deepEqual(out.Swarm, initConfig.Swarm);
-  assert.deepEqual(out.Datastore, initConfig.Datastore);
+  // the input is not mutated
+  assert.deepEqual(initConfig.Swarm, { ConnMgr: { LowWater: 20, HighWater: 40 } });
   assert.equal(initConfig.Addresses.API, '/ip4/127.0.0.1/tcp/5001');
   // idempotent
   assert.deepEqual(applyBucksConfig(out, { apiPort: 41001, gatewayPort: 41002, swarmPort: 41003 }), out);
@@ -168,4 +169,43 @@ test('ipfsSettingsNeedRestart: only mode and (in external mode) the API URL rest
   assert.equal(ipfsSettingsNeedRestart(ext, { ...ext, peers: [{ peerId: PEER_B }] }), false);
   assert.equal(ipfsSettingsNeedRestart(undefined, { mode: 'embedded' }), false);
   assert.equal(ipfsSettingsNeedRestart(ext, base), true);
+});
+
+test('applyBucksConfig sets the hosting keys and keeps a lowpower repo on autoclient', () => {
+  // what `ipfs init --profile=lowpower` (Kubo 0.43.1) writes for the keys we touch
+  const lowpower = {
+    Routing: { Type: 'autoclient', DelegatedRouters: ['auto'] },
+    Swarm: { ConnMgr: { Type: 'basic', LowWater: 20, HighWater: 40, GracePeriod: '1m0s' }, RelayService: { Enabled: false } },
+    AutoNAT: { ServiceMode: 'disabled' },
+    Provide: { DHT: {} },
+    Datastore: { StorageMax: '10GB', GCPeriod: '1h' },
+    Gateway: { NoFetch: true, HTTPHeaders: {} },
+    Ipns: { RecordLifetime: '', RepublishPeriod: '' },
+  };
+  const out = applyBucksConfig(lowpower, { apiPort: 1, gatewayPort: 2, storageMaxGB: 25 });
+  assert.equal(out.Routing.Type, 'autoclient', 'an existing repo keeps its profile');
+  assert.deepEqual(out.Routing.DelegatedRouters, ['auto']);
+  assert.equal(out.Routing.AcceleratedDHTClient, false);
+  assert.deepEqual(out.Provide, { DHT: {}, Strategy: 'pinned' });
+  assert.deepEqual(out.Swarm.ConnMgr, { Type: 'basic', LowWater: 50, HighWater: 150, GracePeriod: '1m0s' });
+  assert.deepEqual(out.Swarm.RelayService, { Enabled: false }, 'relay settings are Kubo\'s');
+  assert.deepEqual(out.AutoNAT, { ServiceMode: 'disabled' });
+  assert.deepEqual(out.Datastore, { StorageMax: '25GB', GCPeriod: '1h' });
+  assert.deepEqual(out.Gateway, { NoFetch: false, HTTPHeaders: {} });
+  assert.deepEqual(out.Ipns, lowpower.Ipns);
+  assert.deepEqual(applyBucksConfig(out, { apiPort: 1, gatewayPort: 2, storageMaxGB: 25 }), out, 'idempotent');
+  assert.deepEqual(HOSTING_CONN_MGR, { LowWater: 50, HighWater: 150 });
+
+  // a repo from the default profile (no Routing.Type) gets `auto`
+  const fresh = applyBucksConfig({ Routing: { DelegatedRouters: ['auto'] } }, { apiPort: 1, gatewayPort: 2 });
+  assert.equal(fresh.Routing.Type, 'auto');
+  assert.equal(fresh.Datastore.StorageMax, '10GB');
+});
+
+test('storageMaxValue: whole gigabytes, 10 GB when unset or invalid', () => {
+  assert.equal(storageMaxValue(10), '10GB');
+  assert.equal(storageMaxValue('64'), '64GB');
+  assert.equal(storageMaxValue(2.7), '2GB');
+  for (const bad of [undefined, null, 0, -5, 'lots', Number.NaN]) assert.equal(storageMaxValue(bad), '10GB');
+  assert.equal(storageMaxValue(1e9), '100000GB');
 });
