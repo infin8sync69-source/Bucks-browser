@@ -45,7 +45,7 @@
       display: flex;
       align-items: center;
       flex-shrink: 0;
-      color: #a978ff;
+      color: #ffffff;
       opacity: 0.85;
     }
 
@@ -71,8 +71,8 @@
       transition: background 0.3s, box-shadow 0.3s;
     }
     #status-dot.thinking {
-      background: #a978ff;
-      box-shadow: 0 0 0 3px rgba(169,120,255,0.2);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
       animation: pulse-dot 1.2s ease-in-out infinite;
     }
     #status-dot.done { background: #2ed573; box-shadow: 0 0 0 3px rgba(46,213,115,0.15); }
@@ -113,7 +113,7 @@
     #response-text.streaming::after {
       content: '▋';
       display: inline-block;
-      color: #a978ff;
+      color: #ffffff;
       animation: blink 0.9s step-end infinite;
       font-size: 12px;
       vertical-align: baseline;
@@ -148,11 +148,11 @@
     }
     .chip:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); color: #fff; }
     .chip.primary {
-      background: rgba(169,120,255,0.15);
-      border-color: rgba(169,120,255,0.35);
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.35);
       color: #c8a4ff;
     }
-    .chip.primary:hover { background: rgba(169,120,255,0.25); border-color: rgba(169,120,255,0.55); }
+    .chip.primary:hover { background: rgba(255, 255, 255, 0.25); border-color: rgba(255, 255, 255, 0.55); }
     .chip svg { flex-shrink: 0; }
 
     /* ── Error state ── */

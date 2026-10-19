@@ -9,8 +9,8 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Instrument Sans', system-ui, sans-serif;
-    background: radial-gradient(58% 50% at 18% 8%, rgba(123,63,228,0.18), transparent 62%),
-                radial-gradient(45% 45% at 86% 70%, rgba(123,63,228,0.12), transparent 65%),
+    background: radial-gradient(58% 50% at 18% 8%, rgba(255, 255, 255, 0.18), transparent 62%),
+                radial-gradient(45% 45% at 86% 70%, rgba(255, 255, 255, 0.12), transparent 65%),
                 linear-gradient(165deg, #1f1f23 0%, #151518 55%, #0d0d10 100%);
     min-height: 100vh;
     color: #fff;
@@ -40,7 +40,7 @@
     padding: 9px 16px;
     border-radius: 12px;
     border: none;
-    background: linear-gradient(135deg, #7b3fe4, #a978ff);
+    background: linear-gradient(135deg, #35353d, #1b1b21);
     color: #fff;
     font-family: inherit;
     font-size: 13.5px;
@@ -198,7 +198,7 @@
     cursor: pointer;
   }
   .btn-cancel { background: rgba(255,255,255,0.1); color: #fff; }
-  .btn-save { background: linear-gradient(135deg, #7b3fe4, #a978ff); color: #fff; }
+  .btn-save { background: linear-gradient(135deg, #35353d, #1b1b21); color: #fff; }
   .empty-state {
     grid-column: 1/-1;
     text-align: center;
@@ -239,7 +239,7 @@
 
 <script>
   const COLORS = [
-    { bg: 'linear-gradient(135deg,#7b3fe4,#a978ff)', bar: '#7b3fe4' },
+    { bg: 'linear-gradient(135deg, #35353d, #1b1b21)', bar: '#ffffff' },
     { bg: 'linear-gradient(135deg,#f7931a,#ffb347)', bar: '#f7931a' },
     { bg: 'linear-gradient(135deg,#52b6ff,#2d7dff)', bar: '#52b6ff' },
     { bg: 'linear-gradient(135deg,#ff7a96,#ff2d6e)', bar: '#ff7a96' },

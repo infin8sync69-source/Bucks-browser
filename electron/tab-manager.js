@@ -147,9 +147,9 @@ function _errorPageURL(code, desc, url) {
     h1{font-size:20px;margin:0 0 8px;font-weight:650}
     p{font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.62);margin:0 0 6px;word-break:break-all}
     .url{font-size:12px;color:rgba(255,255,255,.4)}
-    button{margin-top:20px;padding:10px 26px;border-radius:99px;border:1px solid rgba(123,63,228,.55);
-           background:rgba(123,63,228,.18);color:#c9a6ff;font-size:13.5px;font-weight:600;cursor:pointer}
-    button:hover{background:rgba(123,63,228,.32)}
+    button{margin-top:20px;padding:10px 26px;border-radius:99px;border:1px solid rgba(255, 255, 255, 0.55);
+           background:rgba(255, 255, 255, 0.18);color:#c9a6ff;font-size:13.5px;font-weight:600;cursor:pointer}
+    button:hover{background:rgba(255, 255, 255, 0.32)}
   </style></head><body><div class="card">
     <div class="icon">${offline ? '📡' : dns ? '🧭' : '⚠️'}</div>
     <h1>${esc(heading)}</h1>
@@ -166,13 +166,31 @@ function _get(tabId) {
   return rec;
 }
 
+/**
+ * Release every WebContentsView owned by a window.
+ *
+ * Call this on window close AND on shell reload: the renderer's view registry
+ * (tab-view.js `instances`) is rebuilt from scratch when index.html reloads,
+ * but these native views survive it. An orphan stays attached to the window's
+ * contentView and keeps painting ON TOP of the rebuilt UI — which looks like
+ * "every new tab shows the previous page", because the page you are seeing
+ * belongs to no tab at all.
+ *
+ * removeChildView matters as much as close(): a closed webContents whose view
+ * is still a child leaves a dead rectangle over the shell.
+ */
 function destroyTabsForWindow(winId) {
+  const win = BrowserWindow.fromId(winId);
+  let n = 0;
   for (const [tabId, rec] of tabsById) {
-    if (rec.winId === winId) {
-      try { rec.view.webContents.close(); } catch (_) {}
-      tabsById.delete(tabId);
-    }
+    if (rec.winId !== winId) continue;
+    try { if (win && !win.isDestroyed()) win.contentView.removeChildView(rec.view); } catch (_) {}
+    try { rec.view.webContents.close(); } catch (_) {}
+    tabsById.delete(tabId);
+    n++;
   }
+  if (n) console.log(`[TabManager] Released ${n} view(s) for window ${winId}`);
+  return n;
 }
 
 function setupTabIPC() {

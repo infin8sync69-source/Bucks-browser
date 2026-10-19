@@ -13,8 +13,8 @@
       --border: rgba(255, 255, 255, 0.08);
       --text: #ffffff;
       --dim: rgba(255, 255, 255, 0.45);
-      --accent: #a978ff;
-      --accent-glow: rgba(169, 120, 255, 0.15);
+      --accent: var(--accent);
+      --accent-glow: var(--accent-soft);
       --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --font-mono: "JetBrains Mono", Menlo, Monaco, monospace;
     }
@@ -93,8 +93,8 @@
       transition: all 0.25s ease;
     }
     select:focus, textarea:focus, input:focus {
-      border-color: rgba(169, 120, 255, 0.4);
-      box-shadow: 0 0 10px rgba(169, 120, 255, 0.15);
+      border-color: var(--accent-ring);
+      box-shadow: 0 0 10px var(--accent-soft);
     }
     textarea {
       resize: none;
@@ -133,15 +133,15 @@
     }
     button.btn.secondary:hover {
       background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(169, 120, 255, 0.3);
+      border-color: var(--accent-ring);
     }
 
     /* Live Output / Publication Box */
     .status-panel {
       padding: 16px;
       border-radius: 14px;
-      background: rgba(169, 120, 255, 0.04);
-      border: 1px solid rgba(169, 120, 255, 0.12);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-soft);
       display: none;
       flex-direction: column;
       gap: 12px;
@@ -281,7 +281,7 @@
     .spinner {
       width: 40px;
       height: 40px;
-      border: 3px solid rgba(169, 120, 255, 0.15);
+      border: 3px solid var(--accent-soft);
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 1s linear infinite;
@@ -298,7 +298,7 @@
     <!-- LEFT SIDEBAR -->
     <div class="sidebar">
       <div class="header">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a978ff" stroke-width="2.2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
         <h1>DWeb Creator Studio</h1>
       </div>
 
@@ -329,7 +329,7 @@
           <label for="siteNameInput">Website Name / Folder Name</label>
           <input type="text" id="siteNameInput" value="cosmic-portfolio">
         </div>
-        <button id="btnPublish" class="btn" style="background: linear-gradient(135deg, #a978ff 0%, #7b3fe4 100%); color:#fff;">
+        <button id="btnPublish" class="btn" style="background: linear-gradient(135deg, var(--accent) 0%, var(--accent) 100%); color:#fff;">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
           Publish to IPFS
         </button>

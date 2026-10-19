@@ -25,6 +25,7 @@ const SOUL_ADVERTISE_INTERVAL_MS = 30_000; // 30 seconds
 
 let _ownSoul = null;
 let _advertiseTimer = null;
+let _pinAttemptedForSoul = null;
 
 // ── HTTP helper ────────────────────────────────────────────────────────────
 
@@ -79,13 +80,16 @@ async function fetchAndAdvertiseSoul() {
     _ownSoul = soul;
 
     // Pin to IPFS if no CID yet
-    if (!soul.frozenMemoryCid || soul.frozenMemoryCid === "") {
+    // A failed CID write-back used to add the same manifest every 30 seconds.
+    // One attempt per soul identity per app session is enough.
+    if ((!soul.frozenMemoryCid || soul.frozenMemoryCid === "") && _pinAttemptedForSoul !== soul.soulId) {
+      _pinAttemptedForSoul = soul.soulId;
       const cid = await pinSoul(soul);
       if (cid) {
         // Tell agent server about the CID so it can update the soul
-        await agentPost("/api/v1/soul/set_ipfs_cid", { cid });
-        _ownSoul.frozenMemoryCid = cid;
-        console.log(`[SoulBridge] Frozen memory pinned: ${cid}`);
+        const updated = await agentPost("/api/v1/soul/set_ipfs_cid", { cid });
+        _ownSoul = updated.soul || { ..._ownSoul, frozenMemoryCid: cid };
+        console.log(`[SoulBridge] Frozen memory pinned once: ${cid}`);
       }
     }
 

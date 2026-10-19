@@ -148,7 +148,7 @@
         cursor: pointer; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.04); color: rgba(226,232,244,0.65);
         transition: all 0.15s ease; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); padding: 0; }
       .em-lrow:hover { background: rgba(255,255,255,0.12); color: #fff; border-color: rgba(255,255,255,0.15); }
-      .em-lrow.sel, .em-lrow.on { background: rgba(123,63,228,0.22) !important; color: #a978ff !important; border-color: rgba(123,63,228,0.45) !important; box-shadow: 0 0 12px rgba(123,63,228,0.25); }
+      .em-lrow.sel, .em-lrow.on { background: rgba(255, 255, 255, 0.22) !important; color: #ffffff !important; border-color: rgba(255, 255, 255, 0.45) !important; box-shadow: 0 0 12px rgba(255, 255, 255, 0.25); }
 
       /* ── directions panel ── */
       .em-dir { position: absolute; top: 14px; right: 66px; z-index: 1200; width: 300px;
@@ -171,7 +171,7 @@
       .em-field:focus-within { border-color: rgba(255,255,255,0.22); }
       .em-field .em-end { width: 8px; height: 8px; border-radius: 50%; flex: none; }
       .em-field .em-end.a { background: rgba(255,255,255,0.9); }
-      .em-field .em-end.b { background: #8b5cf6; }
+      .em-field .em-end.b { background: #ffffff; }
       .em-field input { flex: 1; background: transparent; border: none; outline: none; color: #eef1f9;
         font-size: 12.5px; padding: 9px 0; font-family: inherit; min-width: 0; }
       .em-field input::placeholder { color: rgba(200,208,226,0.35); }
@@ -243,7 +243,7 @@
       .em-marker .em-pin { width: 14px; height: 14px; border-radius: 50%;
         background: #fff; border: 2px solid rgba(11,14,22,0.9);
         box-shadow: 0 3px 10px rgba(0,0,0,0.5); }
-      .em-marker.em-b .em-pin { background: #8b5cf6; border-color: rgba(255,255,255,0.9); }
+      .em-marker.em-b .em-pin { background: #ffffff; border-color: rgba(255,255,255,0.9); }
       .em-marker .em-pulse { position: absolute; inset: -6px; border-radius: 50%;
         border: 1.5px solid rgba(255,255,255,0.5); animation: em-pulse 1.6s ease-out infinite; }
       @keyframes em-pulse { from { transform: scale(0.55); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
@@ -775,7 +775,7 @@
     const g = L.layerGroup().addTo(map);
     if (selected) {
       g.addLayer(L.polyline(coords, { color: '#0b0e16', weight: 8, opacity: 0.8 }));
-      g.addLayer(L.polyline(coords, { color: '#8b5cf6', weight: 4.5, opacity: 0.95 }));
+      g.addLayer(L.polyline(coords, { color: '#ffffff', weight: 4.5, opacity: 0.95 }));
     } else {
       const alt = L.polyline(coords, { color: '#7b8394', weight: 4.5, opacity: 0.5, dashArray: '1 8' });
       alt.on('click', () => { route.selected = idx; renderRoutes(); });
@@ -823,7 +823,7 @@
       d.addEventListener('click', () => map.flyTo(loc, 16, { duration: 0.8 }));
       d.addEventListener('mouseenter', () => {
         if (stepDot) map.removeLayer(stepDot);
-        stepDot = L.circleMarker(loc, { radius: 8, color: '#fff', weight: 2, fillColor: '#8b5cf6', fillOpacity: 0.8 }).addTo(map);
+        stepDot = L.circleMarker(loc, { radius: 8, color: '#fff', weight: 2, fillColor: '#ffffff', fillOpacity: 0.8 }).addTo(map);
       });
       d.addEventListener('mouseleave', () => { if (stepDot) { map.removeLayer(stepDot); stepDot = null; } });
       els.steps.appendChild(d);

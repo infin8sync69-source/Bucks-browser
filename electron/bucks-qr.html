@@ -11,8 +11,8 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Instrument Sans', system-ui, sans-serif;
-    background: radial-gradient(58% 50% at 18% 8%, rgba(123,63,228,0.18), transparent 62%),
-                radial-gradient(45% 45% at 86% 70%, rgba(123,63,228,0.12), transparent 65%),
+    background: radial-gradient(58% 50% at 18% 8%, rgba(255, 255, 255, 0.18), transparent 62%),
+                radial-gradient(45% 45% at 86% 70%, rgba(255, 255, 255, 0.12), transparent 65%),
                 linear-gradient(165deg, #1f1f23 0%, #151518 55%, #0d0d10 100%);
     min-height: 100vh;
     color: #fff;
@@ -56,9 +56,9 @@
     transition: all 0.15s;
   }
   .type-btn.active {
-    background: rgba(123,63,228,0.3);
-    border-color: rgba(169,120,255,0.4);
-    color: #a978ff;
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
+    color: #ffffff;
   }
   .field-label {
     font-size: 11px;
@@ -81,7 +81,7 @@
     resize: none;
     transition: border-color 0.15s;
   }
-  textarea:focus, input:focus { border-color: rgba(169,120,255,0.5); }
+  textarea:focus, input:focus { border-color: rgba(255, 255, 255, 0.5); }
   textarea { min-height: 80px; line-height: 1.5; }
   .fields { display: flex; flex-direction: column; gap: 10px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -89,7 +89,7 @@
     padding: 13px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, #7b3fe4, #a978ff);
+    background: linear-gradient(135deg, #35353d, #1b1b21);
     color: #fff;
     font-family: inherit;
     font-size: 15px;
@@ -153,7 +153,7 @@
   }
   .size-row { display: flex; align-items: center; gap: 10px; }
   .size-row label { font-size: 12px; color: rgba(255,255,255,0.5); flex: 1; }
-  .size-row input[type="range"] { flex: 1; accent-color: #a978ff; }
+  .size-row input[type="range"] { flex: 1; accent-color: #ffffff; }
   .size-row span { font-size: 12px; min-width: 36px; text-align: right; color: rgba(255,255,255,0.6); }
 </style>
 </head>

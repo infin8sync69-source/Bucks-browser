@@ -52,6 +52,22 @@ let discovered = new Map();   // soulId -> { soul, peerId, lastSeenTs } (heard, 
 let soulPresence = new Map(); // soulId -> { peerId, lastSeenTs } (ALL souls heard, admitted or not)
 let peerIdToSoulId = new Map(); // peerId -> soulId (reverse of soulPresence, for feed-post attribution)
 
+// ── Peer key registry ──────────────────────────────────────────────────────────
+// Maps soulId -> Ed25519 public key hex for signature verification.
+// Since soulId IS the hex-encoded raw Ed25519 public key (see soul/generator.py),
+// keys are registered when we see a soul heartbeat or process an admission record.
+// This registry enforces fail-closed behaviour: a peer whose key we have never
+// seen cannot have their messages verified as valid.
+const peerKeys = new Map(); // soulId -> Ed25519 public key hex
+
+function registerPeerKey(soulId, publicKey) {
+  if (soulId && publicKey) peerKeys.set(soulId, publicKey);
+}
+
+function getPeerKey(soulId) {
+  return peerKeys.get(soulId) || null;
+}
+
 function canonicalAdmissionPayload(newMemberSoulId, admittedBySoulId, cidn, timestamp) {
   return ["admission", newMemberSoulId, admittedBySoulId, cidn, String(timestamp)].join("|");
 }
@@ -108,6 +124,9 @@ function onSoulSeen(soul) {
   const peerId = soul.nodeId || null;
   soulPresence.set(soul.soulId, { peerId, lastSeenTs: Date.now() });
   if (peerId) peerIdToSoulId.set(peerId, soul.soulId);
+  // soulId IS the hex-encoded Ed25519 public key (soul/generator.py: _soul_id()).
+  // Register it so verifyEd25519 call sites can look it up by soulId.
+  registerPeerKey(soul.soulId, soul.soulId);
   if (!members.has(soul.soulId)) {
     discovered.set(soul.soulId, { soul, peerId, lastSeenTs: Date.now() });
   }
@@ -154,6 +173,8 @@ async function admitMember(targetSoulId, { displayName } = {}) {
   };
 
   members.set(targetSoulId, record);
+  // Register the admitted peer's public key (soulId == pubkeyHex per soul/generator.py)
+  registerPeerKey(targetSoulId, targetSoulId);
   discovered.delete(targetSoulId);
   persist();
 
@@ -200,7 +221,14 @@ async function handleMembershipMessage(msg) {
     if (r.cidn !== CLUSTER_CIDN) return;
 
     const payload = canonicalAdmissionPayload(r.soulId, r.admittedBySoulId, r.cidn, r.timestamp);
-    if (!verifyEd25519(r.admittedBySoulId, payload, r.signature)) {
+    // [Trust] Fail-closed: reject admission if we have never seen this admitter's
+    // soul heartbeat. getPeerKey returns null for unknown peers.
+    const admitterPubKey = getPeerKey(r.admittedBySoulId);
+    if (!admitterPubKey) {
+      console.warn(`[Trust] No public key registered for admitter ${r.admittedBySoulId.slice(0, 16)}... — rejecting admission (fail-closed)`);
+      return;
+    }
+    if (!verifyEd25519(admitterPubKey, payload, r.signature)) {
       console.warn(`[Cluster] Dropped admission with bad signature for ${r.soulId.slice(0, 16)}...`);
       return;
     }
@@ -320,5 +348,7 @@ module.exports = {
   getMyIdentity,
   isMember,
   getSoulIdForPeer,
+  registerPeerKey,
+  getPeerKey,
   MEMBERSHIP_TOPIC,
 };

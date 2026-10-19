@@ -34,6 +34,7 @@ const fs = require("fs");
 const http = require("http");
 const { app } = require("electron");
 const { verifyEd25519 } = require("./crypto-utils");
+const { getPeerKey }    = require("./cluster-membership");
 
 const CLUSTER_SECRET =
   process.env.BUCKS_CLUSTER_SECRET || "BUCKS_DEFAULT_CLUSTER";
@@ -207,7 +208,13 @@ async function handleLinkMessage(msg) {
     }
 
     const payload = canonicalLinkPayload(r.fromSoulId, r.toSoulId, r.timestamp);
-    if (!verifyEd25519(r.fromSoulId, payload, r.signature)) {
+    // [Trust] Fail-closed: reject if we have no registered public key for the sender.
+    const linkSenderPubKey = getPeerKey(r.fromSoulId);
+    if (!linkSenderPubKey) {
+      console.warn(`[Trust] No public key registered for ${r.fromSoulId.slice(0, 16)}... — rejecting device link (fail-closed)`);
+      return;
+    }
+    if (!verifyEd25519(linkSenderPubKey, payload, r.signature)) {
       console.warn(`[DeviceSync] Dropped link with bad signature: ${r.fromSoulId.slice(0, 16)}... -> ${r.toSoulId.slice(0, 16)}...`);
       return;
     }
@@ -306,7 +313,13 @@ async function handleStateMessage(msg) {
     if (!mySoul || !isLinkedDevice(a.soulId, mySoul.soulId)) return; // only linked devices' state is trusted
 
     const payload = canonicalStatePayload(a.soulId, a.cid, a.timestamp);
-    if (!verifyEd25519(a.soulId, payload, a.signature)) {
+    // [Trust] Fail-closed: reject if we have no registered public key for the sender.
+    const stateSenderPubKey = getPeerKey(a.soulId);
+    if (!stateSenderPubKey) {
+      console.warn(`[Trust] No public key registered for ${a.soulId.slice(0, 16)}... — rejecting state announcement (fail-closed)`);
+      return;
+    }
+    if (!verifyEd25519(stateSenderPubKey, payload, a.signature)) {
       console.warn(`[DeviceSync] Dropped state announcement with bad signature from ${a.soulId.slice(0, 16)}...`);
       return;
     }

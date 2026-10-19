@@ -53,11 +53,22 @@ const bucksAPI = {
   getBlockedCount: () => ipcRenderer.invoke('get-blocked-count'),
   toggleAdBlock: (enabled) => ipcRenderer.send('toggle-adblock', enabled),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
-  onWalletAccessRequest: (callback) => ipcRenderer.on('wallet-access-request', (_e, data) => callback(data)),
-  respondToWalletAccess: (requestId, approved) => ipcRenderer.send('wallet-access-response', { requestId, approved }),
+  // V2: deferred to next release — wallet access approval UI bridge
+  // onWalletAccessRequest: (callback) => ipcRenderer.on('wallet-access-request', (_e, data) => callback(data)),
+  // respondToWalletAccess: (requestId, approved) => ipcRenderer.send('wallet-access-response', { requestId, approved }),
   onDownloadEvent: (callback) => ipcRenderer.on('download-event', (_e, data) => callback(data)),
   openDownloadsFolder: () => ipcRenderer.send('open-downloads-folder'),
   showDownloadInFolder: (savePath) => ipcRenderer.send('show-download-in-folder', savePath),
+  
+  // Advanced Agentic Context Menu Events
+  onAskAgentContext: (callback) => ipcRenderer.on('ask-agent-context', (_e, data) => callback(data)),
+  onSaveAgentResults: (callback) => ipcRenderer.on('save-agent-results', (_e, data) => callback(data)),
+  onNewWindowContext: (callback) => ipcRenderer.on('new-window', (_e, data) => callback(data)),
+  onOpenInPaneContext: (callback) => ipcRenderer.on('open-in-pane', (_e, data) => callback(data)),
+
+  /* ─── Profile / Identity ─── */
+  profileGet: () => ipcRenderer.invoke('profile-get'),
+  profileUpdate: (updates) => ipcRenderer.invoke('profile-update', updates),
 
   /* ─── Core browser ─── */
   openPrivateWindow: () => ipcRenderer.send('open-private-window'),
@@ -67,9 +78,9 @@ const bucksAPI = {
   isDefaultBrowser: () => ipcRenderer.invoke('is-default-browser'),
   listExtensions: () => ipcRenderer.invoke('extensions:list'),
 
-  /* ─── Wallet RPC (proxied through main process) ─── */
-  walletRPC: (params) => ipcRenderer.invoke('wallet-rpc', params),
-  walletReset: () => ipcRenderer.invoke('wallet-reset'),
+  /* ─── Wallet RPC (proxied through main process) — V2: deferred to next release ─── */
+  // walletRPC: (params) => ipcRenderer.invoke('wallet-rpc', params),
+  // walletReset: () => ipcRenderer.invoke('wallet-reset'),
 
   /* ─── IPFS Social Network (Local Helia) ─── */
   ipfsInfo: () => ipcRenderer.invoke('ipfs-info'),
@@ -144,6 +155,72 @@ const bucksAPI = {
   /* ─── Local model discovery (Soul Engine IPC fallback) ─── */
   getAvailableModels: () => ipcRenderer.invoke('get-available-models'),
   downloadModel: (url, filename) => ipcRenderer.invoke('download-model', { url, filename }),
+
+  /* ─── Soul Engine QNN Swarm ───────────────────────────────────────────────
+   * Three channels form the complete query + RL feedback loop:
+   *   soulQuery      — send a query; returns response + citations + quality
+   *   soulStatus     — get engine health (local/NIM/offline) for the status bar
+   *   soulFeedback   — record thumbs-up/down to soul_interactions.jsonl
+   * ─────────────────────────────────────────────────────────────────────── */
+  soulQuery: (query, sessionId) =>
+    ipcRenderer.invoke('soul-query', { query, sessionId: sessionId || null }),
+
+  soulStatus: () =>
+    ipcRenderer.invoke('soul-status'),
+
+  soulFeedback: (queryId, rating, correction) =>
+    ipcRenderer.invoke('soul-log-feedback', { queryId, rating, correction: correction || null }),
+
+  /* ─── Agentic Interface (AG-UI) ────────────────────────────────────────────
+   * agent-interface.js: race mode QNN+NIM, 0.65 quality gate, AG-UI events.
+   * ──────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Submit a query to the AgentInterface race engine.
+   * QNN and NIM run in parallel; QNN wins if quality ≥ 0.65, else NIM overrides.
+   * Emits 'agent-event' push events throughout lifecycle.
+   */
+  agentSubmit: (query, sessionId) =>
+    ipcRenderer.invoke('agent-submit', { query, sessionId: sessionId || null }),
+
+  /** Return rolling quality history (last n entries) for sparklines. */
+  qualityHistory: (n) =>
+    ipcRenderer.invoke('quality-history', { n: n || 20 }),
+
+  /** Return session-level metrics: wins, avg quality, avg latency. */
+  agentMetrics: () =>
+    ipcRenderer.invoke('agent-metrics'),
+
+  /** Run soul_benchmark.py (20 fixed queries). Returns JSON summary. */
+  benchmarkRun: (nimKey) =>
+    ipcRenderer.invoke('benchmark-run', { nimKey: nimKey || '' }),
+
+  /** Fast ephemeral look-up for selection/URL overlays (ephemeral-ui.js). */
+  ephemeralContext: (text, type) =>
+    ipcRenderer.invoke('ephemeral-context', { text, type: type || 'selection' }),
+
+  /**
+   * Subscribe to AG-UI push events from agent-interface.js.
+   * Events: task.start, task.thinking, task.tool_call, task.result,
+   *         task.quality_score, task.nim_override, task.qnn_improving,
+   *         task.error, task.complete, nim.stream_start/chunk/end
+   * @param {function} cb - Receives event object { type, taskId, ... }
+   * @returns {function} Unsubscribe function
+   */
+  onAgentEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('agent-event', handler);
+    return () => ipcRenderer.removeListener('agent-event', handler);
+  },
+
+  /* ─── App Store API ─── */
+  getApps:           () => ipcRenderer.invoke('app-store-get-apps'),
+  launchWebApp:      (appId) => ipcRenderer.invoke('app-store-launch-web', { appId }),
+  installApp:        (appId) => ipcRenderer.invoke('app-store-install', { appId }),
+  launchLocalApp:    (appId) => ipcRenderer.invoke('app-store-launch-local', { appId }),
+  uninstallApp:      (appId) => ipcRenderer.invoke('app-store-uninstall', { appId }),
+  closeApp:          () => ipcRenderer.invoke('app-store-close'),
+  onInstallProgress: (cb) => ipcRenderer.on('app-install-progress', (_, data) => cb(data)),
 };
 
 // ── Project NEXUS — Agentic Interface API ─────────────────────────────────────

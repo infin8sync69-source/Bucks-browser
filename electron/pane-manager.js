@@ -69,7 +69,11 @@
     const stage = document.createElement('div');
     stage.className = 'pane-stage';
     stage.dataset.tabId = tabId;
-    deps.browserContent.insertBefore(stage, deps.walletSidebar);
+    if (deps.walletSidebar && deps.walletSidebar.parentNode === deps.browserContent) {
+      deps.browserContent.insertBefore(stage, deps.walletSidebar);
+    } else if (deps.browserContent) {
+      deps.browserContent.appendChild(stage);
+    }
     return stage;
   }
 
@@ -117,6 +121,11 @@
     function beginGesture(ev, mode, dir) {
       if (ev.button !== 0) return;
       ev.preventDefault();
+      const target = ev.target;
+      if (target && typeof target.setPointerCapture === 'function') {
+        try { target.setPointerCapture(ev.pointerId); } catch (_) {}
+      }
+
       const stageR = entry.stage.getBoundingClientRect();
       const start = { mx: ev.clientX, my: ev.clientY, rect: { ...rec.rect } };
       const minW = Math.min(0.9, MIN_W_PX / stageR.width);
@@ -132,6 +141,7 @@
       const snapY = (v) => { for (const t of ys) if (Math.abs(v - t) * stageR.height < SNAP_PX) return t; return v; };
 
       frame.classList.add('pane-gesture');
+      entry.stage.classList.add('pane-resizing');
       focusPane(entry.tabId, rec.id);
 
       function onMove(e) {
@@ -159,11 +169,17 @@
         }
         rec.rect = r;
         applyRect(rec);
+        if (rec.wv && typeof rec.wv.sync === 'function') rec.wv.sync();
       }
-      function onUp() {
+      function onUp(e) {
         frame.classList.remove('pane-gesture');
+        entry.stage.classList.remove('pane-resizing');
+        if (target && typeof target.releasePointerCapture === 'function') {
+          try { target.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        if (rec.wv && typeof rec.wv.sync === 'function') rec.wv.sync();
         persistNothing(); // placeholder: session-only layout
       }
       window.addEventListener('pointermove', onMove);

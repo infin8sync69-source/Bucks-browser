@@ -992,6 +992,23 @@ async def health() -> JSONResponse:
             "online": True,
         })
 
+    # A cloud provider does not need a local model warm-up. Reporting NIM as
+    # "offline" here prevented the Electron supervisor from ever marking the
+    # selected agent live.
+    provider = model_engine.current_provider()
+    if provider in ("nim", "litai"):
+        configured = next(
+            (p["configured"] for p in model_engine.available_providers() if p["id"] == provider),
+            False,
+        )
+        return JSONResponse({
+            "model": model_engine.active_model_label(),
+            "device": "cloud",
+            "mode": "cloud_llm" if configured else "unconfigured",
+            "online": configured,
+            "provider": provider,
+        })
+
     mode = "offline"
     try:
         async with httpx.AsyncClient(timeout=3.0) as c:
@@ -1066,6 +1083,7 @@ _RESEARCH_RE = _re.compile(
     r"^research\b|\b(deep|in-?depth)\s+(research|dive|analysis|report|insight)|"
     r"\b(detailed|comprehensive|full)\s+(report|analysis|overview|research)\b|"
     r"\btell me everything about\b|\bresearch (on|about|into)\b|"
+    r"^search the web for\b|^agentic search\b|^search for\b|"
     r"^compare\b|\b(vs\.?|versus)\b", _re.I)
 
 _WEATHER_RE = _re.compile(
@@ -1121,6 +1139,13 @@ def _media_query(msg: str) -> str:
 
 def _research_topic(msg: str) -> str:
     q = _re.sub(r"^\s*/agent\s+", "", msg.strip(), flags=_re.I)
+    # Check for structured prompt: Search the web for "..." and return ...
+    m = _re.search(r'search (?:the web )?for ["\']([^"\']+)["\']', q, _re.I)
+    if m:
+        return m.group(1).strip()
+    m = _re.search(r'search (?:the web )?for ([^and\n,]+)', q, _re.I)
+    if m:
+        return m.group(1).strip()
     q = _re.sub(r"^\s*(please\s+)?(do|run|give me|make|create|write)?\s*"
                 r"(a|an|some)?\s*(deep|in-?depth|detailed|comprehensive|full)?\s*"
                 r"(research|dive|analysis|report|overview|insights?)\s*(on|about|into|of|for)?\s*",
@@ -1298,7 +1323,7 @@ async def list_models_endpoint() -> JSONResponse:
     """Catalogue for the UI switcher: the embedded-model list (edge only) plus
     the active provider + concrete model label so the UI can render both the
     provider selector and, in edge mode, the model selector."""
-    edge_models = edge_llm.list_models() if _use_embedded() else []
+    edge_models = edge_llm.list_models()
     return JSONResponse({
         "models": edge_models,
         "current": edge_llm.current_model_id() if _use_embedded() else None,
@@ -1310,13 +1335,17 @@ async def list_models_endpoint() -> JSONResponse:
 @app.post("/models/select")
 async def select_model_endpoint(req: Request) -> JSONResponse:
     """Switch the active EMBEDDED model (downloads on first use, then loads).
-    Only meaningful when the edge provider is active — other providers pick
-    their model from config/env, not this catalogue."""
-    if not _use_embedded():
-        return JSONResponse({"ok": False, "error": "embedded-model switching only applies to the edge provider"})
+    Accepts both the current UI payload (`{model: ...}`) and the legacy
+    renderer payload (`{id: ...}`) so previously downloaded local models can
+    still be selected reliably from the browser switcher."""
     body = await req.json()
-    model_id = body.get("model", "")
+    model_id = body.get("model") or body.get("id", "")
     result = await edge_llm.switch_model(model_id)
+    if result.get("ok"):
+        # Selecting a local model is also an explicit switch back from NIM.
+        provider_result = model_engine.switch_provider("edge")
+        if not provider_result.get("ok"):
+            return JSONResponse(provider_result)
     return JSONResponse(result)
 
 
@@ -1619,7 +1648,10 @@ async def agent(req: Request) -> StreamingResponse:
     system = (
         "You are the Bucks Soul Engine agent. You can call tools to act on the "
         "user's behalf. Think step by step. When you have enough information, "
-        "give a concise final answer to the user. Be proactive: use tools (such as web_search, product_lookup, ipfs_cat_text, read_file) eagerly to gather real data, fetch files, or look up products rather than answering from memory or asking clarifying questions when you can find the answer yourself.\n\n"
+        "give a concise final answer to the user. Use tools strategically:\n"
+        "• Use web_search for time-sensitive or current information (news, prices, weather, live data, recent events). Do NOT use web_search for stable factual knowledge (e.g. 'What is Bitcoin?', 'How does IPFS work?', 'What does open source mean?') — answer those directly from your knowledge.\n"
+        "• Use product_lookup, ipfs_cat_text, read_file for product lookups, IPFS content, and file reads.\n"
+        "• When web_search returns no results or fails, answer directly from your knowledge rather than telling the user you couldn't find results.\n\n"
         "CRITICAL RULES:\n"
         "1. Do NOT structure your final answers with 'Step 1', 'Step 2', etc. "
         "Instead, provide a natural, cohesive, and premium summary.\n"
@@ -1799,8 +1831,10 @@ async def agent(req: Request) -> StreamingResponse:
                             "write a refined, insight-dense briefing on the topic. Structure: a "
                             "1-2 sentence takeaway, then 2-3 short titled points using **bold** "
                             "mini-headings, weaving in concrete facts and figures from the corpus. "
-                            "Cite sources as markdown links [Domain](URL) where relevant. Do not "
-                            "mention 'the corpus' or tools. End with 1-2 follow-up questions, each "
+                            "Cite sources inline using hyperlinked markdown [Domain](URL). "
+                            "CRITICAL INSTRUCTION: Do NOT write text lists for Images, Videos, or Sources (do NOT write 'Images:', 'Videos:', or 'Top Sources:'). "
+                            "All images, videos, and sources are rendered separately in native UI panels. "
+                            "Do not mention 'the corpus' or tools. End with 1-2 follow-up questions, each "
                             "wrapped in <followup>...</followup> tags.")},
                         {"role": "user", "content": f"Topic: {topic}\n\n{corpus}"},
                     ]
@@ -1813,11 +1847,18 @@ async def agent(req: Request) -> StreamingResponse:
                     except Exception as e:
                         log.warning("research refinement failed: %s", e)
                 if not streamed:
-                    fallback = corpus if not ui_spec else \
-                        "The dossier above collects the key sources, extracts, and images I gathered."
-                    for piece in _chunk(fallback[:900]):
+                    fallback = corpus if corpus else f"Research summary for {topic}."
+                    if "SOURCE:" in fallback:
+                        blocks = [b.strip() for b in fallback.split("SOURCE: ") if b.strip()]
+                        clean_lines = []
+                        for b in blocks:
+                            head, _, body = b.partition("\n")
+                            clean_lines.append(f"### {head.strip()}\n{body.strip()[:400]}")
+                        fallback = "\n\n".join(clean_lines[:3])
+                    fallback += f"\n\n<followup>What are the key benefits of {topic}?</followup>\n<followup>Can you provide more details about {topic}?</followup>"
+                    for piece in _chunk(fallback):
                         yield sse({"type": "token", "content": piece})
-                    streamed = fallback[:900]
+                    streamed = fallback
                 final_result = streamed
 
                 # Deliverable file: if the request also asked for a PDF/document,
@@ -1953,6 +1994,11 @@ async def agent(req: Request) -> StreamingResponse:
                             return
 
                         fn   = call.get("function", {})
+                        # OpenAI-compatible providers (including NVIDIA NIM)
+                        # require every tool result to reference the ID from
+                        # the preceding assistant tool call. Without this NIM
+                        # rejects the next reasoning turn with HTTP 400.
+                        call_id = call.get("id", "")
                         name = fn.get("name", "")
                         args = fn.get("arguments", {}) or {}
                         if isinstance(args, str):
@@ -1998,7 +2044,7 @@ async def agent(req: Request) -> StreamingResponse:
                                 result = ("Component spec was invalid and not rendered — "
                                           "just answer the user in text instead.")
                             yield sse({"type": "tool_result", "name": name, "content": result})
-                            messages.append({"role": "tool", "content": result, "name": name})
+                            messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                             continue
 
                         if name in BROWSER_TOOL_NAMES:
@@ -2029,7 +2075,7 @@ async def agent(req: Request) -> StreamingResponse:
                                         "content": result,
                                         "denied":  True,
                                     })
-                                    messages.append({"role": "tool", "content": result, "name": name})
+                                    messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                                     continue
 
                             raw = await _await_remote_tool(rid)
@@ -2074,7 +2120,7 @@ async def agent(req: Request) -> StreamingResponse:
                                         "content": result,
                                         "denied":  True,
                                     })
-                                    messages.append({"role": "tool", "content": result, "name": name})
+                                    messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                                     continue
 
                             # Already ran this exact call? Reuse the result and
@@ -2085,7 +2131,7 @@ async def agent(req: Request) -> StreamingResponse:
                                 cached = _tool_call_cache[_sig]
                                 log.info("duplicate tool call suppressed: %s (repeat #%d)", name, _repeat_hits)
                                 messages.append({
-                                    "role": "tool", "name": name,
+                                    "role": "tool", "name": name, "tool_call_id": call_id,
                                     "content": (
                                         f"{cached[:2000]}\n\n"
                                         "[NOTE: you already called this tool with these exact arguments. "
@@ -2118,7 +2164,7 @@ async def agent(req: Request) -> StreamingResponse:
                             "name":    name,
                             "content": preview,
                         })
-                        messages.append({"role": "tool", "content": result[:4000], "name": name})
+                        messages.append({"role": "tool", "content": result[:4000], "name": name, "tool_call_id": call_id})
 
                     # Stuck repeating itself: stop stepping and answer from what
                     # the tools already returned. Without this the user got a

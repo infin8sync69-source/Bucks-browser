@@ -7,11 +7,9 @@
    ║                                                                        ║
    ║    1. Adopts an already-running engine on :8765 if one answers /health ║
    ║       (dev workflow / user ran it manually) — never double-spawns.     ║
-   ║    2. Otherwise spawns the bundled Python venv running the engine on   ║
-   ║       the EMBEDDED edge model (llama-cpp, in-process — zero daemons,   ║
-   ║       nothing external to install). Ollama is used ONLY when the user  ║
-   ║       explicitly sets MODEL_PROVIDER=ollama: the agent is inbuilt.     ║
-   ║    3. Health-polls until the model reports `local_llm`, emitting        ║
+   ║    2. Otherwise spawns the bundled Python venv with NIM as the default ║
+   ║       provider; the embedded local model remains switchable on demand. ║
+   ║    3. Health-polls until the selected provider is ready, emitting       ║
    ║       status to the renderer (`soul-engine-status`) so the UI can show  ║
    ║       "AI warming up…" instead of silent failures.                     ║
    ║    4. Cleanly terminates the child on quit.                            ║
@@ -130,6 +128,21 @@ function _resolveAgent() {
   return { dir: codeDir, py: _venvPython(codeDir), hasVenv: false };
 }
 
+function _clearPortConflict(port) {
+  try {
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      const { execSync } = require('child_process');
+      const raw = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+      if (raw) {
+        const pids = raw.split(/\s+/).map((p) => p.trim()).filter((p) => p && Number(p) !== process.pid);
+        for (const pid of pids) {
+          try { process.kill(Number(pid), 'SIGKILL'); } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
+}
+
 /**
  * Start (or adopt) the Soul Engine.
  * @param {(s:object)=>void} onStatus  called with status updates for the renderer
@@ -146,15 +159,9 @@ async function start(onStatus) {
       _pollUntilReady();
       return;
     }
-    // A foreign server (e.g. the legacy bucks-browser-electron agent) holds
-    // :8765. Don't adopt it and don't fight over the port — surface it so the
-    // user can stop that process. The agent UI shows this actionable message.
-    _emit({
-      state: 'conflict',
-      detail: `port ${PORT} is held by a non-Bucks server (${existing.version ? 'v' + existing.version : 'unknown'}); ` +
-              `stop the other app using this port, then reload`,
-    });
-    return;
+  } else {
+    // Clear any stale/zombie process holding the port before spawning
+    _clearPortConflict(PORT);
   }
 
   // 2. Locate the Python engine.
@@ -194,17 +201,14 @@ async function start(onStatus) {
     return;
   }
 
-  // 3. Pick a provider. The agent is INBUILT: the embedded edge model
-  //    (llama-cpp, in-process) is always the default — even when an Ollama
-  //    daemon happens to be running. Ollama is opt-in via MODEL_PROVIDER=ollama
-  //    only, and even then we fall back to edge if the daemon/model is absent
-  //    so the browser never ships a dead agent.
+  // 3. NIM is the default live provider. Local edge/Qwen and Ollama remain
+  //    explicit switchable options; do not silently replace NIM with edge.
   const definedProvider = (process.env.MODEL_PROVIDER || '').toLowerCase();
   const useOllama = definedProvider === 'ollama' && await _ollamaReady();
   if (definedProvider === 'ollama' && !useOllama) {
     _emit({ state: 'starting', detail: 'MODEL_PROVIDER=ollama set but no Ollama daemon/model found — using the inbuilt embedded engine instead' });
   }
-  const provider = useOllama ? 'ollama' : (definedProvider && definedProvider !== 'ollama' ? definedProvider : 'edge');
+  const provider = useOllama ? 'ollama' : (definedProvider && definedProvider !== 'ollama' ? definedProvider : 'nim');
 
   const env = {
     ...process.env,
@@ -218,9 +222,10 @@ async function start(onStatus) {
 
   _emit({
     state: 'starting',
-    provider: useOllama ? 'ollama' : 'edge',
-    model: useOllama ? OLLAMA_MODEL : 'embedded-slm',
-    detail: useOllama ? `Ollama · ${OLLAMA_MODEL}` : 'embedded model (first run downloads weights)',
+    provider,
+    model: useOllama ? OLLAMA_MODEL : (provider === 'edge' ? 'embedded-slm' : process.env.NIM_MODEL || 'NIM'),
+    detail: useOllama ? `Ollama · ${OLLAMA_MODEL}` :
+      (provider === 'edge' ? 'embedded model (first run downloads weights)' : 'NIM cloud provider'),
   });
 
   // 4. Spawn uvicorn.
@@ -257,7 +262,7 @@ function _pollUntilReady(maxWaitMs = 180_000) {
   const tick = async () => {
     if (_stopped) return;
     const h = await _health();
-    if (h && h.mode === 'local_llm') {
+    if (h && (h.mode === 'local_llm' || h.mode === 'cloud_llm')) {
       _emit({ state: 'ready', model: h.model, device: h.device, mode: h.mode });
       return;
     }
@@ -265,6 +270,9 @@ function _pollUntilReady(maxWaitMs = 180_000) {
       _emit({ state: 'loading', model: h.model, detail: 'model warming up…' });
     } else if (h && h.mode === 'no_model') {
       _emit({ state: 'error', detail: `Ollama running but model ${OLLAMA_MODEL} not pulled` });
+      return;
+    } else if (h && h.mode === 'unconfigured') {
+      _emit({ state: 'error', detail: `${h.provider || 'cloud'} provider needs a valid API key in agent/.env or Bucks Settings` });
       return;
     }
     if (Date.now() - started > maxWaitMs) {
