@@ -31,6 +31,16 @@ export interface TabState {
     zoom?: number;
     /** Lives in the in-memory private session. */
     private?: boolean;
+    /** ipfs:// and ipns:// pages: the address bar badge, once the page was served. */
+    badge?: ContentBadge;
+}
+
+/** Address bar badge for ipfs:// and ipns:// pages (docs/IPFS-HOSTING-IMPLEMENTATION.md §6.7). */
+export interface ContentBadge {
+    kind: 'content-addressed' | 'signed-name' | 'dnslink' | 'unverified' | 'preview';
+    label: string;
+    /** ipns:// and DNSLink names: the version currently served. */
+    cid?: string | null;
 }
 
 export interface FoundInPage {
@@ -406,6 +416,129 @@ export interface DeviceShareResult {
     onlinePeers: number;
 }
 
+// ── Sites (bucks:sites:*, docs/IPC-CONTRACT.md "Sites") ─────────────────────────
+
+export interface SiteFolderHints {
+    /** '' = the chosen folder is the site; 'dist/client' etc. = its build output. */
+    suggestedDir: string | null;
+    framework: string | null;
+    isStatic: boolean | null;
+    note: string | null;
+}
+
+export interface SiteFolder {
+    /** Stands for the folder for one hour; the renderer never sees or sends paths. */
+    token: string;
+    name: string;
+    hints: SiteFolderHints;
+}
+
+export interface SiteFixes {
+    exclude?: string[];
+    useShellAsIndex?: boolean;
+    enableSpa?: boolean;
+}
+
+export interface SiteCheck {
+    id: string;
+    level: 'block' | 'warn' | 'info';
+    message: string;
+    resolved?: boolean;
+    files?: { path: string; line?: number; kind?: string }[];
+    hosts?: string[];
+    fix?: { action: 'use-shell-as-index' | 'enable-spa' | 'exclude'; label: string };
+}
+
+export interface SiteInspection {
+    files: number;
+    bytes: number;
+    blocked: boolean;
+    checks: SiteCheck[];
+    excluded: { path: string; reason: string }[];
+    entry: string;
+    spa: boolean;
+    folderName: string;
+    options: { exclude: string[]; useShellAsIndex: boolean; enableSpa: boolean };
+}
+
+export interface SiteUrls {
+    ipfs: string | null;
+    ipns: string | null;
+    gateway: string | null;
+    gatewayIpns: string | null;
+}
+
+export interface SiteVersion {
+    cid: string;
+    publishedAt: string | null;
+    bytes: number;
+    files: number;
+    note: string;
+}
+
+export interface SiteHosting {
+    pinToDevices?: string[];
+    pinningServices?: string[];
+}
+
+export interface SiteRecord {
+    id: string;
+    name: string;
+    folderName: string | null;
+    ipns: string | null;
+    current: SiteVersion | null;
+    history: SiteVersion[];
+    hosting: { keepOnline: true; pinToDevices: string[]; pinningServices: string[] };
+    backup: { keyBackedUpAt: string | null };
+    keyBackedUp: boolean;
+    announce: { ok: boolean; at: string | null; error: string | null } | null;
+    createdAt: string | null;
+    urls: SiteUrls;
+}
+
+export interface SiteDiff {
+    counts: { added: number; changed: number; removed: number };
+    added: { path: string; size: number }[];
+    removed: { path: string; size: number }[];
+    changed: { path: string; size: number; previousSize: number }[];
+    blocks: { new: number; reused: number };
+}
+
+export interface SitePublishResult {
+    id: string;
+    cid: string;
+    ipns: string | null;
+    urls: SiteUrls;
+    announce: { ok: boolean; at: string | null; error: string | null };
+    copies: { devices: unknown; pinningServices: { service: string; status: string; error?: string }[] };
+    checks: SiteCheck[];
+}
+
+export interface SiteUpdateResult {
+    cid: string;
+    unchanged: boolean;
+    diff: SiteDiff;
+    checks?: SiteCheck[];
+    urls?: SiteUrls;
+}
+
+export interface SiteHealth {
+    state: 'local-only' | 'announcing' | 'discoverable' | 'reachable' | 'redundant' | null;
+    label: string;
+    checks: { id: string; ok: boolean | null; detail: string }[];
+    failing: { id: string; message: string } | null;
+    providers: number | null;
+    remotePins: { service: string; status: string }[];
+}
+
+export interface SiteProgress {
+    id: string;
+    step: 'inspect' | 'add' | 'self-test' | 'name' | 'announce' | 'record';
+    done: number;
+    total: number;
+    message: string;
+}
+
 /** One entry of settings.ipfs.peers. */
 export interface PeerSetting {
     peerId: string;
@@ -429,6 +562,18 @@ export interface Settings {
         autoStart: boolean;
         /** Paired Bucks devices, kept connected through Kubo Peering. Arrays are replaced wholesale on set(). */
         peers: PeerSetting[];
+        /** Kubo Datastore.StorageMax in GB (pins are never collected). */
+        storageMaxGB: number;
+    };
+    sites: {
+        quotaMiB: number;
+        maxFiles: number;
+        /** Versions kept pinned for rollback. */
+        historyLimit: number;
+        /** Delegated router asked by the health check ('' = do not ask). */
+        routerUrl: string;
+        /** Trustless gateway that fetches from outside ('' = not configured). */
+        probeUrl: string;
     };
     devices: {
         /** '' → the computer's host name */
@@ -671,6 +816,29 @@ export interface BucksApi {
         onUpdated(cb: (status: DevicesStatus) => void): Unsubscribe;
     };
 
+    sites: {
+        /** Native folder dialog; null when cancelled. */
+        chooseFolder(): Promise<SiteFolder | null>;
+        inspect(token: string, opts?: SiteFixes): Promise<SiteInspection>;
+        /** Added unpinned; open `url` in a private tab. */
+        preview(token: string, opts?: SiteFixes): Promise<{ previewCid: string; url: string }>;
+        publish(req: { token: string; name?: string; ipns?: boolean; hosting?: SiteHosting } & SiteFixes): Promise<SitePublishResult>;
+        /** Without confirm: a dry run with the diff. With confirm and expectCid: publish. */
+        update(req: { id: string; token?: string; confirm?: boolean; expectCid?: string } & SiteFixes): Promise<SiteUpdateResult>;
+        list(): Promise<SiteRecord[]>;
+        status(id: string): Promise<SiteHealth>;
+        rollback(id: string, cid: string): Promise<{ cid: string }>;
+        /** 'delete-key' needs `confirm` = the site name, typed by the user. */
+        unpublish(id: string, mode: 'stop' | 'unpin' | 'delete-key', confirm?: string): Promise<{ ok: boolean }>;
+        backupKey(id: string, passphrase: string): Promise<{ ok: boolean; path?: string; keyBackedUpAt?: string }>;
+        restoreKey(req: { id?: string; passphrase: string; withCar?: boolean }): Promise<{ ok: boolean; id?: string; ipns?: string; cid?: string | null }>;
+        exportCar(id: string): Promise<{ path: string | null; bytes?: number; cid?: string }>;
+        pinningServices(): Promise<{ name: string; endpoint: string }[]>;
+        addPinningService(req: { name: string; endpoint: string; token: string }): Promise<{ name: string; endpoint: string }[]>;
+        removePinningService(name: string): Promise<{ name: string; endpoint: string }[]>;
+        onProgress(cb: (p: SiteProgress) => void): Unsubscribe;
+    };
+
     shell: {
         /** Open http(s)/mailto URLs in the OS default handler. */
         openExternal(url: string): Promise<void>;
@@ -693,7 +861,9 @@ function defaultSettings(): Settings {
             preferredGateway: 'local',
             autoStart: true,
             peers: [],
+            storageMaxGB: 10,
         },
+        sites: { quotaMiB: 500, maxFiles: 50_000, historyLimit: 5, routerUrl: 'https://delegated-ipfs.dev', probeUrl: '' },
         devices: { name: '', autoPin: false },
         security: {
             httpsOnly: true,
@@ -911,6 +1081,25 @@ function createMockBridge(): BucksApi {
             share: () => unavailable('devices.share'),
             dismiss: () => Promise.resolve(mockDevicesStatus(settings.devices.name)),
             onUpdated: () => noSub,
+        },
+        // Hosting needs the main process (folder dialogs, Kubo): nothing to fake here.
+        sites: {
+            chooseFolder: () => unavailable('sites.chooseFolder'),
+            inspect: () => unavailable('sites.inspect'),
+            preview: () => unavailable('sites.preview'),
+            publish: () => unavailable('sites.publish'),
+            update: () => unavailable('sites.update'),
+            list: () => Promise.resolve([]),
+            status: () => unavailable('sites.status'),
+            rollback: () => unavailable('sites.rollback'),
+            unpublish: () => unavailable('sites.unpublish'),
+            backupKey: () => unavailable('sites.backupKey'),
+            restoreKey: () => unavailable('sites.restoreKey'),
+            exportCar: () => unavailable('sites.exportCar'),
+            pinningServices: () => Promise.resolve([]),
+            addPinningService: () => unavailable('sites.addPinningService'),
+            removePinningService: () => Promise.resolve([]),
+            onProgress: () => noSub,
         },
         shell: {
             openExternal: (url) => {

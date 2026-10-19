@@ -11,7 +11,9 @@ This document is the single source of truth for how the three layers talk to eac
 │  ├ window.js          chrome BrowserWindow (frameless) + bucks:window:*   │
 │  ├ tabs.js            TabManager: one WebContentsView per external tab    │
 │  ├ protocols/bucks.js bucks://app/* → ui/build (SPA fallback)             │
-│  ├ protocols/ipfs.js  ipfs:// ipns:// → local Kubo gateway (streamed)     │
+│  ├ protocols/ipfs.js  ipfs:// ipns:// → local Kubo gateway (streamed),    │
+│  │                    site rules, consent before a public gateway         │
+│  ├ sites/*            hosting sites: preflight, publish, update, keys     │
 │  ├ ipfs/kubo.js       Kubo sidecar supervisor (download/init/spawn/health)│
 │  ├ ipfs/rpc.js        Kubo HTTP RPC client (/api/v0/*)                    │
 │  ├ ipfs/cid.js        CID normalisation (pure)                            │
@@ -26,8 +28,8 @@ This document is the single source of truth for how the three layers talk to eac
 │  └ shell.js           bucks:shell:open-external                           │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Preload (src/preload/preload.cjs, sandboxed, contextIsolation)            │
-│  window.bucks.{app,window,tabs,ipfs,settings,downloads,agent,wallet,     │
-│                security,shell}                                            │
+│  window.bucks.{app,window,tabs,ipfs,sites,settings,downloads,agent,      │
+│                wallet,security,devices,updater,shell}                     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Chrome renderer (ui/, SvelteKit SPA, loaded from bucks://app/)            │
 │  owns the tab list/order/persistence, bookmarks, history, all UI.         │
@@ -75,6 +77,14 @@ interface TabState {
   muted?: boolean;             // audio muted by the user
   zoom?: number;               // page zoom in percent (100 = actual size)
   private?: boolean;           // lives in the in-memory private session
+  badge?: ContentBadge;        // ipfs:// and ipns:// pages only, once the handler served them
+}
+
+// Address bar badge (docs/IPFS-HOSTING-IMPLEMENTATION.md §6.7), computed by the ipfs:// handler.
+interface ContentBadge {
+  kind: 'content-addressed' | 'signed-name' | 'dnslink' | 'unverified' | 'preview';
+  label: string;               // 'Content-addressed', 'Signed name, updates allowed', 'Unverified, via gateway', 'Preview, not published', …
+  cid?: string | null;         // ipns:// and DNSLink names: the version currently served (show on hover)
 }
 
 interface FoundInPage { id: string; requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }
@@ -187,7 +197,7 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId, queryId?, history?: { role: 'user'\|'assistant', content }[], attachments?: ({ kind: 'file', name, mime, dataBase64 } \| { kind: 'cid', cid })[], agentic? }` → `AgentResult` (plus `documents?: string[]`, files the agent wrote). `agentic` lets the Soul Engine act in tab `tabId`, with approval |
 | agent | `bucks:agent:cancel` `{ queryId }` → `boolean` (stops the query; pending approvals are refused) |
 | agent | `bucks:agent:approve` `{ requestId, approve }` → `boolean` |
-| agent | event `bucks:agent:event` `{ queryId, type: 'status', label }` · `{ queryId, type: 'approval', requestId, name, label, expiresAt }` · `{ queryId, type: 'approval-done', requestId, approved }` |
+| agent | event `bucks:agent:event` `{ queryId, type: 'status', label }` · `{ queryId, type: 'approval', requestId, name, label, site?, expiresAt }` · `{ queryId, type: 'approval-done', requestId, approved }`. `site` (for `site_publish` / `site_update`) is the hosting card built by the main process from its own inspection: `{ action, siteName, folder, files, bytes, warnings, createsPublicAddress, updatesPublicAddress, fixes, diff? }`; render it, not any engine text |
 | docs | `bucks:docs:create` `{ title, content, format: 'md'\|'txt'\|'html'\|'pdf' }` → `{ path }` (in `<Documents>/Bucks`, never overwriting) |
 | docs | `bucks:docs:show` `{ path }` (only files Bucks wrote this session) |
 | agent | `bucks:agent:feedback` `{ taskId, score, correction }` |
@@ -219,10 +229,12 @@ createKubo({ settings, userData, resourcesDir, getMainWindow, fetchImpl })   // 
 registerIpfsIpc({ kubo, settings, getMainWindow })
 installBucksProtocol({ session, uiDist })
 installIpfsProtocols({ sessions, kubo, settings })      // registers ipfs & ipns on EVERY given session
-installSecurity({ sessions, settings, userData })      → security { stats() }
+   → handler (Request → Response) with handler.badgeFor(url) and handler.setPreview(cid, on)
+createSites({ kubo, settings, userData, handler, devices, getMainWindow }) → { service, chooseFolder() }   // bucks:sites:*
+installSecurity({ sessions, settings, userData, nodeUrls })  → security { stats() }   // nodeUrls(): the node's API/gateway, which pages may not call
 createMainWindow({ preloadPath, settings, devUrl })     → BrowserWindow (loads devUrl or bucks://app/)
 registerWindowIpc({ getMainWindow })
-createTabManager({ getMainWindow, webSession, privateSession, settings, security })
+createTabManager({ getMainWindow, webSession, privateSession, settings, security, badgeFor })
    → tabs { create(id,url), navigate(id,url), close(id), activate(id), back(id), forward(id), reload(id),
             stop(id), getState(id), setContentBounds(b), setContentVisible(v), capture(id),
             extractText(id), getActiveId(), getWebContents(id), ids() }
@@ -237,7 +249,7 @@ createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
             models(), selectModel(id), downloadProgress(), pendingUpdates(), decideUpdate(id, action) }
 installDocs({ app, BrowserWindow })                       → docs { create(), savePdf(), wrote(path) }
 createBrowserControl({ tabs, docs })                     → { execute(name, args, { tabId, tabTools, onFile }) }
-createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl })
+createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl, siteTools })   // siteTools: src/main/sites/agent-tools.js
 installWeather({ fetchImpl })                            // net.fetch; BUCKS_WEATHER_GEOCODE_URL / _FORECAST_URL override Open-Meteo
 createWalletProxy({ settings })
 createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)
@@ -386,3 +398,113 @@ interface DevicesStatus {
 
 When `settings.devices.autoPin` is true, shares from paired devices are pinned on arrival
 (`pinned: true` once `pin/add` succeeds). Otherwise the user pins from the UI with `bucks.ipfs.pinAdd`.
+
+## Sites: hosting a folder from this browser
+
+Owner: `src/main/sites/` — `ipc.js` (Electron glue: channels, dialogs, sender check, safeStorage),
+`service.js` (publish pipeline), `folder.js` + `preflight.js` + `package.js` (reading the folder,
+checks P1–P12, `bucks-site.json` and `_redirects`), `store.js` (`<userData>/sites.json`), `keys.js`
+(key backup), `health.js`, `pinning.js`. Design: [IPFS-HOSTING-IMPLEMENTATION.md](IPFS-HOSTING-IMPLEMENTATION.md),
+user guide: [HOSTING.md](HOSTING.md).
+
+Rules:
+
+* Every `bucks:sites:*` channel rejects senders other than the chrome (`bucks://app`, or
+  `http://localhost:*` when unpackaged), like `bucks:wallet:rpc`.
+* The renderer never passes a file system path. Folders come from `bucks:sites:choose-folder`
+  (a native dialog in main) as a **token** valid for one hour; key backups, CAR files and
+  restore files are chosen in main as well. Records sent to the renderer carry `folderName`, not
+  the path.
+* Fixes are applied to the published copy only (`useShellAsIndex`, `enableSpa`): the user's folder
+  is never written to.
+* Pinning-service tokens are sealed with Electron `safeStorage` (OS keychain) in
+  `<userData>/sites/pinning-services.json` and never returned. Without a keychain they are refused.
+
+### Shapes
+
+```ts
+interface SiteFolderHints { suggestedDir: string | null; framework: string | null; isStatic: boolean | null; note: string | null }
+// suggestedDir: '' = the chosen folder is the site; 'dist/client' etc. = its build output (the token points there)
+
+interface SiteCheck {
+  id: 'P1' | 'P2' | … | 'P12' | 'config';
+  level: 'block' | 'warn' | 'info';
+  message: string;
+  resolved?: boolean;          // a block the default action already handled (links, secret files left out)
+  files?: { path: string; line?: number; kind?: string }[];   // P4 never includes the secret itself
+  hosts?: string[];            // P11
+  fix?: { action: 'use-shell-as-index' | 'enable-spa' | 'exclude'; label: string };
+}
+
+interface SiteInspection {
+  files: number; bytes: number; blocked: boolean; checks: SiteCheck[];
+  excluded: { path: string; reason: 'hidden' | 'secret' | 'symlink' | 'special' | 'user' | 'unreadable' }[];
+  entry: string; spa: boolean; folderName: string;
+  options: { exclude: string[]; useShellAsIndex: boolean; enableSpa: boolean };
+}
+
+interface SiteUrls { ipfs: string | null; ipns: string | null; gateway: string | null; gatewayIpns: string | null }
+// gateway*: https://<cid>.ipfs.<gateway>/ links for visitors without Bucks (availability not guaranteed)
+
+interface SiteVersion { cid: string; publishedAt: string | null; bytes: number; files: number; note: string }
+
+interface SiteRecord {
+  id: string; name: string; folderName: string | null; ipns: string | null;
+  current: SiteVersion | null; history: SiteVersion[];          // newest first, at most sites.historyLimit pinned
+  hosting: { keepOnline: true; pinToDevices: string[]; pinningServices: string[] };
+  backup: { keyBackedUpAt: string | null }; keyBackedUp: boolean;
+  announce: { ok: boolean; at: string | null; error: string | null } | null;
+  createdAt: string | null; urls: SiteUrls;
+}
+
+interface SiteDiff {
+  counts: { added: number; changed: number; removed: number };
+  added: { path: string; size: number }[]; removed: { path: string; size: number }[];
+  changed: { path: string; size: number; previousSize: number }[];   // lists capped at 200
+  blocks: { new: number; reused: number };
+}
+
+interface SiteHealth {
+  state: 'local-only' | 'announcing' | 'discoverable' | 'reachable' | 'redundant' | null;
+  label: string;
+  checks: { id: 'local' | 'announcing' | 'discoverable' | 'reachable' | 'redundant'; ok: boolean | null; detail: string }[];   // ok null = not tested
+  failing: { id: string; message: string } | null;
+  providers: number | null;    // providers the public router lists
+  remotePins: { service: string; status: string }[];
+}
+```
+
+### Channels
+
+| Channel | Payload → Result |
+|---|---|
+| `bucks:sites:choose-folder` | → `{ token, name, hints: SiteFolderHints } \| null` (native dialog; `null` when cancelled) |
+| `bucks:sites:inspect` | `{ token, exclude?, useShellAsIndex?, enableSpa? }` → `SiteInspection` |
+| `bucks:sites:preview` | `{ token, …fixes }` → `{ previewCid, url }` (added **unpinned**; the badge says "Preview, not published"; the chrome opens `url` in a private tab) |
+| `bucks:sites:publish` | `{ token, name?, ipns?: boolean (default true), hosting?: { pinToDevices?: string[], pinningServices?: string[] }, …fixes }` → `{ id, cid, ipns, urls, announce, copies, checks }` |
+| `bucks:sites:update` | `{ id, token?, …fixes }` → dry run `{ cid, unchanged, diff: SiteDiff, checks, files, bytes }` (nothing pinned or published); with `confirm: true, expectCid` → `{ cid, unchanged, diff, urls, announce, copies, checks }`. `token` publishes from a newly chosen folder, otherwise the remembered one. A different CID than `expectCid` (the folder changed since the review) is refused |
+| `bucks:sites:list` | → `SiteRecord[]` |
+| `bucks:sites:status` | `{ id }` → `SiteHealth` (contacts `sites.routerUrl` and, when set, `sites.probeUrl`, with the CID only) |
+| `bucks:sites:rollback` | `{ id, cid }` → `{ cid }` (cid must be in the site's history) |
+| `bucks:sites:unpublish` | `{ id, mode: 'stop' \| 'unpin' \| 'delete-key', confirm? }` → `{ ok }`. `stop`: Bucks forgets the site, content and key stay; `unpin`: also unpins every version (copies elsewhere remain); `delete-key`: also deletes the key, the `ipns://` address is dead for good, `confirm` must equal the site name |
+| `bucks:sites:backup-key` | `{ id, passphrase }` → `{ ok, path?, keyBackedUpAt? }` (save dialog in main; `ok: false` when cancelled; embedded node only) |
+| `bucks:sites:restore-key` | `{ id?, passphrase, withCar? }` → `{ ok, id?, ipns?, cid? }` (open dialog(s) in main). With `id`: re-import that site's key. Without: "Restore a site" — a new record for the backup's address, its version from the CAR (`withCar`) or resolved from the network |
+| `bucks:sites:export-car` | `{ id }` → `{ path \| null, bytes?, cid? }` (save dialog in main; fails unless every block is local) |
+| `bucks:sites:pinning-services` | → `{ name, endpoint }[]` |
+| `bucks:sites:add-pinning-service` | `{ name, endpoint, token }` → the list (IPFS Pinning Service API; token sealed by the OS keychain) |
+| `bucks:sites:remove-pinning-service` | `{ name }` → the list |
+| event `bucks:sites:progress` | `{ id, step: 'inspect' \| 'add' \| 'self-test' \| 'name' \| 'announce' \| 'record', done, total, message }` (for `add`, done/total are bytes) |
+
+### ipfs:// handler behaviour the chrome can rely on
+
+* A site's `bucks-site.json` (or `_redirects`) decides SPA fallback, custom 404 pages, redirects and
+  extra headers; it is read once per root CID. A `Content-Security-Policy` from a public gateway is
+  never forwarded.
+* When the local node is not ready (and `ipfs.preferredGateway` is not `public`), pages answer 503
+  with a consent interstitial (Start node, Use public gateway once). Consent is per origin and lasts
+  until Bucks restarts; it is granted only through the interstitial's one-time links.
+* A body shorter than its `Content-Length` (a missing block) errors the stream instead of ending it.
+* A path whose decoded segments are `.`/`..` or contain `/`, `\` or NUL answers 400 before any
+  gateway sees it (Kubo would otherwise resolve `ipfs://<A>/..%2F<B>/x` to B's content on A's origin).
+* Web pages cannot fetch from the node's API or gateway ports directly (subresource requests are
+  cancelled by the request filter); they reach IPFS through `ipfs://` only.

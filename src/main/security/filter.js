@@ -49,6 +49,24 @@ export function isLocalHost(hostname) {
   return !host.includes('.') && !/^\d+$/.test(host);
 }
 
+/**
+ * Is `url` the local IPFS node's API or gateway (any loopback host form, including the gateway's
+ * <cid>.ipfs.localhost subdomains)? Web pages must reach IPFS through ipfs:// only: the gateway
+ * fetches from the network for whoever asks, so a page could use it to probe what the node holds.
+ * @param {URL} url
+ * @param {Array<string|null|undefined>} nodeUrls  e.g. [status.api_url, status.gateway_url]
+ */
+export function isNodeAddress(url, nodeUrls) {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  const loopback = host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || host === '0.0.0.0' || /^127\.\d+\.\d+\.\d+$/.test(host);
+  if (!loopback) return false;
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  return nodeUrls.some((n) => {
+    try { return Boolean(n) && new URL(n).port === port; } catch { return false; }
+  });
+}
+
 /** Does this chrome-originated request come from our own UI (bucks://app)? */
 function isFromChrome(details) {
   try {
@@ -64,11 +82,13 @@ function isFromChrome(details) {
  *
  * - bucks:// requests coming from anything but the chrome are cancelled (belt and braces: the
  *   protocol is not even registered on the web session);
+ * - subresource requests (fetch, images, frames…) to the local IPFS node's API or gateway are
+ *   cancelled (`state.nodeUrls()`); a top-level navigation the user typed is allowed;
  * - http:// requests are redirected to https:// when `state.httpsOnly`, unless the host is local
  *   or the user/tab manager allowed plain http for it (`state.isHttpAllowed(host)`).
  *
- * @param {{ url: string, webContents?: any }} details Electron OnBeforeRequestDetails
- * @param {{ httpsOnly: boolean, isHttpAllowed: (host: string) => boolean }} state
+ * @param {{ url: string, webContents?: any, resourceType?: string }} details Electron OnBeforeRequestDetails
+ * @param {{ httpsOnly: boolean, isHttpAllowed: (host: string) => boolean, nodeUrls?: () => Array<string|null> }} state
  * @returns {{ redirectURL: string } | { cancel: true } | {}}
  */
 export function decideRequest(details, state) {
@@ -80,6 +100,9 @@ export function decideRequest(details, state) {
   }
   if (url.protocol === 'bucks:') {
     return isFromChrome(details) ? {} : { cancel: true };
+  }
+  if (details.resourceType !== 'mainFrame' && state.nodeUrls && isNodeAddress(url, state.nodeUrls())) {
+    return { cancel: true };
   }
   if (url.protocol === 'http:' && state.httpsOnly) {
     if (isLocalHost(url.hostname) || state.isHttpAllowed(url.hostname)) return {};
@@ -162,7 +185,7 @@ const RETRY_BUILTIN_MS = 15 * 60 * 1000;
  * @param {typeof loadBlocker} [opts.loadBlockerImpl] injectable for tests
  * @param {number} [opts.retryMs] how often to retry the full lists while on the built-in list
  */
-export function createFilterController({ settings, userData, fetchImpl, loadBlockerImpl = loadBlocker, retryMs = RETRY_BUILTIN_MS }) {
+export function createFilterController({ settings, userData, fetchImpl, loadBlockerImpl = loadBlocker, retryMs = RETRY_BUILTIN_MS, nodeUrls = () => [] }) {
   let flags = readFlags(settings);
   let blocker = null;
   let source = null;
@@ -184,6 +207,7 @@ export function createFilterController({ settings, userData, fetchImpl, loadBloc
   const state = {
     get httpsOnly() { return flags.httpsOnly; },
     isHttpAllowed: (h) => allowedHttp.has(hostKey(h)),
+    nodeUrls,
   };
 
   function startLoad(want) {

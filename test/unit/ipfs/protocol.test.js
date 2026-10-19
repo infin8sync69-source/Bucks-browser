@@ -43,6 +43,10 @@ function fakeKubo(state, { gateway = 'http://127.0.0.1:1' } = {}) {
   };
 }
 const settings = (ipfs = {}) => ({ get: () => ({ ipfs: { publicGateway: 'https://ipfs.io', preferredGateway: 'local', ...ipfs } }) });
+/** Lets a loopback fake stand in for the public gateway (the real validator demands https on a public host). */
+const anyGateway = (u) => ({ ok: true, base: String(u).replace(/\/+$/, '') });
+/** Requests a fake gateway saw for one path (the handler also reads bucks-site.json and _redirects). */
+const seenFor = (gw, path) => gw.seen.filter((r) => r.url.split('?')[0] === path);
 
 test('handler: landing page, invalid CID pages, 405', async () => {
   const handler = createIpfsHandler({ kubo: fakeKubo('ready'), settings: settings() });
@@ -119,10 +123,12 @@ test('handler: streams from the local gateway, forwards request headers, copies 
   assert.equal(await full.text(), 'hello ipfs');
   assert.equal(full.headers.get('content-type'), 'text/plain');
   assert.equal(full.headers.get('cache-control'), 'public, max-age=29030400, immutable');
-  assert.equal(gw.seen[0].url, `/ipfs/${CID}/a.txt?x=1`);
-  assert.equal(gw.seen[0].headers.accept, 'text/plain');
-  assert.equal(gw.seen[0].headers['if-none-match'], '"zzz"');
-  assert.equal(gw.seen[0].headers['accept-encoding'], 'identity');
+  const first = seenFor(gw, `/ipfs/${CID}/a.txt`)[0];
+  assert.equal(first.url, `/ipfs/${CID}/a.txt?x=1`);
+  assert.equal(first.headers.accept, 'text/plain');
+  assert.equal(first.headers['if-none-match'], '"zzz"');
+  assert.equal(first.headers['accept-encoding'], 'identity');
+  assert.equal(full.headers.get('x-content-type-options'), 'nosniff');
 
   const ranged = await handler(new Request(`ipfs://${CID}/a.txt`, { headers: { range: 'bytes=0-4' } }));
   assert.equal(ranged.status, 206);
@@ -134,7 +140,7 @@ test('handler: streams from the local gateway, forwards request headers, copies 
   const head = await handler(new Request(`ipfs://${CID}/a.txt`, { method: 'HEAD' }));
   assert.equal(head.status, 200);
   assert.equal(await head.text(), '');
-  assert.equal(gw.seen.at(-1).method, 'HEAD');
+  assert.equal(seenFor(gw, `/ipfs/${CID}/a.txt`).at(-1).method, 'HEAD');
 });
 
 test('handler: gateway redirects are rewritten back to ipfs://, 504 becomes the not-found page', async (t) => {
@@ -155,23 +161,88 @@ test('handler: gateway redirects are rewritten back to ipfs://, 504 becomes the 
 
   const slow = await handler(new Request(`ipfs://${CID}/slow`));
   assert.equal(slow.status, 504);
-  assert.match(await slow.text(), /Content not found on the IPFS network/);
+  const offline = await slow.text();
+  assert.match(offline, /No online node has this content right now/);
+  assert.match(offline, /The publisher's browser may be closed/);
+  assert.match(offline, new RegExp(`CID: ${CID}`));
+  assert.match(offline, new RegExp(`<a href="ipfs://${CID}/slow">Retry</a>`));
 });
 
-test('handler: public gateway when the node is stopped or preferredGateway=public', async (t) => {
-  const pub = await fakeGateway(t, { '*': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`public:${req.url}`); } });
-  const local = await fakeGateway(t, { '*': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`local:${req.url}`); } });
+test('handler: the public gateway is used only with consent, or when preferredGateway=public', async (t) => {
+  const pub = await fakeGateway(t, { [`/ipfs/${CID}/p`]: (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`public:${req.url}`); }, [`/ipfs/${CID}/q`]: (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`public:${req.url}`); } });
+  const local = await fakeGateway(t, { [`/ipfs/${CID}/r`]: (req, res) => { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(`local:${req.url}`); } });
 
-  const stopped = createIpfsHandler({ kubo: fakeKubo('stopped'), settings: settings({ publicGateway: `${pub.base}/` }) });
+  // stopped node: an interstitial, nothing sent to the public gateway
+  const stopped = createIpfsHandler({ kubo: fakeKubo('stopped'), settings: settings({ publicGateway: `${pub.base}/` }), gatewayValidator: anyGateway });
+  const ask = await stopped(new Request(`ipfs://${CID}/p?x=1`));
+  assert.equal(ask.status, 503);
+  assert.match(ask.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(ask.headers.get('x-frame-options'), 'DENY');
+  const html = await ask.text();
+  assert.match(html, /Your IPFS node is not running/);
+  assert.match(html, /Start node/);
+  assert.match(html, /Bucks always asks before using a public gateway/);
+  assert.equal(pub.seen.length, 0);
+  const once = /href="([^"]*bucks-gateway=once\.[^"]+)"/.exec(html)[1].replace(/&amp;/g, '&');
+  assert.ok(once.startsWith(`ipfs://${CID}/p?x=1&bucks-gateway=once.`));
+
+  // a forged or reused nonce only strips the parameter
+  const forged = await stopped(new Request(`ipfs://${CID}/p?x=1&bucks-gateway=once.forged`));
+  assert.equal(forged.status, 303);
+  assert.equal(forged.headers.get('location'), `ipfs://${CID}/p?x=1`);
+  assert.equal((await stopped(new Request(`ipfs://${CID}/p`))).status, 503, 'still asking');
+
+  const granted = await stopped(new Request(once));
+  assert.equal(granted.status, 303);
+  assert.equal(granted.headers.get('location'), `ipfs://${CID}/p?x=1`);
   assert.equal(await (await stopped(new Request(`ipfs://${CID}/p`))).text(), `public:/ipfs/${CID}/p`);
+  assert.equal(stopped.badgeFor(`ipfs://${CID}/p`).kind, 'unverified');
+  assert.equal((await stopped(new Request(once))).status, 303, 'the nonce works once');
+  // consent is per origin: another CID still asks
+  assert.equal((await stopped(new Request('ipfs://bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy/'))).status, 503);
 
-  const prefersPublic = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base, preferredGateway: 'public' }) });
+  const prefersPublic = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base, preferredGateway: 'public' }), gatewayValidator: anyGateway });
   assert.equal(await (await prefersPublic(new Request(`ipfs://${CID}/q`))).text(), `public:/ipfs/${CID}/q`);
 
-  const prefersLocal = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base }) });
+  const prefersLocal = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: local.base }), settings: settings({ publicGateway: pub.base }), gatewayValidator: anyGateway });
   assert.equal(await (await prefersLocal(new Request(`ipfs://${CID}/r`))).text(), `local:/ipfs/${CID}/r`);
-  assert.equal(local.seen.length, 1);
-  assert.equal(pub.seen.length, 2);
+  assert.equal(prefersLocal.badgeFor(`ipfs://${CID}/r`).kind, 'content-addressed');
+  assert.equal(seenFor(local, `/ipfs/${CID}/r`).length, 1);
+  assert.equal(seenFor(pub, `/ipfs/${CID}/p`).length, 1);
+  assert.equal(seenFor(pub, `/ipfs/${CID}/q`).length, 1);
+
+  // the node stops: the interstitial is not the site, so the badge goes away
+  const node = fakeKubo('ready', { gateway: local.base });
+  const sameHandler = createIpfsHandler({ kubo: node, settings: settings({ publicGateway: pub.base }), gatewayValidator: anyGateway });
+  await (await sameHandler(new Request(`ipfs://${CID}/r`))).text();
+  assert.equal(sameHandler.badgeFor(`ipfs://${CID}/`).kind, 'content-addressed');
+  node.isReady = () => false;
+  node.status = () => ({ state: 'stopped', message: 'stopped' });
+  assert.equal((await sameHandler(new Request(`ipfs://${CID}/r`))).status, 503);
+  assert.equal(sameHandler.badgeFor(`ipfs://${CID}/`), null);
+});
+
+test('handler: an invalid public gateway setting is never contacted', async () => {
+  const handler = createIpfsHandler({ kubo: fakeKubo('stopped'), settings: settings({ publicGateway: 'http://192.168.1.10:8080' }) });
+  const html = await (await handler(new Request(`ipfs://${CID}/`))).text();
+  assert.match(html, /must use https/);
+  assert.ok(!/Use public gateway once/.test(html));
+  const explicit = createIpfsHandler({ kubo: fakeKubo('ready'), settings: settings({ publicGateway: 'https://localhost', preferredGateway: 'public' }) });
+  const res = await explicit(new Request(`ipfs://${CID}/`));
+  assert.equal(res.status, 502);
+  assert.match(await res.text(), /public host/);
+});
+
+test('handler: "Start node" from the interstitial starts the node', async () => {
+  let started = 0;
+  const kubo = { ...fakeKubo('stopped'), start: async () => { started += 1; } };
+  const handler = createIpfsHandler({ kubo, settings: settings() });
+  const html = await (await handler(new Request(`ipfs://${CID}/`))).text();
+  const start = /href="([^"]*bucks-gateway=start\.[^"]+)"/.exec(html)[1].replace(/&amp;/g, '&');
+  const res = await handler(new Request(start));
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get('location'), `ipfs://${CID}/`);
+  assert.equal(started, 1);
 });
 
 test('handler never throws: a kubo that explodes yields a 500 page', async () => {
@@ -201,15 +272,15 @@ test('handler: a gateway redirect that points back at the same ipfs:// URL is fo
   const res = await handler(new Request(`ipfs://${CID}/`));
   assert.equal(res.status, 200);
   assert.equal(await res.text(), 'followed');
-  assert.equal(flaky.seen.length, 2);
+  assert.equal(seenFor(flaky, `/ipfs/${CID}/`).length, 2);
 
   // a gateway that redirects to itself forever is cut off after a few hops and surfaced as a redirect
   const loop = await fakeGateway(t, {
-    '*': (req, res) => { res.writeHead(301, { location: `http://${req.headers.host}/ipfs/${CID}/` }); res.end(); },
+    [`/ipfs/${CID}/`]: (req, res) => { res.writeHead(301, { location: `http://${req.headers.host}/ipfs/${CID}/` }); res.end(); },
   });
   const handler2 = createIpfsHandler({ kubo: fakeKubo('ready', { gateway: loop.base }), settings: settings() });
   const res2 = await handler2(new Request(`ipfs://${CID}/`));
   assert.equal(res2.status, 301);
   assert.equal(res2.headers.get('location'), `ipfs://${CID}/`);
-  assert.equal(loop.seen.length, 4);
+  assert.equal(seenFor(loop, `/ipfs/${CID}/`).length, 4);
 });

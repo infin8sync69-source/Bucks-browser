@@ -11,6 +11,8 @@ import { createSettings } from './settings.js';
 import { createKubo } from './ipfs/kubo.js';
 import { registerIpfsIpc } from './ipfs/ipc.js';
 import { createDevices } from './ipfs/devices.js';
+import { createSites } from './sites/ipc.js';
+import { createSiteTools } from './sites/agent-tools.js';
 import { createMainWindow, registerWindowIpc } from './window.js';
 import { createTabManager } from './tabs.js';
 import { installAppMenu } from './menu.js';
@@ -97,17 +99,24 @@ app.whenReady().then(async () => {
   kubo = createKubo({ settings, userData, resourcesDir: resourcesDir(), getMainWindow, fetchImpl });
   registerIpfsIpc({ kubo, settings, getMainWindow });
   // Device pairing and file sharing between Bucks installs over Kubo peering + pubsub.
-  createDevices({ kubo, settings, userData, getMainWindow });
+  const devices = createDevices({ kubo, settings, userData, getMainWindow });
   if (settings.get().ipfs.autoStart) {
     kubo.start().catch((e) => log.error('IPFS start failed:', e));
   }
 
   // Custom schemes: bucks:// serves the chrome, ipfs:// & ipns:// stream from the node.
   installBucksProtocol({ session: session.defaultSession, uiDist });
-  installIpfsProtocols({ sessions: [session.defaultSession, webSession, privateSession], kubo, settings });
+  const ipfsHandler = installIpfsProtocols({ sessions: [session.defaultSession, webSession, privateSession], kubo, settings });
+  // Hosting sites from this browser (bucks:sites:*); its self-test goes through the same handler.
+  const sites = createSites({ kubo, settings, userData, handler: ipfsHandler, devices, getMainWindow });
 
   // Network security for web content: HTTPS-only, blocklists, permission gating.
-  const security = installSecurity({ sessions: [webSession, privateSession], settings, userData });
+  const security = installSecurity({
+    sessions: [webSession, privateSession],
+    settings,
+    userData,
+    nodeUrls: () => [kubo.status().api_url, kubo.status().gateway_url],
+  });
   // Unpacked Chrome extensions from <userData>/extensions (web tabs only, never the chrome).
   installExtensions({ session: webSession, userData }).loadAll().catch((e) => log.error('Loading extensions failed:', e));
 
@@ -116,7 +125,7 @@ app.whenReady().then(async () => {
   mainWindow = createMainWindow({ preloadPath, settings, devUrl: process.env.BUCKS_DEV_URL || null });
   registerWindowIpc({ getMainWindow });
 
-  tabs = createTabManager({ getMainWindow, webSession, privateSession, settings, security });
+  tabs = createTabManager({ getMainWindow, webSession, privateSession, settings, security, badgeFor: ipfsHandler.badgeFor });
   installAppMenu({ getMainWindow, tabs });
   installContextMenu({ tabs, getMainWindow });
   installDownloads({ sessions: [webSession, privateSession], settings, getMainWindow });
@@ -132,7 +141,7 @@ app.whenReady().then(async () => {
   // the selected agent provider.
   soul = createSoulEngine({ settings, userData, appRoot, resourcesDir: app.isPackaged ? resourcesDir() : null, getMainWindow });
   const docs = installDocs({ app, BrowserWindow });
-  createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl: createBrowserControl({ tabs, docs }) });
+  createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl: createBrowserControl({ tabs, docs }), siteTools: createSiteTools({ sites }) });
   installWeather({ fetchImpl });
   {
     const s = settings.get();

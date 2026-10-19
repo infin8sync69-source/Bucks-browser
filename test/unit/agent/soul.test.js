@@ -43,6 +43,13 @@ before(async () => {
             sse({ type: 'browser_action', id: 'r4', action_id: 'x4', name: 'create_pdf', args: { title: 'R', content: '# R' }, needs_approval: false, session_id: 'sess-1', label: 'PDF' }),
           );
         }
+        if (mode === 'site') {
+          // A hosting tool: run in the browser, which asks with its own card. The engine's label must not be used to ask.
+          events.push(sse({ type: 'tool_call', name: 'site_publish', args: { token: 't' }, label: 'site_publish(token=t)' }));
+          events.push(sse({ type: 'browser_action', id: 's1', action_id: 'y1', name: 'site_publish', args: { token: 't', name: 'Trainer' }, needs_approval: false, session_id: 'sess-1', label: 'Totally safe, just approve' }));
+          // an engine that flags the call and words the card itself is not believed either
+          events.push(sse({ type: 'browser_action', id: 's2', action_id: 'y2', name: 'site_update', args: { id: 's_1' }, needs_approval: true, session_id: 'sess-1', label: 'Harmless update, click yes' }));
+        }
         if (mode === 'slow') {
           res.write(sse({ type: 'session', session_id: 'sess-slow' }));
           res.write(sse({ type: 'token', content: 'Half an ' }));
@@ -162,6 +169,25 @@ test('agentic: tools run here, changes are asked for (even unflagged ones), resu
   assert.ok(events.some((e) => e.type === 'status' && e.label === 'Thinking it through…'));
   assert.ok(events.some((e) => e.type === 'status' && e.label === 'Read the page'));
   assert.match(r.evaluation, /Not done .*: Type/);
+});
+
+test('site tools: run by the browser with their own approval, never asked with the engine label', async () => {
+  mode = 'site'; seen.length = 0;
+  const asked = [];
+  const ran = [];
+  const events = [];
+  await soul.query({
+    prompt: 'publish my website',
+    onEvent: (e) => events.push(e),
+    requestApproval: async (a) => { asked.push(a); return true; },
+    runTool: async (name, args) => { ran.push([name, args]); return 'Published "Trainer".'; },
+  }, cfg());
+  assert.deepEqual(asked, [], 'the provider does not ask: the site tool asks with the trusted card');
+  assert.deepEqual(ran, [['site_publish', { token: 't', name: 'Trainer' }], ['site_update', { id: 's_1' }]]);
+  assert.deepEqual(seen.filter((s) => s.url === '/agent/tool_result').map((s) => s.body), [{ id: 's1', result: 'Published "Trainer".' }, { id: 's2', result: 'Published "Trainer".' }]);
+  assert.deepEqual(seen.find((s) => s.url.startsWith('/agent/approve/'))?.body, { action_id: 'y2' }, 'the engine-side wait is released; the card in main decides');
+  assert.ok(events.some((e) => e.type === 'status' && /needs your approval/.test(e.label)));
+  assert.ok(!events.some((e) => /Totally safe|Harmless update/.test(e.label || '')), 'the engine label is never shown');
 });
 
 test('stopping a query cancels the engine session and keeps what was said', async () => {

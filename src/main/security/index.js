@@ -16,6 +16,7 @@ const log = createLogger('security');
  * @param {{ get(): object, onChange(cb: (s: object) => void): () => void }} opts.settings
  * @param {string} opts.userData directory for the ad-block engine cache
  * @param {typeof fetch} [opts.fetchImpl] used to download the filter lists (defaults to Electron's net.fetch)
+ * @param {() => Array<string|null>} [opts.nodeUrls] the IPFS node's API and gateway URLs, which web pages may not call
  * @returns {{
  *   stats(): { blockedRequests: number, httpsUpgrades: number, adBlockReady: boolean },
  *   allowHttpHost(host: string): void,
@@ -26,10 +27,10 @@ const log = createLogger('security');
  *   dispose(): void,
  * }}
  */
-export function installSecurity({ sessions, settings, userData, fetchImpl }) {
+export function installSecurity({ sessions, settings, userData, fetchImpl, nodeUrls }) {
   const net = electron.net;
   const fetcher = fetchImpl || (net?.fetch ? (...args) => net.fetch(...args) : globalThis.fetch);
-  const filter = createFilterController({ settings: settings.get(), userData, fetchImpl: fetcher });
+  const filter = createFilterController({ settings: settings.get(), userData, fetchImpl: fetcher, nodeUrls });
   const defaultSession = electron.session?.defaultSession;
 
   for (const ses of sessions) {

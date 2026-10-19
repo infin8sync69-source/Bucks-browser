@@ -24,7 +24,14 @@ export const app = {
 export const shell = { openExternal: async () => {}, openPath: async () => '', showItemInFolder: noop };
 export const clipboard = { writeText: noop, writeImage: noop };
 export const screen = { getAllDisplays: () => [] };
-export const dialog = { showSaveDialog: async () => ({ canceled: true }) };
+export const dialog = { showSaveDialog: async () => ({ canceled: true }), showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
+/** Tests flip isEncryptionAvailable to exercise both paths. */
+export const safeStorage = {
+  available: false,
+  isEncryptionAvailable() { return this.available; },
+  encryptString: (s) => Buffer.from(`enc:${Buffer.from(s).toString('base64')}`),
+  decryptString: (b) => Buffer.from(String(b).slice(4), 'base64').toString(),
+};
 export const nativeImage = { createEmpty: () => ({ getSize: () => ({ width: 0, height: 0 }) }) };
 export const session = { fromPartition: () => ({ on: noop, protocol: { handle: noop } }), defaultSession: { on: noop, protocol: { handle: noop } } };
 
@@ -48,4 +55,4 @@ export class MenuItem {
   }
 }
 
-export default { ipcMain, app, shell, clipboard, screen, dialog, nativeImage, session, BrowserWindow, WebContentsView, Menu, MenuItem };
+export default { ipcMain, app, shell, clipboard, screen, dialog, safeStorage, nativeImage, session, BrowserWindow, WebContentsView, Menu, MenuItem };

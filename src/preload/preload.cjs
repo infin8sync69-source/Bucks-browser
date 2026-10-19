@@ -233,6 +233,38 @@ const api = Object.freeze({
     onUpdated: (cb) => subscribe('bucks:devices:updated', cb),
   }),
 
+  sites: Object.freeze({
+    /** Native folder dialog. @returns {Promise<{ token: string, name: string, hints: SiteFolderHints } | null>} null when cancelled */
+    chooseFolder: () => invoke('bucks:sites:choose-folder'),
+    /** Run the preflight checks P1–P12. opts: { exclude?: string[], useShellAsIndex?, enableSpa? }. @returns {Promise<SiteInspection>} */
+    inspect: (token, opts) => invoke('bucks:sites:inspect', { ...(opts || {}), token }),
+    /** Add unpinned and mark as "Preview, not published"; open the url in a private tab. @returns {Promise<{ previewCid: string, url: string }>} */
+    preview: (token, opts) => invoke('bucks:sites:preview', { ...(opts || {}), token }),
+    /** @returns {Promise<{ id: string, cid: string, ipns: string|null, urls: SiteUrls, announce: object, copies: object, checks: object[] }>} */
+    publish: ({ token, name, ipns, hosting, ...opts }) => invoke('bucks:sites:publish', { ...opts, token, name, ipns, hosting }),
+    /** Without confirm: a dry run returning the diff. With confirm (and expectCid from the dry run): publish. */
+    update: ({ id, token, confirm, expectCid, ...opts }) => invoke('bucks:sites:update', { ...opts, id, token, confirm, expectCid }),
+    /** @returns {Promise<SiteRecord[]>} */
+    list: () => invoke('bucks:sites:list'),
+    /** Health: the highest state reached and the one check that failed. @returns {Promise<SiteHealth>} */
+    status: (id) => invoke('bucks:sites:status', { id }),
+    rollback: (id, cid) => invoke('bucks:sites:rollback', { id, cid }),
+    /** mode: 'stop' | 'unpin' | 'delete-key' (confirm: the site name, typed by the user) */
+    unpublish: (id, mode, confirm) => invoke('bucks:sites:unpublish', { id, mode, confirm }),
+    /** Encrypts the address key with the passphrase; the save dialog runs in main. @returns {Promise<{ ok: boolean, path?: string }>} */
+    backupKey: (id, passphrase) => invoke('bucks:sites:backup-key', { id, passphrase }),
+    /** Restore a key backup (open dialog in main). Without id: "Restore a site"; withCar also asks for a CAR file. */
+    restoreKey: ({ id, passphrase, withCar }) => invoke('bucks:sites:restore-key', { id, passphrase, withCar }),
+    /** @returns {Promise<{ path: string|null, bytes?: number, cid?: string }>} */
+    exportCar: (id) => invoke('bucks:sites:export-car', { id }),
+    /** @returns {Promise<Array<{ name: string, endpoint: string }>>} */
+    pinningServices: () => invoke('bucks:sites:pinning-services'),
+    addPinningService: ({ name, endpoint, token }) => invoke('bucks:sites:add-pinning-service', { name, endpoint, token }),
+    removePinningService: (name) => invoke('bucks:sites:remove-pinning-service', { name }),
+    /** ({ id, step: 'inspect'|'add'|'self-test'|'name'|'announce'|'record', done, total, message }) */
+    onProgress: (cb) => subscribe('bucks:sites:progress', cb),
+  }),
+
   updater: Object.freeze({
     /** @returns {Promise<UpdateStatus>} local checkout state, no network. */
     status: () => invoke('bucks:updater:status'),
