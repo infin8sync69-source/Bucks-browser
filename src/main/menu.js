@@ -54,7 +54,12 @@ export function buildMenuTemplate({ platform = process.platform, emit, tabs, get
     label: 'File',
     submenu: [
       item('New Tab', 'CmdOrCtrl+T', 'new-tab'),
+      item('New Private Tab', 'CmdOrCtrl+Shift+N', 'new-private-tab'),
+      item('Reopen Closed Tab', 'CmdOrCtrl+Shift+T', 'reopen-closed-tab'),
       item('Close Tab', 'CmdOrCtrl+W', 'close-tab'),
+      { type: 'separator' },
+      item('Print…', 'CmdOrCtrl+P', 'print'),
+      item('Save Page as PDF…', 'CmdOrCtrl+Shift+S', 'save-pdf'),
       { type: 'separator' },
       item('Open Location', 'CmdOrCtrl+L', 'focus-omnibox'),
       item('Downloads', 'CmdOrCtrl+J', 'open-downloads'),
@@ -75,7 +80,16 @@ export function buildMenuTemplate({ platform = process.platform, emit, tabs, get
       { role: 'delete' },
       { role: 'selectAll' },
       { type: 'separator' },
-      item('Find in Page…', 'CmdOrCtrl+F', 'find'),
+      {
+        label: 'Find in Page…',
+        accelerator: 'CmdOrCtrl+F',
+        // The find field lives in the chrome: take keyboard focus from the page first.
+        click: () => {
+          const wc = getMainWindow()?.webContents;
+          if (wc && !wc.isDestroyed()) wc.focus();
+          emit('find');
+        },
+      },
     ],
   };
 

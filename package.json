@@ -2,13 +2,14 @@
   "name": "bucks-browser",
   "productName": "Bucks Browser",
   "version": "2.0.0",
-  "description": "Bucks Browser — a decentralised, IPFS-native web browser",
+  "description": "Bucks Browser \u2014 a decentralised, IPFS-native web browser",
   "main": "src/main/index.js",
   "type": "module",
   "private": true,
   "license": "MIT",
   "author": "Bucks",
   "homepage": "https://github.com/infin8sync69-source/Bucks-browser",
+  "desktopName": "bucks-browser.desktop",
   "engines": {
     "node": ">=20"
   },

@@ -20,7 +20,8 @@ This document is the single source of truth for how the three layers talk to eac
 │  ├ downloads.js       will-download → bucks:downloads:*                   │
 │  ├ menu.js            native menu + accelerators → bucks:app:shortcut     │
 │  ├ context-menu.js    right-click menus on web content                    │
-│  ├ agent/bridge.js    bucks:agent:* (offline | remote | ollama providers) │
+│  ├ agent/bridge.js    bucks:agent:* (offline|remote|ollama|soul providers)│
+│  ├ agent/soul-engine.js  Soul Engine sidecar supervisor (agent/, Python) │
 │  ├ wallet/proxy.js    bucks:wallet:rpc → configured Bucks node            │
 │  └ shell.js           bucks:shell:open-external                           │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -71,7 +72,14 @@ interface TabState {
   canGoForward: boolean;
   error: { code: number; description: string; url: string } | null;
   audible?: boolean;
+  muted?: boolean;             // audio muted by the user
+  zoom?: number;               // page zoom in percent (100 = actual size)
+  private?: boolean;           // lives in the in-memory private session
 }
+
+interface FoundInPage { id: string; requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }
+
+interface DefaultBrowserStatus { isDefault: boolean; protocols: Record<string, boolean>; opensSystemSettings: boolean }
 
 interface IpfsStatus {
   state: 'idle' | 'initializing' | 'ready' | 'error' | 'stopped';
@@ -97,6 +105,35 @@ interface AgentResult {
   evaluation: string;          // natural-language answer
   cid?: string | null; task_id?: string | null;
   a2ui?: { type: string; url?: string; action?: string; content?: string; [k: string]: any } | null;
+  components?: UiComponent[];  // soul provider: cards, sanitised in main; render as text only
+  followups?: string[];        // soul provider: suggested next questions (≤ 4)
+  tools?: string[];            // soul provider: tools the agent used
+}
+
+// Generative-UI card (src/main/agent/genui.js). Strings are bounded; every url is http(s), ipfs or ipns.
+type UiComponent =
+  | { component: 'answer'; title: string; text: string }
+  | { component: 'list'; title: string; items: { title: string; subtitle: string; url: string }[] }
+  | { component: 'table'; title: string; columns: string[]; rows: string[][] }
+  | { component: 'stats'; title: string; stats: { label: string; value: string; delta: string }[] }
+  | { component: 'chart'; title: string; kind: 'line' | 'bar' | 'pie'; series: { label: string; value: number }[] }
+  | { component: 'timeline'; title: string; events: { date: string; title: string; text: string }[] }
+  | { component: 'checklist'; title: string; items: { text: string; done: boolean }[] }
+  | { component: 'accordion'; title: string; items: { heading: string; text: string }[] }
+  | { component: 'code'; title: string; language: string; code: string }
+  | { component: 'weather'; title: string; place: string; current: {…}; days: {…}[] }
+  | { component: 'links'; title: string; actions: ({ label: string; url: string } | { label: string; query: string })[] };
+
+interface SoulStatus {
+  state: 'idle' | 'unavailable' | 'installing' | 'starting' | 'loading' | 'ready' | 'error' | 'stopped';
+  message: string;             // human-readable, says what to do when not ready
+  url: string | null;          // http://127.0.0.1:<port> while running (the token never leaves main)
+  backend: 'edge' | 'ollama' | 'nim' | 'litai';
+  model: string | null;
+  mode: string | null;         // the engine's /health mode
+  python: string | null;       // interpreter in use
+  agentDir: string | null;     // folder with soul_engine.py
+  dataDir: string;             // <userData>/soul-engine (data, venv, workspace, .env for API keys)
 }
 
 interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
@@ -107,9 +144,12 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | Area | Channel | Payload → Result |
 |---|---|---|
 | app | `bucks:app:info` | → `{ name, version, userData }` |
-| app | `bucks:app:shortcut` (event) | `{ action }` where action ∈ `new-tab`, `close-tab`, `focus-omnibox`, `reload`, `back`, `forward`, `next-tab`, `prev-tab`, `find`, `zoom-in`, `zoom-out`, `zoom-reset`, `toggle-devtools`, `open-settings`, `open-downloads`, `open-ipfs`, `open-wallet`, `toggle-agent` |
+| app | `bucks:app:shortcut` (event) | `{ action }` where action ∈ `new-tab`, `close-tab`, `focus-omnibox`, `reload`, `back`, `forward`, `next-tab`, `prev-tab`, `find`, `zoom-in`, `zoom-out`, `zoom-reset`, `toggle-devtools`, `open-settings`, `open-downloads`, `open-ipfs`, `open-wallet`, `toggle-agent`, `new-private-tab`, `reopen-closed-tab`, `print`, `save-pdf` |
+| app | `bucks:app:chrome-ready` | the chrome is wired up; links the OS handed over before this (command line, `open-url`) are delivered as `bucks:tabs:open-request` |
+| app | `bucks:app:default-browser` → `DefaultBrowserStatus`; `bucks:app:set-default-browser` → `DefaultBrowserStatus` (Windows: opens Settings → Default apps) |
+| browsing-data | `bucks:browsing-data:clear` `{ cookies?, cache?, siteData? }` → `{ cleared: string[] }` (web and private sessions; history and closed tabs are cleared by the chrome) |
 | window | `bucks:window:minimize` / `maximize` / `close` / `is-maximized` ; event `bucks:window:maximized` `(bool)` |
-| tabs | `bucks:tabs:create` `{ id, url }` → `TabState` |
+| tabs | `bucks:tabs:create` `{ id, url, private? }` → `TabState` (`private`: in-memory session `bucks-private`, wiped when its last tab closes) |
 | tabs | `bucks:tabs:navigate` `{ id, url }` → `TabState` (creates the view if missing) |
 | tabs | `bucks:tabs:close` `{ id }` |
 | tabs | `bucks:tabs:activate` `{ id \| null }` |
@@ -119,6 +159,11 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | tabs | `bucks:tabs:set-content-visible` `{ visible }` |
 | tabs | `bucks:tabs:capture` `{ id }` → PNG data URL |
 | tabs | `bucks:tabs:extract-text` `{ id }` → `{ title, text, url }` |
+| tabs | `bucks:tabs:find` `{ id, text, forward?, findNext?, matchCase? }` → request id (`findNext: true` steps through the current search); event `bucks:tabs:found-in-page` `(FoundInPage)` |
+| tabs | `bucks:tabs:stop-find` `{ id, action }` (`clearSelection` \| `keepSelection` \| `activateSelection`) |
+| tabs | `bucks:tabs:zoom` `{ id, action }` (`in` \| `out` \| `reset`) → zoom in percent |
+| tabs | `bucks:tabs:set-muted` `{ id, muted }` |
+| tabs | `bucks:tabs:print` `{ id }` → `{ printed }`; `bucks:tabs:print-to-pdf` `{ id }` → `{ path \| null }` (asks where to save) |
 | tabs | event `bucks:tabs:updated` `(TabState)` — on every navigation/title/favicon/loading change |
 | tabs | event `bucks:tabs:open-request` `({ openerId, url, disposition })` — window.open / target=_blank / middle-click / `bucks://` links from pages |
 | tabs | event `bucks:tabs:closed` `({ id })` |
@@ -138,10 +183,24 @@ interface Settings { /* see DEFAULT_SETTINGS in src/main/settings.js */ }
 | ipfs | `bucks:ipfs:normalize-url` `{ url }` → canonical ipfs:// url |
 | settings | `bucks:settings:get` → `Settings`; `bucks:settings:set` `(patch)` → `Settings`; event `bucks:settings:changed` `(Settings)` |
 | downloads | `bucks:downloads:list` → `DownloadItem[]`; `open` / `show-in-folder` / `cancel` `{ id }`; `clear`; event `bucks:downloads:event` `(DownloadItem)` |
-| agent | `bucks:agent:status` → `{ online, provider, model?, providers }` |
-| agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId }` → `AgentResult` |
+| agent | `bucks:agent:status` → `{ online, provider, model?, detail?, providers }` (`detail`: why the soul provider cannot answer) |
+| agent | `bucks:agent:query` `{ prompt, currentUrl, currentTitle, tabId, queryId?, history?: { role: 'user'\|'assistant', content }[], attachments?: ({ kind: 'file', name, mime, dataBase64 } \| { kind: 'cid', cid })[], agentic? }` → `AgentResult` (plus `documents?: string[]`, files the agent wrote). `agentic` lets the Soul Engine act in tab `tabId`, with approval |
+| agent | `bucks:agent:cancel` `{ queryId }` → `boolean` (stops the query; pending approvals are refused) |
+| agent | `bucks:agent:approve` `{ requestId, approve }` → `boolean` |
+| agent | event `bucks:agent:event` `{ queryId, type: 'status', label }` · `{ queryId, type: 'approval', requestId, name, label, expiresAt }` · `{ queryId, type: 'approval-done', requestId, approved }` |
+| docs | `bucks:docs:create` `{ title, content, format: 'md'\|'txt'\|'html'\|'pdf' }` → `{ path }` (in `<Documents>/Bucks`, never overwriting) |
+| docs | `bucks:docs:show` `{ path }` (only files Bucks wrote this session) |
 | agent | `bucks:agent:feedback` `{ taskId, score, correction }` |
 | agent | `bucks:agent:list-models` → `string[]` |
+| agent | `bucks:agent:soul-status` → `SoulStatus`; event `bucks:agent:soul-status` `(SoulStatus)` |
+| agent | `bucks:agent:soul-start` / `soul-stop` → `SoulStatus` |
+| agent | `bucks:agent:soul-install` → `SoulStatus` (creates `<userData>/soul-engine/venv`, installs the engine's packages, then starts it) |
+| agent | `bucks:agent:soul-models` → `{ models: { id, sizeGb, fitsRam, downloaded, current }[], current, provider, activeModel }` (throws while the engine is not running) |
+| agent | `bucks:agent:soul-select-model` `{ id }` → same shape (on-device backend only; the first switch to a model downloads it and can take many minutes) |
+| agent | `bucks:agent:soul-download-progress` → `{ active, modelId, downloadedBytes, totalBytes }` |
+| agent | `bucks:agent:soul-pending` → `{ id, kind: 'fragment'\|'adapter', cid, summary, peerSoulId, peer: { locality, capabilities } \| null, createdAt }[]` (`[]` while the engine is not running) |
+| agent | `bucks:agent:soul-decide` `{ id, action: 'approve'\|'deny' }` → the updates still pending (approve adopts the fragment or pins the adapter CID) |
+| widgets | `bucks:widgets:weather` `{ city }` → `{ place, temperature, apparent, humidity, wind, isDay, label, icon, days: { date, max, min, label, icon }[], units, fetchedAt }` (Open-Meteo; only the city name is sent; cached 15 min) |
 | wallet | `bucks:wallet:rpc` `{ method, path, body }` → parsed JSON (throws on network / non-2xx) |
 | security | `bucks:security:stats` → `{ blockedRequests, httpsUpgrades, adBlockReady }` |
 | shell | `bucks:shell:open-external` `{ url }` (http, https, mailto only) |
@@ -163,15 +222,23 @@ installIpfsProtocols({ sessions, kubo, settings })      // registers ipfs & ipns
 installSecurity({ sessions, settings, userData })      → security { stats() }
 createMainWindow({ preloadPath, settings, devUrl })     → BrowserWindow (loads devUrl or bucks://app/)
 registerWindowIpc({ getMainWindow })
-createTabManager({ getMainWindow, webSession, settings, security })
+createTabManager({ getMainWindow, webSession, privateSession, settings, security })
    → tabs { create(id,url), navigate(id,url), close(id), activate(id), back(id), forward(id), reload(id),
             stop(id), getState(id), setContentBounds(b), setContentVisible(v), capture(id),
             extractText(id), getActiveId(), getWebContents(id), ids() }
 installAppMenu({ getMainWindow, tabs })
 installContextMenu({ tabs, getMainWindow })
-installDownloads({ session, settings, getMainWindow })
+installDownloads({ sessions, settings, getMainWindow })   // web + private sessions
+installBrowsing({ sessions, getMainWindow })            → browsing { defaultStatus(), setDefault(), clear(what), openFromArgv(argv), openUrl(url), chromeLoaded() }
 registerShellIpc()
-createAgent({ settings, tabs, kubo })
+createSoulEngine({ settings, userData, appRoot, resourcesDir, getMainWindow })
+   → soul { start(), stop(), restart(), install(), status(): SoulStatus, onStatus(cb), isReady(),
+            isRunning(), connection(): { url, token } | null, engineDir,
+            models(), selectModel(id), downloadProgress(), pendingUpdates(), decideUpdate(id, action) }
+installDocs({ app, BrowserWindow })                       → docs { create(), savePdf(), wrote(path) }
+createBrowserControl({ tabs, docs })                     → { execute(name, args, { tabId, tabTools, onFile }) }
+createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl })
+installWeather({ fetchImpl })                            // net.fetch; BUCKS_WEATHER_GEOCODE_URL / _FORECAST_URL override Open-Meteo
 createWalletProxy({ settings })
 createDevices({ kubo, settings, userData, getMainWindow }) → devices service (see "Devices" below)
 ```

@@ -16,6 +16,11 @@
     // ── Derived grid ─────────────────────────────────────────────────────────
     let layout = $derived($homeStore);
 
+    // Only the rows in use are shown; all of them while arranging or dragging.
+    let lastUsedRow = $derived(
+        Object.keys(layout).reduce((max, k) => (layout[k] ? Math.max(max, Number(k.split(',')[0])) : max), -1),
+    );
+
     function getCell(row: number, col: number): MiniApp | null {
         const id = layout[`${row},${col}`];
         return id ? (getApp(id) ?? null) : null;
@@ -23,6 +28,7 @@
 
     // ── Edit mode ────────────────────────────────────────────────────────────
     let editMode = $state(false);
+    let visibleRows = $derived(editMode || $dragState.active ? GRID_ROWS : Math.min(GRID_ROWS, Math.max(1, lastUsedRow + 1)));
     let longPressTimer: ReturnType<typeof setTimeout>;
 
     function startLongPress(row: number, col: number) {
@@ -84,16 +90,16 @@
     function handleBackdropClick() { if (editMode) editMode = false; }
 </script>
 
-<!-- Home screen — fills the available area below Header + above AgenticBar -->
+<!-- Home screen app grid — part of the new-tab dashboard column -->
 <div
-    class="absolute inset-0 flex flex-col items-center justify-center"
+    class="relative flex flex-col items-center"
     onclick={handleBackdropClick}
     role="presentation"
 >
     <!-- App grid -->
-    <div class="relative grid gap-3 p-6" style="grid-template-columns: repeat({GRID_COLS}, 80px); grid-template-rows: repeat({GRID_ROWS}, 90px);">
+    <div class="relative grid gap-3 p-6" style="grid-template-columns: repeat({GRID_COLS}, 80px); grid-template-rows: repeat({visibleRows}, 90px);">
 
-        {#each Array.from({ length: GRID_ROWS }) as _, row}
+        {#each Array.from({ length: visibleRows }) as _, row}
             {#each Array.from({ length: GRID_COLS }) as _, col}
                 {@const app = getCell(row, col)}
                 {@const key  = `${row},${col}`}
@@ -184,7 +190,7 @@
     <!-- ── Edit mode toolbar ──────────────────────────────────────────────── -->
     {#if editMode}
         <div
-            class="absolute bottom-28 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5
+            class="fixed bottom-28 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2.5
                    bg-[#0d0d12]/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl"
             transition:fade={{ duration: 200 }}
         >

@@ -11,7 +11,7 @@ Four kinds of code run, and they trust each other as little as possible.
 ```
  +---------------------------- main process (src/main, Node, ES modules) ----------------------------+
  |  settings   window   tabs (TabManager)   protocols (bucks://, ipfs://, ipns://)   kubo + rpc      |
- |  security   downloads   menu   context menu   agent   wallet proxy   shell   updater              |
+ |  security   downloads   menu   context menu   agent + Soul Engine sidecar   wallet proxy   updater  |
  +-----------------------------+------------------------------------------+--------------------------+
                                | ipcMain.handle / webContents.send        | WebContentsView.setBounds
                                | (channels "bucks:<area>:<action>")       | + navigation events
@@ -65,7 +65,7 @@ page should go and hides the view while an overlay is open; see the content rect
 
 | Owner | Owns |
 |---|---|
-| Chrome renderer | The list of tabs, their order, which is active, bookmarks and history (persisted in `localStorage`). Tab ids are generated here and passed to main in `tabs.create(id, url)`. |
+| Chrome renderer | The list of tabs, their order, which is active, spaces, pins, names, colours, the closed-tab stack, bookmarks and history (persisted in `localStorage`; private tabs never are). Tab ids are generated here and passed to main in `tabs.create(id, url, { private })`. |
 | Main process | One `WebContentsView` per external tab, created lazily (at startup only the active external tab gets a view). Internal tabs (`bucks://ipfs`, `bucks://settings`, ...) have no view; the chrome hides the content area and renders a route instead. |
 
 Main pushes `bucks:tabs:updated` (a `TabState`) on every navigation, title, favicon or loading
@@ -232,6 +232,22 @@ never receive a preload, Node, or any IPC handle.
   Today those keys are saved in the interface's `localStorage`, unencrypted, inside your profile
   directory, so anyone who can read that directory can read them. Moving them into the OS
   keychain is the first item on the roadmap.
+- **Soul Engine.** Listens on loopback only and requires a per-launch bearer token on every
+  endpoint but `GET /health`, so web pages (which can send requests to `127.0.0.1`) cannot drive
+  it; no CORS is offered. Its file tools are confined to `<userData>/soul-engine/workspace`. Cards
+  it returns are reduced to plain data in main (http(s)/ipfs/ipns links only, bounded sizes) and
+  the chrome renders them as text without loading remote images, because the chrome's session has
+  none of the tab session's tracker blocking. The default backend runs on the device; cloud
+  backends need the user's own key and the UI says that prompts leave the device.
+- **Private tabs.** They use their own in-memory session (`bucks-private`) with the same
+  protocols, security layer and downloads as normal tabs; nothing of it is written to disk, the
+  chrome never persists them or records them in history, and main clears the session when its last
+  tab closes.
+- **Extensions.** Unpacked extensions from `<userData>/extensions` are loaded into the web
+  session only, never the chrome's, so they cannot script the interface.
+- **Links from the OS.** URLs on the command line (first or second launch) and macOS `open-url`
+  are limited to http(s), ipfs, ipns and file URLs and opened as new tabs once the chrome reports
+  `bucks:app:chrome-ready`.
 - **External links.** `bucks:shell:open-external` accepts only `http:`, `https:` and `mailto:`.
 - **Downloads.** File names are sanitised for every OS and made unique in the target directory.
 - **IPC.** Handlers validate their payloads and throw `Error` with a human-readable message.
@@ -250,12 +266,88 @@ in `settings.agent.provider`:
 | `offline` | `providers/offline.js` | Pure rules: turns "go to ...", bare domains, CIDs, "search ..." and a few page names (wallet, IPFS, settings, downloads) into a navigation or UI action. Always available. |
 | `remote` | `providers/remote.js` | `POST <remoteUrl>/api/v1/swarm/task` with the prompt and current page; feedback to `/api/v1/swarm/feedback`. Probed for availability with a short ping. |
 | `ollama` | `providers/ollama.js` | Chat with a local Ollama model. The system prompt asks it to end with one JSON action block when the browser should act; page text is sent only when the question is about the current page. |
+| `soul` | `providers/soul.js` | The Soul Engine sidecar (below). `POST /agent` with the question, attachments, page context and the conversation so far, read as server-sent events: answer tokens, generative-UI cards (`ui_component`, normalised by `genui.js`), `<followup>` suggestions, tool names, progress, and `browser_action` requests (see "The agent acting in a tab"). Feedback goes to `/agent/feedback`. |
+
+Every query carries the last turns of its thread (`history`, at most 12, 2,000 characters each)
+and any attachments. Attachments (files up to 5 MB, IPFS CIDs through the embedded node) are read
+in main by `agent/attachments.js` and handed to the provider as text (images and binaries are
+named, with a note), because a small model given only a file name invents its contents. Each query
+has an id: `bucks:agent:cancel` stops it (every provider stops at once; the Soul Engine is also told
+to cancel its session) and its progress arrives as `bucks:agent:event`.
+
+Threads are kept by the chrome (`localStorage`, 50 threads of 200 messages), so they work the same
+with every provider. Slash commands (`ui/src/lib/agent/slash.ts`) open Bucks pages, run local
+actions (new chat, save the page as PDF, publish text to IPFS) or become a clear request for the
+agent; `/agent <task>` asks the agent to act in the tab.
 
 Answers can carry an `a2ui` action (`navigate`, `open_tab`, `search`, `action`, `text`) that the
 interface executes. Availability is cached for 10 s. When the selected provider is unreachable or fails,
 the request is answered by the offline rules and the answer says why (status `offline_fallback`).
 Page text for the model comes from `tabs.extractText`, which reads `innerText` of the tab in an
 isolated world, truncated.
+
+## The agent acting in a tab
+
+With "act in this tab" (or `/agent <task>`) and the Soul Engine selected, the query is sent with
+`agentic: true` and the engine may call its browser tools. It asks Bucks to run each one with a
+`browser_action` event and waits for the result at `/agent/tool_result`.
+
+- `agent/browser-control.js` runs them on the tab the question came from (never another one):
+  `browser_read_page` (an indexed list of the page's links, buttons and fields; each gets a
+  `data-bucks-ref`), `browser_click`, `browser_type` (real text input through
+  `webContents.insertText`), `browser_scroll`, `browser_navigate` (http, https, ipfs and ipns
+  only), `browser_screenshot`. Page scripts run in an isolated world, so the page cannot replace
+  the functions they use; refs must be numbers.
+- **Approval.** Clicking, typing and navigating always wait for the user, whatever the engine's
+  `needs_approval` flag says; so do the engine's own state-changing tools (cluster votes and pins).
+  The chrome shows an Allow / Refuse card naming the element; no answer within 25 seconds is a
+  refusal (the engine itself gives up after 30). Stopping the query refuses everything pending.
+- Without "act in this tab" the browser tools answer that acting was not enabled, so a request that
+  did not ask for it cannot touch the page.
+- **Documents.** `create_document`, `create_pdf` (Markdown rendered by `docs.js` in a hidden window
+  with JavaScript off) and `page_to_pdf` write to `<Documents>/Bucks` under unique names; the answer
+  lists the files with a Show button. Any answer can also be saved as Markdown or PDF from the
+  chat. `bucks:docs:show` only reveals files Bucks wrote in this session.
+- The engine skips its shortcut pipelines (shopping, weather, video, images, research) in agentic
+  mode: "click the Buy now button" is a page action, not a shopping search.
+
+## Soul Engine sidecar
+
+`src/main/agent/soul-engine.js` supervises the Python agent in `agent/` the way `kubo.js`
+supervises IPFS, and like it is plain Node so it runs under `node --test`. It runs only while
+`settings.agent.provider` is `soul`.
+
+1. **Locate.** Code: Settings `agent.soul.agentDir`, `$BUCKS_SOUL_DIR`, `<resources>/agent` when
+   packaged, `<appRoot>/agent` from source; the first with `soul_engine.py` wins. Interpreter:
+   Settings `agent.soul.python`, `$BUCKS_SOUL_PYTHON`, `<userData>/soul-engine/venv`,
+   `agent/.venv`. Nothing found: state `unavailable` with what to do.
+2. **Install** (on request). Find a system Python 3.10+, create `<userData>/soul-engine/venv`,
+   `pip install -r requirements-engine.txt` (plus `requirements-edge.txt` for the embedded
+   model), then start. Progress is reported as `installing` messages.
+3. **Spawn.** `python -m uvicorn soul_engine:app --host 127.0.0.1 --port <port>` with a free port
+   (or `agent.soul.port`) and a new 32-byte token in `BUCKS_SOUL_TOKEN`. The environment is the
+   app's, plus the user's `<userData>/soul-engine/.env` (cloud API keys), plus values Bucks owns
+   and the `.env` cannot override: the token, `BUCKS_DATA_DIR`/`BUCKS_HOME` =
+   `<userData>/soul-engine`, `BUCKS_PROJECT_ROOT` = its `workspace/` (the only folder its file
+   tools may read), `MODEL_PROVIDER` = `agent.soul.backend`. Output goes to
+   `<userData>/logs/soul-engine.log`.
+4. **Health.** `GET /health` (the one open endpoint) until it answers (60 s), then every 10 s
+   (2 s while the model loads). Modes map to states: `local_llm`/`cloud_llm` → `ready`, `loading`
+   → `loading`, `error`/`no_model`/`unconfigured`/`offline` → `error` with an explanation. An
+   engine in `error` keeps running so it recovers by itself (for example once Ollama starts).
+5. **Backend.** The engine remembers the last backend it was switched to, which outranks
+   `MODEL_PROVIDER`; after the first answer the supervisor aligns it with Settings through
+   `/providers/select`.
+6. **Crashes** restart with back-off of 2 s, 5 s and 15 s, three times; the counter resets after two
+   minutes of `ready`. **Stop** sends SIGTERM, then SIGKILL after 5 s (`taskkill /T /F` on Windows).
+   It only ever stops the process it started.
+7. **Settings changes** (`settingsAction`): choosing `soul` starts it (when `autoStart`), choosing
+   another provider stops it, and changing the backend, port, interpreter or code folder (or the
+   Ollama URL/model with the Ollama backend) restarts it.
+
+Status is pushed as `bucks:agent:soul-status` (`SoulStatus` in the contract). The bridge passes
+the running engine's `{ url, token }` to the provider in its config, and drops its 10 s
+availability cache on every status change.
 
 ## Startup sequence
 
@@ -268,9 +360,10 @@ isolated world, truncated.
 4. Install protocols: `bucks://` on the default session, `ipfs://` and `ipns://` on the default and web sessions.
 5. Install security on the web session (request filter, cookies, permissions) before any tab exists.
 6. Create the chrome window (loads `bucks://app/` or `BUCKS_DEV_URL`), then the tab manager, menu and
-   context menu, downloads, shell IPC, updater, agent and wallet proxy.
+   context menu, downloads, shell IPC, updater, the Soul Engine supervisor (started in the background
+   if `soul` is the selected provider and `agent.soul.autoStart` is on), agent and wallet proxy.
 7. On `window-all-closed` the app quits (except on macOS); on `before-quit` it waits up to 4 s for
-   `kubo.stop()`.
+   `kubo.stop()` and the Soul Engine's stop.
 
 ## File layout
 
@@ -301,12 +394,15 @@ src/
       ipc.js                  bucks:ipfs:*
     security/                 filter.js (request listener), blocklist.js, cookies.js,
                               permissions.js, index.js (bucks:security:stats)
-    agent/                    bridge.js, a2ui.js, providers/{offline,remote,ollama}.js
+    agent/                    bridge.js, a2ui.js, genui.js (cards), soul-engine.js (sidecar supervisor),
+                              providers/{offline,remote,ollama,soul}.js
     wallet/proxy.js           bucks:wallet:rpc
-    chat/                     end-to-end encrypted chat engine carried over from the previous
-                              app; CommonJS, not loaded by index.js yet (see ROADMAP.md)
+    chat/                     end-to-end encrypted chat engine from Bucks-App v1.1.0; reference
+                              code, not loaded by index.js yet (see chat/README.md, ROADMAP.md)
   preload/preload.cjs         window.bucks
 ui/                           SvelteKit chrome (src/routes: ipfs, settings, wallet, downloads, ...)
+agent/                        Soul Engine (Python): soul_engine.py, local_auth.py (token gate), tools/,
+                              requirements-engine.txt / requirements-edge.txt, tests/
 scripts/                      dev.mjs, fetch-kubo.mjs, check-main.mjs
 resources/kubo/<os>-<arch>/   Kubo binaries for packaging (git-ignored; os = linux | win | mac)
 build/icons/                  application icons

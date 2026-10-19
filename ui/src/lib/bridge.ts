@@ -25,6 +25,37 @@ export interface TabState {
     canGoForward: boolean;
     error: TabError | null;
     audible?: boolean;
+    /** Audio muted by the user. */
+    muted?: boolean;
+    /** Page zoom in percent (100 = actual size). */
+    zoom?: number;
+    /** Lives in the in-memory private session. */
+    private?: boolean;
+}
+
+export interface FoundInPage {
+    id: string;
+    requestId: number;
+    activeMatchOrdinal: number;
+    matches: number;
+    finalUpdate: boolean;
+}
+
+export interface ExtensionInfo {
+    id: string | null;
+    name: string;
+    version: string;
+    path: string;
+    /** Why it could not be loaded. */
+    error: string | null;
+}
+
+export interface DefaultBrowserStatus {
+    /** Bucks handles both http and https. */
+    isDefault: boolean;
+    protocols: Record<string, boolean>;
+    /** Windows: the OS only lets the user change it in Settings, which set opens. */
+    opensSystemSettings: boolean;
 }
 
 export interface OpenRequest {
@@ -126,21 +157,163 @@ export interface AgentResult {
     cid?: string | null;
     task_id?: string | null;
     a2ui?: A2UIPayload | null;
+    /** Generative-UI cards (Soul Engine), already sanitised by the main process. Render as text. */
+    components?: UiComponent[];
+    /** Suggested next questions (Soul Engine). */
+    followups?: string[];
+    /** Tools the agent used for this answer (Soul Engine). */
+    tools?: string[];
+    /** Documents the agent wrote while answering (paths in Documents/Bucks). */
+    documents?: string[];
 }
 
 export interface AgentStatus {
     online: boolean;
     provider: string;
     model?: string;
+    /** Why the provider cannot answer right now (Soul Engine). */
+    detail?: string;
     providers: string[];
 }
+
+// ── Soul Engine (docs/IPC-CONTRACT.md "Soul Engine") ──
+
+export type SoulBackend = 'edge' | 'ollama' | 'nim' | 'litai';
+
+export interface SoulSettings {
+    /** Start the engine at launch while it is the selected provider. */
+    autoStart: boolean;
+    /** edge = on-device model; ollama; nim / litai = cloud, with your key in <userData>/soul-engine/.env */
+    backend: SoulBackend;
+    /** 0 = a free loopback port at every start */
+    port: number;
+    /** '' = the private venv from Install, or agent/.venv in a source checkout */
+    python: string;
+    /** '' = the agent/ shipped with the app */
+    agentDir: string;
+}
+
+export type SoulState = 'idle' | 'unavailable' | 'installing' | 'starting' | 'loading' | 'ready' | 'error' | 'stopped';
+
+export interface SoulStatus {
+    state: SoulState;
+    message: string;
+    /** http://127.0.0.1:<port> while running */
+    url: string | null;
+    backend: SoulBackend;
+    model: string | null;
+    /** The engine's own /health mode (local_llm, cloud_llm, loading, …). */
+    mode: string | null;
+    python: string | null;
+    agentDir: string | null;
+    /** The engine's folder in the profile: data, venv, workspace and the .env for cloud API keys. */
+    dataDir: string;
+}
+
+/** One on-device model of the Soul Engine's catalogue. */
+export interface SoulModel {
+    id: string;
+    sizeGb: number;
+    /** Enough free memory to run it. */
+    fitsRam: boolean;
+    downloaded: boolean;
+    current: boolean;
+}
+
+export interface SoulModels {
+    models: SoulModel[];
+    /** The active on-device model ('' when another backend is in use). */
+    current: string;
+    /** The engine's active backend (edge, ollama, nim, litai). */
+    provider: string;
+    /** Label of the model answering right now, whatever the backend. */
+    activeModel: string;
+}
+
+export interface SoulDownloadProgress {
+    active: boolean;
+    modelId: string;
+    downloadedBytes: number;
+    totalBytes: number;
+}
+
+/** A knowledge fragment or adapter a trusted peer proposed; nothing is adopted until approved. */
+export interface SoulPendingUpdate {
+    id: string;
+    kind: 'fragment' | 'adapter';
+    cid: string;
+    summary: string;
+    peerSoulId: string;
+    peer: { locality: string; capabilities: string[] } | null;
+    /** Unix seconds. */
+    createdAt: number;
+}
+
+export interface WeatherDay {
+    date: string;
+    max: number;
+    min: number;
+    label: string;
+    icon: string;
+}
+
+export interface WeatherReport {
+    place: { name: string; region: string; country: string; latitude: number; longitude: number; timezone: string };
+    temperature: number;
+    apparent: number | null;
+    humidity: number | null;
+    wind: number | null;
+    isDay: boolean;
+    label: string;
+    /** sun, cloud-sun, cloud, fog, drizzle, rain, snow, storm */
+    icon: string;
+    days: WeatherDay[];
+    units: { temperature: string; wind: string };
+    fetchedAt: number;
+}
+
+export type UiComponent =
+    | { component: 'answer'; title: string; text: string }
+    | { component: 'list'; title: string; items: { title: string; subtitle: string; url: string }[] }
+    | { component: 'table'; title: string; columns: string[]; rows: string[][] }
+    | { component: 'stats'; title: string; stats: { label: string; value: string; delta: string }[] }
+    | { component: 'chart'; title: string; kind: 'line' | 'bar' | 'pie'; series: { label: string; value: number }[] }
+    | { component: 'timeline'; title: string; events: { date: string; title: string; text: string }[] }
+    | { component: 'checklist'; title: string; items: { text: string; done: boolean }[] }
+    | { component: 'accordion'; title: string; items: { heading: string; text: string }[] }
+    | { component: 'code'; title: string; language: string; code: string }
+    | {
+          component: 'weather';
+          title: string;
+          place: string;
+          current: { temp_c: number | null; feels_c: number | null; condition: string; wind_kmh: number | null; humidity: number | null };
+          days: { day: string; condition: string; high_c: number | null; low_c: number | null }[];
+      }
+    | { component: 'links'; title: string; actions: ({ label: string; url: string } | { label: string; query: string })[] };
 
 export interface AgentQuery {
     prompt: string;
     currentUrl: string | null;
     currentTitle: string | null;
     tabId: string | null;
+    /** Identifies the query for cancel() and onEvent(). */
+    queryId?: string;
+    /** Earlier turns of the conversation, oldest first. */
+    history?: { role: 'user' | 'assistant'; content: string }[];
+    attachments?: AgentAttachment[];
+    /** Let the agent act in tab `tabId` (Soul Engine; it asks before clicking, typing or navigating). */
+    agentic?: boolean;
 }
+
+export type AgentAttachment =
+    | { kind: 'file'; name: string; mime: string; dataBase64: string }
+    | { kind: 'cid'; cid: string };
+
+/** Progress of a running query, pushed by the main process. */
+export type AgentEvent =
+    | { queryId: string; type: 'status'; label: string }
+    | { queryId: string; type: 'approval'; requestId: string; name: string; label: string; expiresAt: number }
+    | { queryId: string; type: 'approval-done'; requestId: string; approved: boolean };
 
 export interface AgentFeedback {
     taskId: string;
@@ -273,10 +446,12 @@ export interface Settings {
         nodeUrl: string;
     };
     agent: {
-        provider: 'offline' | 'remote' | 'ollama';
+        provider: 'offline' | 'remote' | 'ollama' | 'soul';
         remoteUrl: string;
         ollamaUrl: string;
         ollamaModel: string;
+        /** The Soul Engine sidecar (agent/), started while it is the selected provider. */
+        soul: SoulSettings;
     };
     downloads: {
         /** '' → OS default downloads dir */
@@ -336,7 +511,11 @@ export type ShortcutAction =
     | 'open-downloads'
     | 'open-ipfs'
     | 'open-wallet'
-    | 'toggle-agent';
+    | 'toggle-agent'
+    | 'new-private-tab'
+    | 'reopen-closed-tab'
+    | 'print'
+    | 'save-pdf';
 
 export interface BucksApi {
     platform: string;
@@ -345,6 +524,19 @@ export interface BucksApi {
     app: {
         info(): Promise<AppInfo>;
         onShortcut(cb: (payload: { action: ShortcutAction | string }) => void): Unsubscribe;
+        chromeReady(): Promise<void>;
+        defaultBrowser(): Promise<DefaultBrowserStatus>;
+        setDefaultBrowser(): Promise<DefaultBrowserStatus>;
+    };
+
+    browsingData: {
+        clear(what: { cookies?: boolean; cache?: boolean; siteData?: boolean }): Promise<{ cleared: string[] }>;
+    };
+
+    extensions: {
+        list(): Promise<{ folder: string; extensions: ExtensionInfo[] }>;
+        reload(): Promise<{ folder: string; extensions: ExtensionInfo[] }>;
+        openFolder(): Promise<void>;
     };
 
     window: {
@@ -357,7 +549,7 @@ export interface BucksApi {
     };
 
     tabs: {
-        create(id: string, url: string): Promise<TabState>;
+        create(id: string, url: string, opts?: { private?: boolean }): Promise<TabState>;
         navigate(id: string, url: string): Promise<TabState>;
         close(id: string): Promise<void>;
         activate(id: string | null): Promise<void>;
@@ -370,6 +562,13 @@ export interface BucksApi {
         setContentVisible(visible: boolean): Promise<void>;
         capture(id: string): Promise<string>;
         extractText(id: string): Promise<{ title: string; text: string; url: string }>;
+        find(id: string, text: string, opts?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }): Promise<number>;
+        stopFind(id: string, action?: 'clearSelection' | 'keepSelection' | 'activateSelection'): Promise<void>;
+        onFoundInPage(cb: (result: FoundInPage) => void): Unsubscribe;
+        zoom(id: string, action: 'in' | 'out' | 'reset'): Promise<number>;
+        setMuted(id: string, muted: boolean): Promise<void>;
+        print(id: string): Promise<{ printed: boolean }>;
+        printToPdf(id: string): Promise<{ path: string | null }>;
         onUpdated(cb: (state: TabState) => void): Unsubscribe;
         onOpenRequest(cb: (req: OpenRequest) => void): Unsubscribe;
         onClosed(cb: (payload: { id: string }) => void): Unsubscribe;
@@ -415,8 +614,38 @@ export interface BucksApi {
     agent: {
         status(): Promise<AgentStatus>;
         query(q: AgentQuery): Promise<AgentResult>;
+        /** Stop a running query. */
+        cancel(queryId: string): Promise<boolean>;
+        /** Answer an approval request. */
+        approve(requestId: string, approve: boolean): Promise<boolean>;
+        onEvent(cb: (ev: AgentEvent) => void): Unsubscribe;
         feedback(f: AgentFeedback): Promise<void>;
         listModels(): Promise<string[]>;
+        soulStatus(): Promise<SoulStatus>;
+        soulStart(): Promise<SoulStatus>;
+        soulStop(): Promise<SoulStatus>;
+        /** Create the engine's private Python environment, then start it. */
+        soulInstall(): Promise<SoulStatus>;
+        onSoulStatus(cb: (status: SoulStatus) => void): Unsubscribe;
+        soulModels(): Promise<SoulModels>;
+        /** Switch the on-device model; the first switch to a model downloads it (minutes). */
+        soulSelectModel(id: string): Promise<SoulModels>;
+        soulDownloadProgress(): Promise<SoulDownloadProgress>;
+        soulPending(): Promise<SoulPendingUpdate[]>;
+        /** Approve or deny one pending update; resolves with the ones still pending. */
+        soulDecide(id: string, action: 'approve' | 'deny'): Promise<SoulPendingUpdate[]>;
+    };
+
+    docs: {
+        /** Save text as a document (md, txt, html or pdf) in Documents/Bucks. */
+        create(d: { title: string; content: string; format: 'md' | 'txt' | 'html' | 'pdf' }): Promise<{ path: string }>;
+        /** Reveal a document Bucks saved in the file manager. */
+        showInFolder(path: string): Promise<void>;
+    };
+
+    widgets: {
+        /** Current weather and a 3-day forecast for a city, from Open-Meteo through the main process. */
+        weather(city: string): Promise<WeatherReport>;
     };
 
     wallet: {
@@ -478,6 +707,7 @@ function defaultSettings(): Settings {
             remoteUrl: 'http://localhost:3000',
             ollamaUrl: 'http://127.0.0.1:11434',
             ollamaModel: 'llama3.2',
+            soul: { autoStart: true, backend: 'edge', port: 0, python: '', agentDir: '' },
         },
         downloads: { directory: '', askWhereToSave: false },
         ui: { theme: 'dark' },
@@ -498,7 +728,7 @@ function deepMerge<T extends Record<string, any>>(base: T, patch: Record<string,
 }
 
 function fakeTabState(id: string, url: string): TabState {
-    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false };
+    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false, muted: false, zoom: 100, private: false };
 }
 
 function mockIpfsStatus(): IpfsStatus {
@@ -527,6 +757,11 @@ function mockDevicesStatus(name: string): DevicesStatus {
     };
 }
 
+/** Soul Engine status outside Bucks: there is no main process to run it. */
+function mockSoulStatus(): SoulStatus {
+    return { state: 'unavailable', message: NOT_IN_BUCKS, url: null, backend: 'edge', model: null, mode: null, python: null, agentDir: null, dataDir: '' };
+}
+
 const noSub: Unsubscribe = () => {};
 const resolved = () => Promise.resolve();
 const unavailable = <T = never>(what: string): Promise<T> => Promise.reject(new Error(`${what}: ${NOT_IN_BUCKS}`));
@@ -546,6 +781,17 @@ function createMockBridge(): BucksApi {
         app: {
             info: () => Promise.resolve({ name: 'Bucks Browser (mock)', version: '0.0.0', userData: '' }),
             onShortcut: () => noSub,
+            chromeReady: resolved,
+            defaultBrowser: () => Promise.resolve({ isDefault: false, protocols: {}, opensSystemSettings: false }),
+            setDefaultBrowser: () => unavailable('app.setDefaultBrowser'),
+        },
+        browsingData: {
+            clear: () => unavailable('browsingData.clear'),
+        },
+        extensions: {
+            list: () => Promise.resolve({ folder: '', extensions: [] }),
+            reload: () => Promise.resolve({ folder: '', extensions: [] }),
+            openFolder: () => unavailable('extensions.openFolder'),
         },
         window: {
             minimize: resolved,
@@ -568,6 +814,13 @@ function createMockBridge(): BucksApi {
             setContentVisible: resolved,
             capture: () => unavailable('tabs.capture'),
             extractText: () => unavailable('tabs.extractText'),
+            find: () => Promise.resolve(0),
+            stopFind: resolved,
+            onFoundInPage: () => noSub,
+            zoom: () => Promise.resolve(100),
+            setMuted: resolved,
+            print: () => unavailable('tabs.print'),
+            printToPdf: () => unavailable('tabs.printToPdf'),
             onUpdated: () => noSub,
             onOpenRequest: () => noSub,
             onClosed: () => noSub,
@@ -617,8 +870,28 @@ function createMockBridge(): BucksApi {
                     task_id: null,
                     cid: null,
                 }),
+            cancel: () => Promise.resolve(false),
+            approve: () => Promise.resolve(false),
+            onEvent: () => noSub,
             feedback: resolved,
             listModels: () => Promise.resolve([]),
+            soulStatus: () => Promise.resolve(mockSoulStatus()),
+            soulStart: () => unavailable('agent.soulStart'),
+            soulStop: () => Promise.resolve(mockSoulStatus()),
+            soulInstall: () => unavailable('agent.soulInstall'),
+            onSoulStatus: () => noSub,
+            soulModels: () => unavailable('agent.soulModels'),
+            soulSelectModel: () => unavailable('agent.soulSelectModel'),
+            soulDownloadProgress: () => unavailable('agent.soulDownloadProgress'),
+            soulPending: () => Promise.resolve([]),
+            soulDecide: () => unavailable('agent.soulDecide'),
+        },
+        docs: {
+            create: () => unavailable('docs.create'),
+            showInFolder: resolved,
+        },
+        widgets: {
+            weather: () => unavailable('widgets.weather'),
         },
         wallet: {
             rpc: () => unavailable('wallet.rpc'),

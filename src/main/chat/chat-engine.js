@@ -34,7 +34,34 @@ let onMessageCallback = null;
 
 // In-memory state
 let peerBundles = new Map(); // peerId -> preKeyBundle
+let peerVerified = new Map(); // peerId -> boolean (Ed25519 signed-pre-key verified)
 let conversations = new Map(); // peerId -> { messages: [], unreadCount: number, lastMessage: string, lastTimestamp: string }
+
+/**
+ * Accept a peer bundle only if it isn't tampered. Rejects bundles whose signed
+ * pre-key signature fails Ed25519 verification (active MITM); accepts verified
+ * and legacy-unsigned bundles, recording which for the UI trust indicator.
+ * @returns {boolean} whether the bundle was accepted/stored
+ */
+function acceptBundle(peerId, bundle) {
+  const v = signalStore.verifyPreKeyBundle(bundle);
+  if (!v.ok) {
+    console.warn(`[Chat] Rejected bundle from ${peerId.substring(0, 8)}: ${v.reason}`);
+    return false;
+  }
+  // Reject a signing-key swap: once we've verified a peer, its signingKey is
+  // pinned (trust-on-first-use). A later bundle with a different key is an
+  // impersonation attempt.
+  const existing = peerBundles.get(peerId);
+  if (peerVerified.get(peerId) && existing && existing.signingKey &&
+      bundle.signingKey && bundle.signingKey !== existing.signingKey) {
+    console.warn(`[Chat] Rejected bundle from ${peerId.substring(0, 8)}: signing key changed (possible impersonation)`);
+    return false;
+  }
+  peerBundles.set(peerId, bundle);
+  peerVerified.set(peerId, !!v.verified);
+  return true;
+}
 
 /**
  * Initialize the chat engine.
@@ -55,33 +82,100 @@ async function initChat(helia, gossipSub, unixfs) {
   );
   fs.mkdirSync(CHAT_DATA_DIR, { recursive: true });
 
-  // Initialize Signal store
-  signalStore.initStore();
+  // Initialize Signal store (async: loads the PQC modules before returning)
+  await signalStore.initStore();
 
   // Load persisted conversations
   loadConversations();
 
-  // Subscribe to chat and key exchange topics
+  // Subscribe to key exchange topic
   gossip.addEventListener("message", (evt) => {
     const topic = evt.detail.topic;
-    if (topic === CHAT_TOPIC) {
-      handleChatMessage(evt.detail);
-    } else if (topic === BUNDLE_TOPIC) {
+    if (topic === BUNDLE_TOPIC) {
       handleBundleMessage(evt.detail);
     }
   });
 
-  gossip.subscribe(CHAT_TOPIC);
   gossip.subscribe(BUNDLE_TOPIC);
 
-  // Initialize agent integration
-  await agentIntegration.checkAgentStatus();
+  // Exchange key bundles immediately upon peer connection. The gossipsub
+  // mesh takes ~1 heartbeat to form after a fresh connection, so this first
+  // publish can race mesh formation and get silently dropped (gossipsub
+  // doesn't buffer/retry) — without a second attempt, two peers meeting for
+  // the first time would otherwise wait for the unrelated 30s periodic
+  // republish below before they could exchange keys at all.
+  heliaNode.libp2p.addEventListener("peer:connect", (evt) => {
+    console.log(`[Chat] Swarm connection established with peer: ${evt.detail.toString()}. Triggering bundle exchange.`);
+    publishPreKeyBundle();
+    setTimeout(publishPreKeyBundle, 2000);
+  });
+
+  // Register direct stream handler for E2E chat messages.
+  // NOTE: the libp2p major in this repo's dependency tree has swapped
+  // protocol-handler calling conventions mid-project (seen firsthand: v3
+  // calls handler(stream, connection) positionally with an event-based
+  // MessageStream that has no .source/.sink; v2 — what @chainsafe/
+  // libp2p-gossipsub actually supports, see package.json — calls
+  // handler({ stream, connection }) with the classic it-stream duplex). This
+  // handles either shape instead of hard-coding the version installed today.
+  heliaNode.libp2p.handle('/bucks/chat/1.0.0', async (arg1, arg2) => {
+    const stream = arg1 && arg1.stream ? arg1.stream : arg1;
+    const connection = arg1 && arg1.stream ? arg1.connection : arg2;
+    try {
+      const source = typeof stream.sink === 'function' && stream.source != null
+        ? stream.source
+        : (await import('@libp2p/utils')).messageStreamToDuplex(stream).source;
+      const chunks = [];
+      for await (const chunk of source) {
+        let bytes;
+        if (chunk instanceof Uint8Array) {
+          bytes = chunk;
+        } else if (chunk.subarray) {
+          bytes = chunk.subarray();
+        } else {
+          bytes = new Uint8Array(chunk);
+        }
+        chunks.push(bytes);
+      }
+      const { concat, toString } = await import('uint8arrays');
+      const allBytes = concat(chunks);
+      const text = toString(allBytes);
+      const data = JSON.parse(text);
+
+      // Authenticity: `data.from` is a self-reported field inside the JSON
+      // payload — it must match the noise-authenticated remote peer of this
+      // very stream, or anyone we accept a connection from could claim to be
+      // any other peerId (spoofing X3DH inits and chat messages alike).
+      const remotePeerId = connection && connection.remotePeer ? connection.remotePeer.toString() : null;
+      if (!remotePeerId || data.from !== remotePeerId) {
+        console.warn(`[Chat] Dropped ${data.type || 'message'}: claimed from=${data.from} does not match authenticated stream peer ${remotePeerId}`);
+        return;
+      }
+
+      if (data.type === "x3dh_init") {
+        handleX3DHInit(data);
+      } else if (data.type === "chat_message") {
+        handleDirectChatMessage(data);
+      }
+    } catch (err) {
+      console.error("[Chat] Error in direct stream handler:", err);
+    }
+  });
+
+  // Initialize agent integration — only probe the :3000 experimental swarm
+  // agent server when that layer is actually enabled (see main.js, gated
+  // behind BUCKS_EXPERIMENTAL_SWARM=1); otherwise nothing listens there by
+  // design and this would just log a guaranteed connection failure on every
+  // chat-engine startup.
+  if (process.env.BUCKS_EXPERIMENTAL_SWARM === '1') {
+    await agentIntegration.checkAgentStatus();
+  }
 
   // Broadcast our pre-key bundle periodically
   publishPreKeyBundle();
   setInterval(publishPreKeyBundle, 30000); // Every 30s
 
-  console.log(`[Chat] Engine initialized. Topic: ${CHAT_TOPIC}`);
+  console.log(`[Chat] Engine initialized (Direct E2E streams enabled).`);
   console.log(`[Chat] Key exchange topic: ${BUNDLE_TOPIC}`);
   console.log(
     `[Chat] Agent Integration ready. Current provider: ${agentIntegration.getAgentStatus().provider}`,
@@ -119,27 +213,35 @@ function handleBundleMessage(msg) {
   try {
     const data = JSON.parse(new TextDecoder().decode(msg.data));
     if (data.type !== "prekey_bundle") return;
-    if (data.peerId === localPeerId) return; // Ignore our own
 
-    peerBundles.set(data.peerId, data.bundle);
-
-    // Persist bundles
-    const bundlesFile = path.join(CHAT_DATA_DIR, "peer-bundles.json");
-    const bundlesObj = {};
-    peerBundles.forEach((b, id) => {
-      bundlesObj[id] = b;
-    });
-    try {
-      fs.writeFileSync(
-        bundlesFile,
-        JSON.stringify(bundlesObj, null, 2),
-        "utf8",
-      );
-    } catch (e) {
-      /* ignore */
+    // Trust the gossipsub-verified publisher (msg.from), never the
+    // self-reported data.peerId — otherwise any mesh peer can broadcast a
+    // bundle claiming to be a soulId/peerId it doesn't own (see ipfs-node.js
+    // for the same fromPeerId = msg.from.toString() pattern used elsewhere).
+    const fromPeerId = msg.from ? msg.from.toString() : null;
+    if (!fromPeerId || fromPeerId !== data.peerId) {
+      console.warn(`[Chat] Dropped bundle: claimed peerId ${data.peerId} does not match publisher ${fromPeerId}`);
+      return;
     }
+    if (fromPeerId === localPeerId) return; // Ignore our own
+
+    if (!acceptBundle(fromPeerId, data.bundle)) return; // tampered / impersonation
+    persistBundles();
   } catch (e) {
     // Ignore malformed bundles
+  }
+}
+
+function persistBundles() {
+  const bundlesFile = path.join(CHAT_DATA_DIR, "peer-bundles.json");
+  const bundlesObj = {};
+  peerBundles.forEach((b, id) => {
+    bundlesObj[id] = { bundle: b, verified: !!peerVerified.get(id) };
+  });
+  try {
+    fs.writeFileSync(bundlesFile, JSON.stringify(bundlesObj, null, 2), "utf8");
+  } catch (e) {
+    /* ignore */
   }
 }
 
@@ -152,6 +254,28 @@ function handleBundleMessage(msg) {
  * @param {string|null} attachmentCid - Optional IPFS CID for attached file
  * @returns {{ success: boolean, error?: string }}
  */
+async function sendDirect(peerId, payload) {
+  // peerId here is always a .toString()'d string (see localPeerId / data.to /
+  // data.from throughout this file), but libp2p's dialProtocol only special-
+  // cases real PeerId objects (isPeerId() check in get-peer.js) — a bare
+  // string falls into its multiaddr-array branch and throws
+  // "multiaddrs[0].getComponents is not a function". Every direct send needs
+  // a real PeerId instance.
+  const { peerIdFromString } = await import('@libp2p/peer-id');
+  const stream = await heliaNode.libp2p.dialProtocol(peerIdFromString(peerId), '/bucks/chat/1.0.0');
+  const data = new TextEncoder().encode(JSON.stringify(payload));
+  // Same dual-shape handling as the receive side (see handler comment above):
+  // classic streams expose stream.sink directly for it-pipe; newer
+  // event-based MessageStreams need @libp2p/utils's pipe() to wrap them.
+  if (typeof stream.sink === 'function') {
+    const { pipe } = await import('it-pipe');
+    await pipe([data], stream.sink);
+  } else {
+    const { pipe } = await import('@libp2p/utils');
+    await pipe([data], stream);
+  }
+}
+
 async function sendMessage(peerId, text, attachmentCid = null) {
   if (!gossip) return { success: false, error: "Chat engine not initialized" };
 
@@ -165,12 +289,15 @@ async function sendMessage(peerId, text, attachmentCid = null) {
       };
     }
 
-    // Perform X3DH
-    const { sharedSecret, ephemeralPublicKey } =
+    // Perform X3DH (hybrid ML-KEM-768 + X25519 when the peer's bundle supports it)
+    const { sharedSecret, ephemeralPublicKey, kemCiphertext } =
       signalStore.performX3DH(bundle);
-    signalStore.createSession(peerId, sharedSecret, true);
 
-    // Send X3DH init message so peer can derive the same shared secret
+    // Send X3DH init message so peer can derive the same shared secret.
+    // Only commit the session locally once we know the init message actually
+    // reached the peer — committing beforehand left a permanently desynced
+    // session on failure: hasSession() would report true, so retries skipped
+    // re-sending the init while the peer never got it to respond to.
     const initMessage = {
       type: "x3dh_init",
       from: localPeerId,
@@ -178,15 +305,18 @@ async function sendMessage(peerId, text, attachmentCid = null) {
       identityKey: signalStore.getIdentityPublicKey(),
       ephemeralKey: ephemeralPublicKey,
       oneTimePreKeyId: bundle.oneTimePreKeyId,
+      kemCiphertext: kemCiphertext, // null for non-hybrid peers
       timestamp: Date.now(),
     };
 
-    const initData = new TextEncoder().encode(JSON.stringify(initMessage));
     try {
-      await gossip.publish(CHAT_TOPIC, initData);
+      await sendDirect(peerId, initMessage);
     } catch (e) {
       console.error("[Chat] Failed to send X3DH init:", e);
+      return { success: false, error: "Failed to establish E2E session: " + e.message };
     }
+
+    signalStore.createSession(peerId, sharedSecret, true, bundle);
   }
 
   // Encrypt the message
@@ -211,13 +341,15 @@ async function sendMessage(peerId, text, attachmentCid = null) {
     timestamp: Date.now(),
     nonce: crypto.randomBytes(8).toString("hex"),
   };
+  // Authenticate the envelope so a hostile peer can't spoof `from`. The
+  // recipient verifies this against our advertised Ed25519 signing key.
+  envelope.sig = signalStore.signWithIdentity(envelopeSigningBytes(envelope));
 
-  const envelopeData = new TextEncoder().encode(JSON.stringify(envelope));
   try {
-    await gossip.publish(CHAT_TOPIC, envelopeData);
+    await sendDirect(peerId, envelope);
   } catch (e) {
     console.error("[Chat] Failed to publish message:", e);
-    return { success: false, error: "Failed to send via gossipsub" };
+    return { success: false, error: "Failed to send via direct stream: " + e.message };
   }
 
   // Store in local history
@@ -267,22 +399,41 @@ async function sendFile(peerId, fileData, filename) {
 // ─── Message Receiving ───
 
 /**
+ * Canonical byte string that the envelope signature covers. Excludes `sig`
+ * itself and the transport-only `nonce`. Field order is fixed on both sides.
+ */
+function envelopeSigningBytes(env) {
+  return [
+    env.type, env.from, env.to, String(env.counter), env.ratchetKey || "",
+    env.encrypted.ciphertext, env.encrypted.iv, env.encrypted.tag,
+    String(env.timestamp),
+  ].join("|");
+}
+
+/**
  * Handle incoming chat messages from gossipsub.
  */
-function handleChatMessage(msg) {
+function handleDirectChatMessage(data) {
   try {
-    const data = JSON.parse(new TextDecoder().decode(msg.data));
-
-    // Handle X3DH initialization
-    if (data.type === "x3dh_init") {
-      handleX3DHInit(data);
-      return;
-    }
-
     // Only process messages addressed to us
     if (data.type !== "chat_message") return;
     if (data.to !== localPeerId) return;
     if (data.from === localPeerId) return; // Ignore own messages
+
+    // Authenticity: if we know the sender's signing key, the envelope
+    // signature MUST verify — this rejects `from`-spoofed messages. If we
+    // don't have their bundle yet we can't verify, but decryption still
+    // requires a real X3DH session, so a forgery can't produce readable text.
+    const senderBundle = peerBundles.get(data.from);
+    if (senderBundle && senderBundle.signingKey) {
+      const good = data.sig && signalStore.verifyWithPeerSigningKey(
+        senderBundle.signingKey, envelopeSigningBytes(data), data.sig,
+      );
+      if (!good) {
+        console.warn(`[Chat] Dropped unauthenticated message claiming to be from ${data.from.substring(0, 8)}`);
+        return;
+      }
+    }
 
     // Decrypt
     const plaintext = signalStore.decryptMessage(data.from, {
@@ -327,7 +478,7 @@ function handleChatMessage(msg) {
       });
     }
   } catch (e) {
-    console.error("[Chat] Failed to handle message:", e);
+    console.error("[Chat] Failed to handle direct message:", e);
   }
 }
 
@@ -346,10 +497,11 @@ function handleX3DHInit(data) {
       data.identityKey,
       data.ephemeralKey,
       data.oneTimePreKeyId || null,
+      data.kemCiphertext || null,
     );
     signalStore.createSession(data.from, sharedSecret, false);
     console.log(
-      `[Chat] X3DH session established with ${data.from.substring(0, 8)}... (responder)`,
+      `[Chat] X3DH session established with ${data.from.substring(0, 8)}... (responder${data.kemCiphertext ? ", hybrid PQC" : ""})`,
     );
   } catch (e) {
     console.error(
@@ -396,6 +548,7 @@ function getChatHistory(peerId) {
     history: conv ? conv.messages : [],
     sessionInfo: signalStore.getSessionInfo(peerId),
     hasSession: signalStore.hasSession(peerId),
+    verified: !!peerVerified.get(peerId),
   };
 }
 
@@ -413,6 +566,7 @@ function getConversations() {
       unread_count: conv.unreadCount,
       encrypted: true,
       hasSession: signalStore.hasSession(peerId),
+      verified: !!peerVerified.get(peerId),
     });
   });
 
@@ -462,8 +616,13 @@ function loadConversations() {
   if (fs.existsSync(bundlesFile)) {
     try {
       const data = JSON.parse(fs.readFileSync(bundlesFile, "utf8"));
-      for (const [id, bundle] of Object.entries(data)) {
+      for (const [id, entry] of Object.entries(data)) {
+        // New shape: { bundle, verified }. Legacy shape: the raw bundle.
+        const bundle = entry && entry.bundle ? entry.bundle : entry;
         peerBundles.set(id, bundle);
+        if (entry && typeof entry.verified === "boolean") {
+          peerVerified.set(id, entry.verified);
+        }
       }
       console.log(`[Chat] Loaded ${peerBundles.size} peer key bundles.`);
     } catch (e) {
@@ -520,21 +679,11 @@ function getOwnBundle() {
  * Manually process a peer's pre-key bundle (e.g., from QR scan).
  */
 function processPeerBundle(peerId, bundle) {
-  peerBundles.set(peerId, bundle);
-
-  // Persist
-  const bundlesFile = path.join(CHAT_DATA_DIR, "peer-bundles.json");
-  const bundlesObj = {};
-  peerBundles.forEach((b, id) => {
-    bundlesObj[id] = b;
-  });
-  try {
-    fs.writeFileSync(bundlesFile, JSON.stringify(bundlesObj, null, 2), "utf8");
-  } catch (e) {
-    /* ignore */
+  if (!acceptBundle(peerId, bundle)) {
+    return { success: false, error: "Bundle failed verification (tampered or impersonation)" };
   }
-
-  return { success: true };
+  persistBundles();
+  return { success: true, verified: !!peerVerified.get(peerId) };
 }
 
 /**

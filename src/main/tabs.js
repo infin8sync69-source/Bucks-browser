@@ -5,7 +5,9 @@
 // Pure helpers (navigation policy, URL canonicalisation, bounds clamping, TabState building)
 // are exported for unit tests; everything touching Electron lives inside createTabManager.
 
-import { WebContentsView, ipcMain } from 'electron';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import { WebContentsView, ipcMain, dialog, app } from 'electron';
 import { normalizeIpfsUrl } from './ipfs/cid.js';
 import { createLogger } from './log.js';
 
@@ -92,11 +94,30 @@ export function downgradeToHttp(url) {
   return u.href;
 }
 
+/** Zoom factor (1 = 100 %) as a whole percentage. */
+export function zoomPercent(factor) {
+  return Number.isFinite(factor) && factor > 0 ? Math.round(factor * 100) : 100;
+}
+
+/**
+ * A file name for "Save as PDF" from the page title: no path separators or characters that
+ * Windows refuses, at most 120 characters, never empty.
+ */
+export function pdfFileName(title) {
+  const base = String(title ?? '')
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+    .replace(/[. ]+$/, '');
+  return `${base || 'page'}.pdf`;
+}
+
 /**
  * Build a TabState from a WebContents-like object. Exported for tests.
- * @param {{ id: string, wc: object, favicon: string | null, error: object | null, requestedUrl?: string }} tab
+ * @param {{ id: string, wc: object, favicon: string | null, error: object | null, requestedUrl?: string, isPrivate?: boolean }} tab
  */
-export function buildTabState({ id, wc, favicon, error, requestedUrl }) {
+export function buildTabState({ id, wc, favicon, error, requestedUrl, isPrivate = false }) {
   const nav = wc.navigationHistory;
   const rawUrl = wc.getURL() || requestedUrl || '';
   return {
@@ -109,6 +130,9 @@ export function buildTabState({ id, wc, favicon, error, requestedUrl }) {
     canGoForward: nav ? nav.canGoForward() : false,
     error: error ?? null,
     audible: typeof wc.isCurrentlyAudible === 'function' ? !!wc.isCurrentlyAudible() : false,
+    muted: typeof wc.isAudioMuted === 'function' ? !!wc.isAudioMuted() : false,
+    zoom: typeof wc.getZoomFactor === 'function' ? zoomPercent(wc.getZoomFactor()) : 100,
+    private: !!isPrivate,
   };
 }
 
@@ -145,11 +169,14 @@ const EXTRACT_TEXT_SCRIPT = `(() => {
  * @param {{
  *   getMainWindow: () => import('electron').BrowserWindow | null,
  *   webSession: import('electron').Session,
+ *   privateSession?: import('electron').Session,
  *   settings: { get(): any },
  *   security?: { allowHttpHost?: (host: string) => void },
  * }} opts
+ *   privateSession: in-memory session for private tabs; its data is cleared when the last private
+ *   tab closes. Without it, private tabs are refused.
  */
-export function createTabManager({ getMainWindow, webSession, settings, security }) {
+export function createTabManager({ getMainWindow, webSession, privateSession = null, settings, security }) {
   if (!webSession) throw new Error('createTabManager: webSession is required');
 
   /** @type {Map<string, Tab>} */
@@ -172,6 +199,7 @@ export function createTabManager({ getMainWindow, webSession, settings, security
    * @property {boolean} closing    close() in progress → 'destroyed' is expected
    * @property {boolean} htmlFullscreen
    * @property {string | null} httpFallbackHost host already retried over http
+   * @property {boolean} isPrivate  lives in the in-memory private session
    */
 
   // ── chrome messaging ──────────────────────────────────────────────────────────
@@ -262,6 +290,15 @@ export function createTabManager({ getMainWindow, webSession, settings, security
   function destroyAll() {
     for (const tab of [...tabs.values()]) destroyView(tab);
     activeId = null;
+    clearPrivateDataIfUnused();
+  }
+
+  /** Private browsing leaves nothing behind once its last tab is gone. */
+  function clearPrivateDataIfUnused() {
+    if (!privateSession || [...tabs.values()].some((t) => t.isPrivate)) return;
+    Promise.all([privateSession.clearStorageData(), privateSession.clearCache()])
+      .then(() => log.debug('private session data cleared'))
+      .catch((e) => log.warn(`Could not clear private browsing data: ${e.message}`));
   }
 
   // ── tab lookup ────────────────────────────────────────────────────────────────
@@ -358,6 +395,16 @@ export function createTabManager({ getMainWindow, webSession, settings, security
       tab.error = { code: -1, description: 'Page crashed', url: wc.isDestroyed() ? tab.requestedUrl : wc.getURL() };
       emitUpdated(tab);
     });
+    wc.on('found-in-page', (_e, result) => {
+      send('bucks:tabs:found-in-page', {
+        id,
+        requestId: result?.requestId ?? 0,
+        activeMatchOrdinal: result?.activeMatchOrdinal ?? 0,
+        matches: result?.matches ?? 0,
+        finalUpdate: !!result?.finalUpdate,
+      });
+    });
+    wc.on('zoom-changed', () => setImmediate(() => emitUpdated(tab))); // ctrl + mouse wheel
     wc.on('enter-html-full-screen', () => {
       tab.htmlFullscreen = true;
       applyBounds(tab);
@@ -374,10 +421,10 @@ export function createTabManager({ getMainWindow, webSession, settings, security
     });
   }
 
-  function createView(id, url) {
+  function createView(id, url, isPrivate = false) {
     const view = new WebContentsView({
       webPreferences: {
-        session: webSession,
+        session: isPrivate ? privateSession : webSession,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -400,6 +447,7 @@ export function createTabManager({ getMainWindow, webSession, settings, security
       closing: false,
       htmlFullscreen: false,
       httpFallbackHost: null,
+      isPrivate,
     };
     tabs.set(id, tab);
     wire(tab);
@@ -419,22 +467,27 @@ export function createTabManager({ getMainWindow, webSession, settings, security
   }
 
   function placeholderState(id, url) {
-    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false };
+    return { id, url, title: '', favicon: null, isLoading: false, canGoBack: false, canGoForward: false, error: null, audible: false, muted: false, zoom: 100, private: false };
   }
 
   // ── public API ────────────────────────────────────────────────────────────────
 
   const manager = {
-    /** Create the view for a renderer-side tab id and start loading `url`. */
-    create(id, url) {
+    /**
+     * Create the view for a renderer-side tab id and start loading `url`.
+     * @param {{ private?: boolean }} [opts] private: use the in-memory private session
+     */
+    create(id, url, opts = {}) {
       const existing = tabs.get(id);
       if (existing) {
         if (!existing.wc.isDestroyed()) return manager.navigate(id, url);
         forget(existing); // stale entry: the web contents died before 'destroyed' was observed
       }
+      const isPrivate = opts?.private === true;
+      if (isPrivate && !privateSession) throw new Error('Private tabs are not available');
       const target = prepareChromeUrl(id, url);
       if (target === null) return placeholderState(id, IPFS_HOME_URL);
-      const tab = createView(id, target);
+      const tab = createView(id, target, isPrivate);
       bindWindow();
       load(tab, target);
       return buildTabState(tab);
@@ -459,6 +512,7 @@ export function createTabManager({ getMainWindow, webSession, settings, security
       if (!tab) return;
       destroyView(tab);
       updateVisibility();
+      if (tab.isPrivate) clearPrivateDataIfUnused();
     },
 
     /** Show exactly this tab's view (attaching it on first use); null hides every view. */
@@ -542,15 +596,62 @@ export function createTabManager({ getMainWindow, webSession, settings, security
     },
 
     zoomIn(id) {
-      const { wc } = requireTab(id);
-      wc.setZoomLevel(Math.min(ZOOM_MAX, wc.getZoomLevel() + ZOOM_STEP));
+      const tab = requireTab(id);
+      tab.wc.setZoomLevel(Math.min(ZOOM_MAX, tab.wc.getZoomLevel() + ZOOM_STEP));
+      emitUpdated(tab);
     },
     zoomOut(id) {
-      const { wc } = requireTab(id);
-      wc.setZoomLevel(Math.max(ZOOM_MIN, wc.getZoomLevel() - ZOOM_STEP));
+      const tab = requireTab(id);
+      tab.wc.setZoomLevel(Math.max(ZOOM_MIN, tab.wc.getZoomLevel() - ZOOM_STEP));
+      emitUpdated(tab);
     },
     zoomReset(id) {
-      requireTab(id).wc.setZoomLevel(0);
+      const tab = requireTab(id);
+      tab.wc.setZoomLevel(0);
+      emitUpdated(tab);
+    },
+    /** 'in' | 'out' | 'reset'. @returns {number} the new zoom in percent */
+    zoom(id, action) {
+      if (action === 'in') manager.zoomIn(id);
+      else if (action === 'out') manager.zoomOut(id);
+      else if (action === 'reset') manager.zoomReset(id);
+      else throw new Error(`Unknown zoom action "${action}" (in, out or reset)`);
+      return zoomPercent(requireTab(id).wc.getZoomFactor());
+    },
+
+    /** Mute or unmute a tab's audio. */
+    setMuted(id, muted) {
+      const tab = requireTab(id);
+      tab.wc.setAudioMuted(!!muted);
+      emitUpdated(tab);
+    },
+
+    /** Open the system print dialog for the tab. @returns {Promise<{ printed: boolean }>} */
+    print(id) {
+      const { wc } = requireTab(id);
+      return new Promise((resolve, reject) => {
+        wc.print({}, (success, failureReason) => {
+          if (success || failureReason === 'cancelled') resolve({ printed: !!success });
+          else reject(new Error(`Printing failed: ${failureReason || 'unknown reason'}`));
+        });
+      });
+    },
+
+    /** Save the page as a PDF where the user chooses. @returns {Promise<{ path: string | null }>} null when cancelled */
+    async printToPdf(id) {
+      const tab = requireTab(id);
+      const win = getMainWindow();
+      const defaultPath = path.join(app.getPath('downloads'), pdfFileName(tab.wc.getTitle()));
+      const choice = await dialog.showSaveDialog(win && !win.isDestroyed() ? win : undefined, {
+        title: 'Save page as PDF',
+        defaultPath,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (choice.canceled || !choice.filePath) return { path: null };
+      const data = await tab.wc.printToPDF({ printBackground: true });
+      await fsp.writeFile(choice.filePath, data);
+      log.info(`Saved ${tab.id} as PDF: ${choice.filePath}`);
+      return { path: choice.filePath };
     },
 
     /**
@@ -587,7 +688,7 @@ export function createTabManager({ getMainWindow, webSession, settings, security
 
   // ── IPC ───────────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('bucks:tabs:create', (_e, p) => manager.create(requireId(p), requireUrl(p)));
+  ipcMain.handle('bucks:tabs:create', (_e, p) => manager.create(requireId(p), requireUrl(p), { private: p?.private === true }));
   ipcMain.handle('bucks:tabs:navigate', (_e, p) => manager.navigate(requireId(p), requireUrl(p)));
   ipcMain.handle('bucks:tabs:close', (_e, p) => manager.close(requireId(p)));
   ipcMain.handle('bucks:tabs:activate', (_e, p) => {
@@ -607,6 +708,18 @@ export function createTabManager({ getMainWindow, webSession, settings, security
   ipcMain.handle('bucks:tabs:set-content-visible', (_e, p) => manager.setContentVisible(p?.visible !== false));
   ipcMain.handle('bucks:tabs:capture', (_e, p) => manager.capture(requireId(p)));
   ipcMain.handle('bucks:tabs:extract-text', (_e, p) => manager.extractText(requireId(p)));
+  ipcMain.handle('bucks:tabs:find', (_e, p) => {
+    const text = typeof p?.text === 'string' ? p.text.slice(0, 1000) : '';
+    return manager.findInPage(requireId(p), text, { forward: p?.forward !== false, newSession: p?.findNext !== true, matchCase: p?.matchCase === true });
+  });
+  ipcMain.handle('bucks:tabs:stop-find', (_e, p) => {
+    const action = ['clearSelection', 'keepSelection', 'activateSelection'].includes(p?.action) ? p.action : 'clearSelection';
+    manager.stopFindInPage(requireId(p), action);
+  });
+  ipcMain.handle('bucks:tabs:zoom', (_e, p) => manager.zoom(requireId(p), p?.action));
+  ipcMain.handle('bucks:tabs:set-muted', (_e, p) => manager.setMuted(requireId(p), p?.muted === true));
+  ipcMain.handle('bucks:tabs:print', (_e, p) => manager.print(requireId(p)));
+  ipcMain.handle('bucks:tabs:print-to-pdf', (_e, p) => manager.printToPdf(requireId(p)));
 
   return manager;
 }

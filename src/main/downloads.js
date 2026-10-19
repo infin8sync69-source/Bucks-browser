@@ -51,11 +51,13 @@ export function uniqueFilename(dir, name, exists = (p) => fs.existsSync(p)) {
 }
 
 /**
- * Install download handling on a session and register the bucks:downloads:* channels.
- * @param {{ session: import('electron').Session, settings: { get(): any }, getMainWindow: () => import('electron').BrowserWindow | null }} opts
+ * Install download handling on one or more sessions (the web session and the private one) and
+ * register the bucks:downloads:* channels once.
+ * @param {{ session?: import('electron').Session, sessions?: import('electron').Session[], settings: { get(): any }, getMainWindow: () => import('electron').BrowserWindow | null }} opts
  */
-export function installDownloads({ session, settings, getMainWindow }) {
-  if (!session?.on) throw new Error('installDownloads: a session is required');
+export function installDownloads({ session, sessions, settings, getMainWindow }) {
+  const targets = (sessions && sessions.length ? sessions : [session]).filter(Boolean);
+  if (!targets.length || !targets.every((ses) => typeof ses.on === 'function')) throw new Error('installDownloads: a session is required');
 
   /** @type {Map<string, { record: object, item: import('electron').DownloadItem | null, lastEmit: number }>} */
   const entries = new Map();
@@ -102,7 +104,7 @@ export function installDownloads({ session, settings, getMainWindow }) {
     record.mime = item.getMimeType() || record.mime;
   }
 
-  session.on('will-download', (_event, item) => {
+  const onWillDownload = (_event, item) => {
     const askWhereToSave = settings?.get?.()?.downloads?.askWhereToSave === true;
     const dir = downloadDirectory();
     const filename = uniqueFilename(dir, sanitizeFilename(item.getFilename()));
@@ -150,7 +152,8 @@ export function installDownloads({ session, settings, getMainWindow }) {
       log.info(`download ${record.state}: ${record.path}`);
       emit(record);
     });
-  });
+  };
+  for (const ses of targets) ses.on('will-download', onWillDownload);
 
   function requireEntry(payload) {
     const id = payload?.id;

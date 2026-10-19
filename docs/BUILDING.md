@@ -163,6 +163,18 @@ node scripts/fetch-kubo.mjs --force                  # re-download
   on.** The installer then has no bundled node and downloads one at first start (needs internet). CI
   always fetches Kubo first, so release installers include it.
 
+## The Soul Engine in packages
+
+`electron-builder.yml` copies `agent/` (the Python Soul Engine) to `resources/agent/` in the
+package, without `.venv`, caches, tests, databases or `.env`. Python itself and the engine's
+packages are **not** bundled: on first use, **Install** in Settings → Agent creates a private
+environment in `<userData>/soul-engine/venv` from a system Python 3.10+ and installs
+`agent/requirements-engine.txt` (and `requirements-edge.txt` for the embedded model). A user without
+Python sees that requirement in Settings; every other provider works without it.
+
+`llama-cpp-python` (embedded model) has prebuilt wheels for macOS; on Linux and Windows pip may
+compile it, which needs a C/C++ compiler and CMake. The Ollama and cloud backends do not need it.
+
 ## Installing on Linux
 
 Debian and Ubuntu (recommended; it also registers the `ipfs://` and `ipns://` link handlers and an
@@ -219,8 +231,8 @@ cancelled).
 
 | Job | Runs on | What it does |
 |---|---|---|
-| `check` | ubuntu | `npm ci`, `npm run check`, `shellcheck` on both installers, `npm test` |
-| `e2e` | ubuntu | Builds the chrome, fetches Kubo, then `xvfb-run -a npm run test:e2e`: the one-instance smoke test and `test/e2e/devices.test.mjs`, where two app instances pair over Kubo peering + pubsub, send a file, and one restarts and still gets a share sent while it was off. |
+| `check` | ubuntu | `npm ci`, `npm run check`, `shellcheck` on both installers, a Python 3.12 venv with `agent/requirements-engine.txt`, the Soul Engine's Python tests (`agent/tests/test_local_security.py`, `test_nexus_endpoints.py`), then `npm test` with `BUCKS_SOUL_PYTHON` set so the real-engine integration test runs |
+| `e2e` | ubuntu | Builds the chrome, fetches Kubo, prepares the same Python venv, then `xvfb-run -a npm run test:e2e`: the one-instance smoke test; `test/e2e/devices.test.mjs`, where two app instances pair over Kubo peering + pubsub, send a file, and one restarts and still gets a share sent while it was off; `test/e2e/browser-features.test.mjs` (find in page, private tabs, mute, zoom, save as PDF, the tab menu, spaces, clearing cookies, address suggestions, an unpacked extension); and `test/e2e/soul.test.mjs`, where Bucks starts the Soul Engine and a question typed in the dock comes back in the chat panel with a table card (the model is a local fake). |
 | `macos-install` | macOS arm64 | Runs `scripts/install-macos.sh` for real (it clones the pushed branch from GitHub, so it is skipped for pull requests from forks), checks the app bundle and the darwin Kubo binary, then launches the installed app and waits for the IPFS node and the devices topic. |
 | `build` (4 legs) | ubuntu: linux x64; windows: win x64; macOS: arm64 and x64 | `npm ci`, `npm run build:ui`, `fetch-kubo.mjs` for that platform and architecture, `electron-builder --<os> --<arch> --publish never`, uploads `release/*.{AppImage,deb,exe,dmg,zip}` as the artifact `bucks-<os>-<arch>`. The Linux leg also boots the unpacked app under Xvfb and waits for the bundled Kubo to become ready. Electron and electron-builder downloads are cached. |
 | `release` | ubuntu | Only on a `v*` tag: downloads every artifact and creates a GitHub release with generated notes. Tags with a hyphen (`v2.1.0-rc.1`) are marked as pre-releases. |
@@ -232,7 +244,9 @@ disagree. The workflow contains no secrets and does no signing; see the follow-u
 The unit tests that need a real Kubo binary skip themselves in the `check` job because none is
 present when `npm test` runs; run `npm run fetch:kubo && npm test` locally to include them. Locally,
 the end-to-end tests are `npm run build:ui && xvfb-run -a npm run test:e2e` (drop `xvfb-run -a` on a
-desktop); they use `resources/kubo/<os>-<arch>/ipfs` or `BUCKS_KUBO_BIN`.
+desktop); they use `resources/kubo/<os>-<arch>/ipfs` or `BUCKS_KUBO_BIN`. The Soul Engine tests
+(`test/unit/agent/soul.integration.test.js`, `test/e2e/soul.test.mjs`) skip themselves unless
+`BUCKS_SOUL_PYTHON` points at a Python with `agent/requirements-engine.txt` installed.
 
 ## Troubleshooting
 

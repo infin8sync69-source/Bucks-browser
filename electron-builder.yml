@@ -35,6 +35,21 @@ extraResources:
     to: "kubo"
     filter:
       - "**/*"
+  # The Soul Engine's Python source, run by src/main/agent/soul-engine.js from
+  # <process.resourcesPath>/agent. Its Python environment is NOT bundled: Settings → Agent →
+  # Install creates one in the user's profile (<userData>/soul-engine/venv).
+  - from: "agent"
+    to: "agent"
+    filter:
+      - "**/*"
+      - "!.venv/**"
+      - "!venv/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!.env"
+      - "!tests/**"
+      - "!**/*.db"
+      - "!soul/.frozen_cid_cache"
 
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 
@@ -50,6 +65,11 @@ protocols:
     schemes:
       - ipfs
       - ipns
+  # Needed for Bucks to be selectable as the default web browser (Settings → Privacy & data).
+  - name: Web
+    schemes:
+      - http
+      - https
 
 linux:
   target:
@@ -65,6 +85,13 @@ linux:
     trackers, and upgrades connections to HTTPS by default.
   # Name of the installed executable (and of the Exec= entry in the .desktop file).
   executableName: bucks-browser
+  # Lets desktop environments offer Bucks as the default browser.
+  mimeTypes:
+    - text/html
+    - x-scheme-handler/http
+    - x-scheme-handler/https
+    - x-scheme-handler/ipfs
+    - x-scheme-handler/ipns
 
 win:
   target:

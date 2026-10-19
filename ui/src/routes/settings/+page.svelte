@@ -11,6 +11,9 @@
     import ToggleRow from "$lib/settings/ToggleRow.svelte";
     import TextRow from "$lib/settings/TextRow.svelte";
     import RadioGroup from "$lib/settings/RadioGroup.svelte";
+    import SoulEngineSettings from "$lib/settings/SoulEngineSettings.svelte";
+    import BrowsingDataSettings from "$lib/settings/BrowsingDataSettings.svelte";
+    import ExtensionsSettings from "$lib/settings/ExtensionsSettings.svelte";
 
     const s = $derived($settingsStore);
 
@@ -85,10 +88,11 @@
         { id: "offline", label: "Offline (built-in intents only)", hint: "no network" },
         { id: "remote", label: "Remote agent server", hint: "Bucks agent API" },
         { id: "ollama", label: "Ollama (local model)", hint: "on-device" },
+        { id: "soul", label: "Soul Engine (full agent)", hint: "tools · web research · cards" },
     ];
 
     function clearData() {
-        if (!confirm("Clear all tabs, bookmarks and history? This cannot be undone.")) return;
+        if (!confirm("Remove all tabs, spaces, bookmarks and history? This cannot be undone.")) return;
         browserStore.resetAll();
     }
 </script>
@@ -225,6 +229,7 @@
                     <p class="text-[10px] text-white/25">filter lists</p>
                 </div>
             </div>
+            <BrowsingDataSettings />
         </Section>
 
         <!-- Wallet -->
@@ -287,12 +292,18 @@
                         {/each}
                     </div>
                 {/if}
+            {:else if s.agent.provider === "soul"}
+                <SoulEngineSettings {s} {save} />
             {/if}
             {#if agentStatus}
                 <p class="text-[11px] text-white/30">
                     Status: {agentStatus.online ? "online" : "offline"} · provider {agentStatus.provider}{agentStatus.model ? ` · ${agentStatus.model}` : ""}
                 </p>
             {/if}
+        </Section>
+
+        <Section title="Extensions">
+            <ExtensionsSettings />
         </Section>
 
         <!-- Downloads -->
@@ -337,8 +348,8 @@
         <p class="text-[10px] uppercase tracking-[0.3em] text-red-400/50 font-bold">Danger Zone</p>
         <div class="rounded-2xl border border-red-500/15 bg-red-500/5 p-4 flex items-center justify-between gap-4">
             <div>
-                <p class="text-[13px] text-white/60 font-medium">Clear browsing data</p>
-                <p class="text-[11px] text-white/30 mt-0.5">Removes tabs, bookmarks and history</p>
+                <p class="text-[13px] text-white/60 font-medium">Reset the browser</p>
+                <p class="text-[11px] text-white/30 mt-0.5">Removes all tabs, spaces, bookmarks and history</p>
             </div>
             <button onclick={clearData}
                 class="px-4 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/25 text-red-400 text-[12px] font-medium transition-all">

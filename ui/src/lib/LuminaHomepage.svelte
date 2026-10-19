@@ -5,7 +5,12 @@
     import { X } from "lucide-svelte";
     import HomeScreen from "./HomeScreen.svelte";
     import AppStore from "./AppStore.svelte";
+    import HeroClock from "./newtab/HeroClock.svelte";
+    import PendingUpdates from "./newtab/PendingUpdates.svelte";
+    import StatusCards from "./newtab/StatusCards.svelte";
+    import WidgetBoard from "./newtab/WidgetBoard.svelte";
     import { browserStore, activeTab } from "./stores";
+    import { chatOpen } from "./uiState";
 
     let canvas: HTMLCanvasElement;
     let ctx: CanvasRenderingContext2D;
@@ -108,17 +113,27 @@
         style="background: radial-gradient(500px circle at {mouseX}px {mouseY}px, rgba(88,28,135,0.06), transparent 70%);"
     ></div>
 
-    <!-- HomeScreen grid — lives in the safe area between Header and AgenticBar -->
-    <div class="absolute inset-0 top-[5.5rem] bottom-28">
-        <HomeScreen onOpenStore={() => storeOpen = true} />
+    <!-- The dashboard scrolls below the Header and left of the chat drawer. It runs under the command
+         bar (taller on the new tab: it shows suggestions) with room to scroll everything above it. -->
+    <div class="thin-scrollbar absolute left-0 top-[5.5rem] bottom-0 overflow-y-auto transition-[right] duration-300 {$chatOpen ? 'right-[448px]' : 'right-0'}">
+        <div class="mx-auto w-full max-w-[980px] px-6 pt-6 pb-[220px] flex flex-col items-center gap-7">
+            <HeroClock />
+            <PendingUpdates />
+            <HomeScreen onOpenStore={() => storeOpen = true} />
+            <StatusCards />
+            <WidgetBoard />
+            <p class="pt-2 text-[10px] uppercase tracking-[0.45em] text-white/12 font-medium select-none" in:fly={{ y: 10, duration: 1000, delay: 500, easing: cubicOut }}>soul of the world</p>
+        </div>
     </div>
+    <!-- Content fades out under the command bar (popovers such as the model picker stay above this) -->
+    <div class="absolute left-0 right-0 bottom-0 h-[230px] z-[5] pointer-events-none bg-gradient-to-t from-[#030307] via-[#030307]/85 to-transparent"></div>
 
     <!-- Close button — top-right, below the header island -->
     {#if $activeTab}
         <button
             onclick={() => browserStore.closeTab($activeTab!.id)}
             title="Close tab"
-            class="absolute top-[5.75rem] right-6 z-10 w-8 h-8 flex items-center justify-center
+            class="absolute top-[5.75rem] {$chatOpen ? 'right-[472px]' : 'right-6'} z-10 w-8 h-8 flex items-center justify-center
                    rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/30
                    hover:bg-white/[0.12] hover:text-white hover:border-white/20
                    transition-all duration-200 active:scale-90"
@@ -127,14 +142,6 @@
             <X size={14} />
         </button>
     {/if}
-
-    <!-- Bottom wordmark -->
-    <div
-        class="absolute bottom-[13rem] left-0 right-0 flex flex-col items-center select-none pointer-events-none"
-        in:fly={{ y: 10, duration: 1000, delay: 500, easing: cubicOut }}
-    >
-        <p class="text-[10px] uppercase tracking-[0.45em] text-white/12 font-medium">soul of the world</p>
-    </div>
 </div>
 
 <!-- AppStore overlay -->

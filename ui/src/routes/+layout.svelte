@@ -7,11 +7,14 @@
     import ChatPanel from '$lib/ChatPanel.svelte';
     import EphemeralWidget from '$lib/EphemeralWidget.svelte';
     import LuminaHomepage from '$lib/LuminaHomepage.svelte';
+    import FindBar from '$lib/FindBar.svelte';
     import { browserStore, activeTab } from '$lib/stores';
     import { ipfsStore } from '$lib/ipfsStore';
     import { settingsStore } from '$lib/settingsStore';
     import { swarmStore } from '$lib/swarmStore';
     import { chatOpen } from '$lib/uiState';
+    import { bucks } from '$lib/bridge';
+    import { parseSlash } from '$lib/agent/slash';
     import { onMount } from 'svelte';
 
     let { children } = $props();
@@ -22,8 +25,16 @@
         const teardownTabs = browserStore.init();
         void swarmStore.checkOnline();
         const statusPoll = setInterval(() => void swarmStore.checkOnline(), 30_000);
+        // The Soul Engine becomes usable on its own schedule (model download, warm-up): follow it.
+        let lastSoulState = '';
+        const stopSoulWatch = bucks.agent.onSoulStatus((st) => {
+            if (st.state === lastSoulState) return;
+            lastSoulState = st.state;
+            if ($settingsStore?.agent.provider === 'soul') void swarmStore.checkOnline();
+        });
         return () => {
             clearInterval(statusPoll);
+            stopSoulWatch();
             teardownTabs();
             ipfsStore.cleanup();
             settingsStore.destroy();
@@ -43,7 +54,8 @@
     });
 
     function handleQuery(query: string) {
-        chatOpen.set(true);
+        // "/wallet", "/settings"… just open their page.
+        if (parseSlash(query)?.kind !== 'nav') chatOpen.set(true);
         void swarmStore.sendQuery(query);
     }
 
@@ -68,6 +80,9 @@
 
 <!-- Layer 2: Placeholder for the native web view of the active external tab (z-0, top 96px → bottom 88px) -->
 <ContentArea />
+
+<!-- Find in page (Ctrl/Cmd+F); the content area moves down while it is open -->
+<FindBar />
 
 <!-- New-tab home screen (z-0) -->
 {#if $activeTab?.url === 'bucks://newtab' || !$activeTab}

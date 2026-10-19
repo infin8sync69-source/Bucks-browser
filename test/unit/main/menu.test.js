@@ -8,6 +8,7 @@ const { buildMenuTemplate } = await import('../../../src/main/menu.js');
 const CONTRACT_ACTIONS = new Set([
   'new-tab', 'close-tab', 'focus-omnibox', 'reload', 'back', 'forward', 'next-tab', 'prev-tab', 'find',
   'zoom-in', 'zoom-out', 'zoom-reset', 'toggle-devtools', 'open-settings', 'open-downloads', 'open-ipfs', 'open-wallet', 'toggle-agent',
+  'new-private-tab', 'reopen-closed-tab', 'print', 'save-pdf',
 ]);
 
 function flatten(template) {
@@ -46,6 +47,7 @@ test('every accelerator emits a contract action (linux/windows)', () => {
     'Alt+Left': 'back', 'Alt+Right': 'forward', 'Ctrl+Tab': 'next-tab', 'Ctrl+Shift+Tab': 'prev-tab', 'CmdOrCtrl+F': 'find',
     'CmdOrCtrl+=': 'zoom-in', 'CmdOrCtrl+-': 'zoom-out', 'CmdOrCtrl+0': 'zoom-reset', 'CmdOrCtrl+,': 'open-settings',
     'CmdOrCtrl+J': 'open-downloads', 'CmdOrCtrl+Shift+A': 'toggle-agent',
+    'CmdOrCtrl+Shift+N': 'new-private-tab', 'CmdOrCtrl+Shift+T': 'reopen-closed-tab', 'CmdOrCtrl+P': 'print', 'CmdOrCtrl+Shift+S': 'save-pdf',
   };
   for (const [accel, action] of Object.entries(expect)) {
     assert.ok(byAccel[accel], `accelerator ${accel} present`);
@@ -89,4 +91,15 @@ test('devtools toggles the active tab, else the chrome window', () => {
   dev.click();
   assert.deepEqual(opened, [['tab', 'detach'], ['chrome', 'detach']]);
   assert.deepEqual(emitted, ['toggle-devtools', 'toggle-devtools']);
+});
+
+test('find focuses the chrome window first, so typing goes to the find bar', () => {
+  const emitted = [];
+  let focused = 0;
+  const win = { webContents: { isDestroyed: () => false, focus: () => { focused += 1; } } };
+  const template = buildMenuTemplate({ platform: 'linux', emit: (a) => emitted.push(a), tabs: fakeTabs(), getMainWindow: () => win });
+  const find = flatten(template).find((i) => i.accelerator === 'CmdOrCtrl+F');
+  find.click();
+  assert.equal(focused, 1);
+  assert.deepEqual(emitted, ['find']);
 });

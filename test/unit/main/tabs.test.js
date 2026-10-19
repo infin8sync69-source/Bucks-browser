@@ -5,7 +5,7 @@ import { register } from 'node:module';
 register('./helpers/electron-loader.mjs', import.meta.url);
 const {
   navigationDecision, canonicalUrl, isBareIpfsUrl, schemeOf, clampBounds,
-  isHttpsFallbackError, isUpgradedHttpsFailure, downgradeToHttp, buildTabState, ALLOWED_SCHEMES,
+  isHttpsFallbackError, isUpgradedHttpsFailure, downgradeToHttp, buildTabState, ALLOWED_SCHEMES, zoomPercent, pdfFileName,
 } = await import('../../../src/main/tabs.js');
 
 test('schemeOf / isBareIpfsUrl', () => {
@@ -93,4 +93,31 @@ test('buildTabState reads the web contents and canonicalises ipfs urls', () => {
   assert.equal(s2.canGoBack, false);
   assert.equal(s2.audible, true);
   assert.deepEqual(s2.error, { code: -1, description: 'Page crashed', url: 'x' });
+});
+
+test('zoomPercent and pdfFileName', () => {
+  assert.equal(zoomPercent(1), 100);
+  assert.equal(zoomPercent(1.1), 110);
+  assert.equal(zoomPercent(0.333), 33);
+  assert.equal(zoomPercent(NaN), 100);
+  assert.equal(zoomPercent(0), 100);
+  assert.equal(pdfFileName('Report: Q3/Q4 <draft>'), 'Report Q3 Q4 draft.pdf');
+  assert.equal(pdfFileName('  '), 'page.pdf');
+  assert.equal(pdfFileName(undefined), 'page.pdf');
+  assert.equal(pdfFileName('ends with dots...'), 'ends with dots.pdf');
+  assert.equal(pdfFileName('x'.repeat(300)).length, 124);
+});
+
+test('buildTabState reports mute, zoom and private', () => {
+  const wc = {
+    getURL: () => 'https://a.b/', getTitle: () => 'A', isLoading: () => false,
+    navigationHistory: { canGoBack: () => true, canGoForward: () => false },
+    isCurrentlyAudible: () => true, isAudioMuted: () => true, getZoomFactor: () => 1.25,
+  };
+  const st = buildTabState({ id: 't', wc, favicon: null, error: null, isPrivate: true });
+  assert.equal(st.muted, true);
+  assert.equal(st.audible, true);
+  assert.equal(st.zoom, 125);
+  assert.equal(st.private, true);
+  assert.equal(buildTabState({ id: 't', wc: { ...wc, isAudioMuted: undefined, getZoomFactor: undefined }, favicon: null, error: null }).zoom, 100);
 });

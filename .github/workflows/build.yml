@@ -1,7 +1,7 @@
 name: Build
 
-# check   : static checks, installer lint and unit tests (ubuntu)
-# e2e     : Playwright end-to-end tests, including two app instances pairing (ubuntu)
+# check   : static checks, installer lint, unit tests and Soul Engine (Python) tests (ubuntu)
+# e2e     : Playwright end-to-end tests: two app instances pairing, the Soul Engine agent (ubuntu)
 # macos-install : runs scripts/install-macos.sh for real and boots the installed app (macOS arm64)
 # build   : installers for Linux x64, Windows x64, macOS arm64 and macOS x64
 # release : on a v* tag, attach every installer to a GitHub release
@@ -59,7 +59,29 @@ jobs:
       - name: Lint the installer scripts
         run: shellcheck -s bash scripts/install-linux.sh scripts/install-macos.sh
 
-      # The Kubo integration tests skip themselves when no Kubo binary is present.
+      # The Soul Engine (agent/) with only the packages the browser installs for it, so the tests
+      # below exercise the same environment Settings → Agent → Install creates.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/requirements-engine.txt
+
+      - name: Install the Soul Engine packages
+        run: |
+          python -m venv "$RUNNER_TEMP/soul-venv"
+          "$RUNNER_TEMP/soul-venv/bin/pip" install -r agent/requirements-engine.txt pytest pytest-asyncio
+          echo "BUCKS_SOUL_PYTHON=$RUNNER_TEMP/soul-venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Soul Engine tests (token gate, shell allowlist, endpoints)
+        working-directory: agent
+        env:
+          BUCKS_DATA_DIR: ${{ runner.temp }}/soul-data
+          BUCKS_HOME: ${{ runner.temp }}/soul-data
+        run: '"$BUCKS_SOUL_PYTHON" -m pytest -q -p no:cacheprovider tests/test_local_security.py tests/test_nexus_endpoints.py'
+
+      # The Kubo integration tests skip themselves when no Kubo binary is present; the Soul Engine
+      # integration test runs against the real engine through BUCKS_SOUL_PYTHON.
       - name: Unit tests
         run: npm test
 
@@ -94,8 +116,21 @@ jobs:
       - name: Fetch the Kubo binary
         run: node scripts/fetch-kubo.mjs --platform linux --arch x64
 
-      # smoke.test.mjs (one instance) and devices.test.mjs (two instances pair over Kubo peering +
-      # pubsub and send a file, then one restarts and gets a share sent while it was off).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: agent/requirements-engine.txt
+
+      - name: Install the Soul Engine packages
+        run: |
+          python -m venv "$RUNNER_TEMP/soul-venv"
+          "$RUNNER_TEMP/soul-venv/bin/pip" install -r agent/requirements-engine.txt
+          echo "BUCKS_SOUL_PYTHON=$RUNNER_TEMP/soul-venv/bin/python" >> "$GITHUB_ENV"
+
+      # smoke.test.mjs (one instance), devices.test.mjs (two instances pair over Kubo peering +
+      # pubsub and send a file, then one restarts and gets a share sent while it was off) and
+      # soul.test.mjs (Bucks starts the Soul Engine and an answer with a card reaches the chat panel).
       - name: End-to-end tests
         env:
           BUCKS_E2E_ARTIFACTS: ${{ runner.temp }}/e2e

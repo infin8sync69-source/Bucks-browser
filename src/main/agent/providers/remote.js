@@ -64,18 +64,19 @@ export function createRemoteProvider({ fetchImpl = (...a) => globalThis.fetch(..
     },
 
     /**
-     * @param {{ prompt: string, currentUrl?: string, currentTitle?: string }} input
+     * @param {{ prompt: string, currentUrl?: string, currentTitle?: string, history?: object[], attachments?: string }} input
      * @param {{ remoteUrl: string }} cfg
      * @returns {Promise<{ status: string, evaluation: string, cid: string|null, task_id: string|null, a2ui: object|null }>}
      */
-    async query({ prompt, currentUrl, currentTitle }, cfg) {
+    async query({ prompt, currentUrl, currentTitle, history, attachments }, cfg) {
       const base = baseUrl(cfg);
       let res;
       try {
         res = await postJson(`${base}/api/v1/swarm/task`, {
-          prompt,
+          prompt: attachments ? `${prompt}\n\n${attachments}` : prompt,
           current_url: currentUrl || null,
           current_title: currentTitle || null,
+          history: Array.isArray(history) ? history : [],
         }, TASK_TIMEOUT_MS, fetchImpl);
       } catch (e) {
         throw describeNetworkError(e, base);

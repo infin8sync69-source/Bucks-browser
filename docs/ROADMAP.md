@@ -21,8 +21,14 @@ platform they will be built on.
 - **Security.** HTTPS-only upgrades, EasyList/EasyPrivacy blocking, third-party cookie blocking,
   deny-by-default permissions, sandboxed renderers, a locked-down `bucks://` protocol.
 - **Browser features.** Downloads, native menu and shortcuts, context menus, window state, settings.
-- **Agent.** Offline rules, a remote Bucks agent server and Ollama, with automatic fallback to the
-  offline rules.
+- **Agent.** Offline rules, a remote Bucks agent server, Ollama, and the Soul Engine, with
+  automatic fallback to the offline rules.
+- **Soul Engine (aligned from Bucks-App).** The Python agent of the Electron "Bucks Core" app
+  (buckscore `Bucks-App/agent`) now lives in `agent/` and runs as a supervised loopback sidecar
+  with a per-launch token, an on-device model by default, a one-click private Python install,
+  generative-UI cards and follow-up suggestions in the chat panel. The move fixed a committed
+  database password, unauthenticated local servers, a shell allowlist bypass and home-wide file
+  access. Map of the remaining Bucks-App features: [ALIGNMENT.md](ALIGNMENT.md).
 - **Wallet.** An origin-gated proxy from the interface to a Bucks node over HTTP.
 - **Packaging.** `electron-builder.yml` with installers for Linux (AppImage, deb), Windows (NSIS and
   portable) and macOS (dmg, zip) bundling Kubo; GitHub Actions for checks, builds and tagged
@@ -67,13 +73,17 @@ them, with no server in between. User guide: [DEVICES.md](DEVICES.md); protocol:
 3. **`bucks://` name resolution via the Bucks chain.** Today `bucks://` only serves the app's own
    pages (`bucks://app`, plus the interface's internal routes). Human-readable names should resolve to a CID
    through the chain, with a verified result.
-4. **Chat over Kubo pubsub.** `src/main/chat/` is the end-to-end encrypted chat engine from the previous
-   app (CommonJS, Helia gossipsub). Port it to Kubo's pubsub RPC (pubsub is now enabled in the
+4. **Chat over Kubo pubsub.** `src/main/chat/` is the end-to-end encrypted chat engine from
+   Bucks-App v1.1.0 (CommonJS, Helia gossipsub; updated to its latest, hardened version, see
+   `src/main/chat/README.md`). Port it to Kubo's pubsub RPC (pubsub is now enabled in the
    repo configuration for device pairing, and `src/main/ipfs/devices-service.js` shows how to
    stream `pubsub/sub` and publish with `pubsub/pub`), wire it into `index.js` and the contract.
    Its encryption is a model for encrypted shares.
 5. **Agent tool permissions and MCP.** Let the agent call tools (including MCP servers) behind
-   explicit per-tool, per-site user consent, with a visible log of what ran.
+   explicit per-tool, per-site user consent, with a visible log of what ran. First step: an
+   approval prompt for the Soul Engine's `browser_action` events, then its `agentic` mode
+   (read, click and type in the live tab, Bucks-App's `agent-browser-control.js`), then starting
+   `agent/mcp_server.py` with its token behind a Settings switch.
 6. **Tor through an `arti` sidecar.** A real Tor client supervised the same way as Kubo, with an
    opt-in per-session proxy and honest status reporting.
 7. **Security follow-ups.** Ask before falling back from HTTPS to HTTP after a TLS error instead of

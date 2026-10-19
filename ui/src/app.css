@@ -62,3 +62,21 @@ body {
 .no-drag {
     -webkit-app-region: no-drag;
 }
+
+/* Thin, quiet vertical scrollbar (new-tab dashboard) */
+.thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
