@@ -265,6 +265,33 @@ const api = Object.freeze({
     onProgress: (cb) => subscribe('bucks:sites:progress', cb),
   }),
 
+  // Installed apps, each run in a Bucks container (docs/APP-ENVIRONMENT.md).
+  apps: Object.freeze({
+    /** Native folder dialog → { token, name, hints } or null. */
+    chooseFolder: () => invoke('bucks:apps:choose-folder'),
+    /** Exactly one of { address } (ipfs:// or ipns://), { folderToken }, { siteId }. → the review, with a token */
+    inspect: (source) => invoke('bucks:apps:inspect', source),
+    /** Install what a review showed; `granted` may leave permissions off. */
+    install: (token, granted) => invoke('bucks:apps:install', granted ? { token, granted } : { token }),
+    list: () => invoke('bucks:apps:list'),
+    get: (id) => invoke('bucks:apps:get', { id }),
+    /** The app's icon as a data: URL, or null. */
+    icon: (id) => invoke('bucks:apps:icon', { id }),
+    launch: (id) => invoke('bucks:apps:launch', { id }),
+    checkUpdate: (id) => invoke('bucks:apps:check-update', { id }),
+    /** Without confirm: what would change. With confirm: apply (grants the new permissions). */
+    update: (id, confirm) => invoke('bucks:apps:update', { id, confirm: confirm === true }),
+    rollback: (id) => invoke('bucks:apps:rollback', { id }),
+    setPermission: (id, permission, granted) => invoke('bucks:apps:set-permission', { id, permission, granted }),
+    uninstall: (id) => invoke('bucks:apps:uninstall', { id }),
+    /** Host a folder app from this browser (publishes it as a site; the app then follows its ipns:// address). */
+    publish: (id) => invoke('bucks:apps:publish', { id }),
+    /** Sites this browser hosts, to install one as an app. */
+    hostedSites: () => invoke('bucks:apps:hosted-sites'),
+    /** ({ type: 'changed', id } | { type: 'progress', id?, step, message }) */
+    onEvent: (cb) => subscribe('bucks:apps:event', cb),
+  }),
+
   updater: Object.freeze({
     /** @returns {Promise<UpdateStatus>} local checkout state, no network. */
     status: () => invoke('bucks:updater:status'),

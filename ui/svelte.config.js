@@ -11,7 +11,7 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     // The design system lives outside ui/ so the framework-free chrome can share it.
-    alias: { $design: "../design" },
+    alias: { $design: "../design", $chrome: "../chrome/src" },
     adapter: adapter({
       fallback: "index.html",
     }),

@@ -508,3 +508,80 @@ interface SiteHealth {
   gateway sees it (Kubo would otherwise resolve `ipfs://<A>/..%2F<B>/x` to B's content on A's origin).
 * Web pages cannot fetch from the node's API or gateway ports directly (subresource requests are
   cancelled by the request filter); they reach IPFS through `ipfs://` only.
+
+## Apps: installing and running apps in a Bucks container
+
+Owner: `src/main/apps/` — `ipc.js` (Electron glue: channels, dialog, sender check), `service.js`
+(install, update, rollback, uninstall, publish), `manifest.js` (the `app` section of
+`bucks-site.json`, permission catalogue), `store.js` (`<userData>/apps.json`), `protocol.js`
+(`bucks-app://`), `policy.js` (the container's rules, pure), `container.js` (sessions, windows,
+the app bridge). Design: [APP-ENVIRONMENT.md](APP-ENVIRONMENT.md).
+
+Rules:
+
+* Every `bucks:apps:*` channel rejects senders other than the chrome, like `bucks:sites:*`.
+* The renderer never passes a path: folders come from `bucks:apps:choose-folder` as a token.
+* `inspect` installs and pins nothing. `install` takes the review's single-use token: what is
+  installed is exactly the CID the user reviewed.
+* An app is granted at most what its current version's manifest asks for. An update that asks for
+  more needs `confirm: true` (the user saw `added`); a rollback never widens grants.
+* An app never reaches the local node's API or gateway, whatever it was granted; its files and its
+  `ipfs://` requests come from the local node only, never a public gateway.
+
+### Shapes
+
+```ts
+interface AppPermission { id: string; label: string; description: string; risk: 'low' | 'medium' | 'high'; icon: string; granted?: boolean }
+// id: 'notifications' | 'clipboard-read' | 'geolocation' | 'camera' | 'microphone' | 'ipfs' | 'agent-tools'
+//   | `network:${'https' | 'wss'}://host[:port]` | 'network:https://*.domain' | 'network:http://localhost:port'
+interface AppSource { kind: 'ipfs' | 'ipns' | 'folder' | 'site'; ref: string; name: string | null }
+interface AppReview {
+  token: string;              // single use, 30 minutes
+  source: AppSource; cid: string; name: string; version: string; description: string; size: number | null;
+  permissions: AppPermission[]; tools: { name: string; description: string }[]; warnings: string[];
+  alreadyInstalled: string | null;   // installing the same source again replaces that app (keeps its data)
+}
+interface AppSummary {
+  id: string;                 // a_<10 hex>
+  name: string; description: string; version: string; cid: string; source: AppSource;
+  permissions: AppPermission[]; tools: { name: string; description: string }[];
+  hasIcon: boolean; running: boolean; canUpdate: boolean;
+  pendingUpdate: { version: string; cid: string; added: AppPermission[]; removed: AppPermission[] } | null;
+  previousVersion: { cid: string; version: string } | null;
+  installedAt: string | null; updatedAt: string | null;
+  urls: { app: string; ipfs: string; ipns?: string };
+}
+```
+
+### Channels
+
+| Channel | Payload → Result |
+|---|---|
+| `bucks:apps:choose-folder` | → `{ token, name, hints } \| null` (native dialog) |
+| `bucks:apps:inspect` | exactly one of `{ address }` (`ipfs://`, `ipns://`, `/ipfs/…`, CID, `k51…`), `{ folderToken }`, `{ siteId }` → `AppReview`. A folder is checked (P1–P12) and added **unpinned** |
+| `bucks:apps:install` | `{ token, granted?: string[] }` → `AppSummary` (pins the CID, caches the icon) |
+| `bucks:apps:list` | → `AppSummary[]` |
+| `bucks:apps:get` | `{ id }` → `AppSummary` |
+| `bucks:apps:icon` | `{ id }` → `data:` URL or `null` |
+| `bucks:apps:launch` | `{ id }` → `AppSummary` (opens or focuses its container window) |
+| `bucks:apps:check-update` | `{ id }` → `{ available, reason?, version?, cid?, added?, removed?, warnings? }` (records the update; changes nothing) |
+| `bucks:apps:update` | `{ id, confirm? }` → without confirm `{ applied: false, version, cid, added, removed }`; with it `{ applied: true, app, added, removed }` (pins, grants `added`, reloads the app) |
+| `bucks:apps:rollback` | `{ id }` → `AppSummary` |
+| `bucks:apps:set-permission` | `{ id, permission, granted }` → `AppSummary` (revoking reloads a running app) |
+| `bucks:apps:uninstall` | `{ id }` → `{ removed, id }` (closes it, clears its session storage, unpins what no other app or hosted site uses) |
+| `bucks:apps:publish` | `{ id }` (folder apps) → `{ siteId, ipns, urls, update, app }` (publishes the folder as a site; the app then follows its address) |
+| `bucks:apps:hosted-sites` | → `{ id, name, ipns, cid }[]` |
+| event `bucks:apps:event` | `{ type: 'changed', id? }` or `{ type: 'progress', id?, step, message }` |
+
+### Inside the container: `window.bucks.app` (`src/preload/app-preload.cjs`)
+
+Channels `bucks-app:*` accept only the main frame of a container window whose URL is its own
+`bucks-app://<id>/`.
+
+| API | Channel | Needs |
+|---|---|---|
+| `info()` → `{ id, name, version, permissions, tools }` | `bucks-app:info` | — |
+| `agent.handle(name, fn)` → unregister | `bucks-app:tools` (send), `bucks-app:tool-call` (main → app), `bucks-app:tool-result` | a tool declared in the manifest; `agent-tools` granted for calls to arrive. Results are JSON, ≤ 256 KB, 60 s |
+| `ipfs.add(textOrBytes, { name }?)` → `{ cid, size }` | `bucks-app:ipfs-add` | `ipfs`; ≤ 16 MB; pinned |
+| `ipfs.cat(cidOrPath)` → `Uint8Array` | `bucks-app:ipfs-cat` | `ipfs`; ≤ 16 MB |
+| `openExternal(url)` | `bucks-app:open-external` | http(s), ipfs or ipns links; opens a Bucks tab |

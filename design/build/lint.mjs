@@ -72,7 +72,14 @@ export function lintText(text, { kind }) {
       scan(i, ARBITRARY_ALPHA, 'arbitrary-value', (m) => `Arbitrary opacity "${m[0]}": use an integer percentage (bg-surface-2/40) or a token`);
       scan(i, RAW_Z, 'raw-z-index', (m) => `Raw z-index "${m[0]}": use a layer token (z-raised, z-modal, …)`);
       scan(i, RAW_DURATION, 'raw-duration', (m) => `Raw duration "${m[0]}": use duration-fast / -base / -moderate / -slow`);
-      scan(i, BARE_SCALE, 'bare-scale', (m) => `"${m[0]}" without a size: name the token (rounded-sm, shadow-sm, blur-sm)`);
+      // prose ("the shadow DOM", "a shadow root") is not a class
+      if (!/^\s*(\/\/|\/?\*|<!--)/.test(line)) {
+        BARE_SCALE.lastIndex = 0;
+        for (const m of line.matchAll(BARE_SCALE)) {
+          if (/^shadow\s+(dom|root|tree|boundar|host|part)/i.test(line.slice(m.index + m[0].length - 6))) continue;
+          add(i, m.index, 'bare-scale', m[0], `"${m[0]}" without a size: name the token (rounded-sm, shadow-sm, blur-sm)`);
+        }
+      }
       scan(i, JS_DURATION, 'raw-duration', 'Animation duration in milliseconds: use duration.<name> from design/dist/tokens.js');
     }
     // CSS declarations (in .css, <style> blocks, style="" attributes and CSS-in-strings)
@@ -102,7 +109,7 @@ export function kindOf(rel) {
     if (/\.css$/.test(rel)) return 'style';
     return null;
   }
-  if (rel.startsWith('design/components/') || rel.startsWith('design/runtime/') || rel.startsWith('design/gallery/')) {
+  if (rel.startsWith('design/components/') || rel.startsWith('design/runtime/') || rel.startsWith('design/gallery/') || rel.startsWith('chrome/src/')) {
     if (/\.(js|ts|html)$/.test(rel)) return rel.endsWith('.html') ? 'markup' : 'script';
     if (/\.css$/.test(rel)) return 'style';
     return null;

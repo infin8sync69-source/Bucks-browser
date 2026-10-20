@@ -75,12 +75,12 @@ jobs:
           "$RUNNER_TEMP/soul-venv/bin/pip" install -r agent/requirements-engine.txt pytest pytest-asyncio
           echo "BUCKS_SOUL_PYTHON=$RUNNER_TEMP/soul-venv/bin/python" >> "$GITHUB_ENV"
 
-      - name: Soul Engine tests (token gate, shell allowlist, endpoints, hosting tools)
+      - name: Soul Engine tests (token gate, shell allowlist, endpoints, hosting and app tools)
         working-directory: agent
         env:
           BUCKS_DATA_DIR: ${{ runner.temp }}/soul-data
           BUCKS_HOME: ${{ runner.temp }}/soul-data
-        run: '"$BUCKS_SOUL_PYTHON" -m pytest -q -p no:cacheprovider tests/test_local_security.py tests/test_nexus_endpoints.py tests/test_site_tools.py'
+        run: '"$BUCKS_SOUL_PYTHON" -m pytest -q -p no:cacheprovider tests/test_local_security.py tests/test_nexus_endpoints.py tests/test_site_tools.py tests/test_app_tools.py'
 
       # The Kubo integration tests skip themselves when no Kubo binary is present; the Soul Engine
       # integration test runs against the real engine through BUCKS_SOUL_PYTHON.

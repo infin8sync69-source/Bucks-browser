@@ -322,7 +322,7 @@ export type AgentAttachment =
 /** Progress of a running query, pushed by the main process. */
 export type AgentEvent =
     | { queryId: string; type: 'status'; label: string }
-    | { queryId: string; type: 'approval'; requestId: string; name: string; label: string; expiresAt: number }
+    | { queryId: string; type: 'approval'; requestId: string; name: string; label: string; expiresAt: number; app?: ApprovalAppCard }
     | { queryId: string; type: 'approval-done'; requestId: string; approved: boolean };
 
 export interface AgentFeedback {
@@ -415,6 +415,81 @@ export interface DeviceShareResult {
     /** Paired devices that were online when the share was announced. */
     onlinePeers: number;
 }
+
+// ── Apps (bucks:apps:*, docs/IPC-CONTRACT.md "Apps") ───────────────────────────
+
+/** The app part of an agent approval card, built by the main process from its own review. */
+export interface ApprovalAppCard {
+    action: 'install' | 'update' | 'uninstall' | 'tools';
+    name: string;
+    permissions?: { id: string; label: string; risk: 'low' | 'medium' | 'high' }[];
+    added?: { id: string; label: string; risk: 'low' | 'medium' | 'high' }[];
+}
+
+export interface AppPermission {
+    id: string;
+    label: string;
+    description: string;
+    risk: 'low' | 'medium' | 'high';
+    icon: string;
+    /** Present on installed apps. */
+    granted?: boolean;
+}
+
+export interface AppSource {
+    kind: 'ipfs' | 'ipns' | 'folder' | 'site';
+    /** CID, IPNS name, folder (main process only) or site id. */
+    ref: string;
+    /** For kind 'site': its ipns name. */
+    name: string | null;
+}
+
+export interface AppReview {
+    /** Stands for this review for 30 minutes; pass it to install(). */
+    token: string;
+    source: AppSource;
+    cid: string;
+    name: string;
+    version: string;
+    description: string;
+    size: number | null;
+    permissions: AppPermission[];
+    tools: { name: string; description: string }[];
+    warnings: string[];
+    /** The id of the installed app from the same source (installing replaces it). */
+    alreadyInstalled: string | null;
+}
+
+export interface AppSummary {
+    id: string;
+    name: string;
+    description: string;
+    version: string;
+    cid: string;
+    source: AppSource;
+    permissions: AppPermission[];
+    tools: { name: string; description: string }[];
+    hasIcon: boolean;
+    running: boolean;
+    canUpdate: boolean;
+    pendingUpdate: { version: string; cid: string; added: AppPermission[]; removed: AppPermission[] } | null;
+    previousVersion: { cid: string; version: string } | null;
+    installedAt: string | null;
+    updatedAt: string | null;
+    urls: { app: string; ipfs: string; ipns?: string };
+}
+
+export interface AppUpdateCheck {
+    available: boolean;
+    reason?: string;
+    version?: string;
+    cid?: string;
+    added?: AppPermission[];
+    removed?: AppPermission[];
+    warnings?: string[];
+}
+
+export type AppEvent = { type: 'changed'; id?: string } | { type: 'progress'; id?: string; step: string; message: string };
 
 // ── Sites (bucks:sites:*, docs/IPC-CONTRACT.md "Sites") ─────────────────────────
 
@@ -816,6 +891,27 @@ export interface BucksApi {
         onUpdated(cb: (status: DevicesStatus) => void): Unsubscribe;
     };
 
+    apps: {
+        /** Native folder dialog; null when cancelled. */
+        chooseFolder(): Promise<SiteFolder | null>;
+        /** Exactly one source. Nothing is installed or pinned by a review. */
+        inspect(source: { address: string } | { folderToken: string } | { siteId: string }): Promise<AppReview>;
+        install(token: string, granted?: string[]): Promise<AppSummary>;
+        list(): Promise<AppSummary[]>;
+        get(id: string): Promise<AppSummary>;
+        icon(id: string): Promise<string | null>;
+        /** Opens (or focuses) the app's container window. */
+        launch(id: string): Promise<AppSummary>;
+        checkUpdate(id: string): Promise<AppUpdateCheck>;
+        update(id: string, confirm?: boolean): Promise<{ applied: boolean; version?: string; added: AppPermission[]; removed: AppPermission[]; app?: AppSummary }>;
+        rollback(id: string): Promise<AppSummary>;
+        setPermission(id: string, permission: string, granted: boolean): Promise<AppSummary>;
+        uninstall(id: string): Promise<{ removed: boolean; id: string }>;
+        publish(id: string): Promise<{ siteId: string; ipns: string | null; update: AppUpdateCheck; app: AppSummary }>;
+        hostedSites(): Promise<{ id: string; name: string; ipns: string | null; cid: string | null }[]>;
+        onEvent(cb: (event: AppEvent) => void): Unsubscribe;
+    };
+
     sites: {
         /** Native folder dialog; null when cancelled. */
         chooseFolder(): Promise<SiteFolder | null>;
@@ -1081,6 +1177,24 @@ function createMockBridge(): BucksApi {
             share: () => unavailable('devices.share'),
             dismiss: () => Promise.resolve(mockDevicesStatus(settings.devices.name)),
             onUpdated: () => noSub,
+        },
+        // Apps need the main process (Kubo, containers): nothing to fake here.
+        apps: {
+            chooseFolder: () => unavailable('apps.chooseFolder'),
+            inspect: () => unavailable('apps.inspect'),
+            install: () => unavailable('apps.install'),
+            list: () => Promise.resolve([]),
+            get: () => unavailable('apps.get'),
+            icon: () => Promise.resolve(null),
+            launch: () => unavailable('apps.launch'),
+            checkUpdate: () => unavailable('apps.checkUpdate'),
+            update: () => unavailable('apps.update'),
+            rollback: () => unavailable('apps.rollback'),
+            setPermission: () => unavailable('apps.setPermission'),
+            uninstall: () => unavailable('apps.uninstall'),
+            publish: () => unavailable('apps.publish'),
+            hostedSites: () => Promise.resolve([]),
+            onEvent: () => noSub,
         },
         // Hosting needs the main process (folder dialogs, Kubo): nothing to fake here.
         sites: {

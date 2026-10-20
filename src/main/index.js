@@ -6,13 +6,15 @@ import { app, BrowserWindow, ipcMain, net, nativeImage, session } from 'electron
 import path from 'node:path';
 import { registerSchemePrivileges } from './protocols/index.js';
 import { installBucksProtocol } from './protocols/bucks.js';
-import { installIpfsProtocols } from './protocols/ipfs.js';
+import { installIpfsProtocols, createIpfsHandler } from './protocols/ipfs.js';
 import { createSettings } from './settings.js';
 import { createKubo } from './ipfs/kubo.js';
 import { registerIpfsIpc } from './ipfs/ipc.js';
 import { createDevices } from './ipfs/devices.js';
 import { createSites } from './sites/ipc.js';
 import { createSiteTools } from './sites/agent-tools.js';
+import { createApps } from './apps/ipc.js';
+import { createAppTools } from './apps/agent-tools.js';
 import { createMainWindow, registerWindowIpc } from './window.js';
 import { createTabManager } from './tabs.js';
 import { installAppMenu } from './menu.js';
@@ -29,7 +31,7 @@ import { createAgent } from './agent/bridge.js';
 import { createSoulEngine, settingsAction } from './agent/soul-engine.js';
 import { createWalletProxy } from './wallet/proxy.js';
 import { registerUpdater } from './updater.js';
-import { appRoot, uiDist, preloadPath, resourcesDir, userDataDir } from './paths.js';
+import { appRoot, uiDist, preloadPath, appPreloadPath, resourcesDir, userDataDir } from './paths.js';
 import { createLogger, initFileLogging } from './log.js';
 
 const log = createLogger('main');
@@ -109,6 +111,15 @@ app.whenReady().then(async () => {
   const ipfsHandler = installIpfsProtocols({ sessions: [session.defaultSession, webSession, privateSession], kubo, settings });
   // Hosting sites from this browser (bucks:sites:*); its self-test goes through the same handler.
   const sites = createSites({ kubo, settings, userData, handler: ipfsHandler, devices, getMainWindow });
+  // Installed apps, each in its own container (session, window, bucks-app:// origin). Their files
+  // and their ipfs:// requests only ever come from the local node, never a public gateway.
+  const localOnlySettings = { get: () => { const s = settings.get(); return { ...s, ipfs: { ...(s.ipfs || {}), preferredGateway: 'local' } }; } };
+  const apps = createApps({
+    kubo, settings, userData, sites, getMainWindow, preloadPath: appPreloadPath,
+    ipfsHandler: createIpfsHandler({ kubo, settings: localOnlySettings }),
+    openInBrowser: (url) => tabs?.requestOpen(null, url, 'foreground-tab'),
+    nodeOrigins: () => [kubo.status().api_url, kubo.status().gateway_url].filter(Boolean),
+  });
 
   // Network security for web content: HTTPS-only, blocklists, permission gating.
   const security = installSecurity({
@@ -141,7 +152,10 @@ app.whenReady().then(async () => {
   // the selected agent provider.
   soul = createSoulEngine({ settings, userData, appRoot, resourcesDir: app.isPackaged ? resourcesDir() : null, getMainWindow });
   const docs = installDocs({ app, BrowserWindow });
-  createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl: createBrowserControl({ tabs, docs }), siteTools: createSiteTools({ sites }) });
+  const appTools = createAppTools({ apps });
+  createAgent({ settings, tabs, kubo, soul, getMainWindow, browserControl: createBrowserControl({ tabs, docs }), siteTools: createSiteTools({ sites }), appTools });
+  // End-to-end tests reach the services the agent uses (the process environment is trusted).
+  if (process.env.BUCKS_TEST_HOOKS === '1') globalThis.__bucksTest = { apps, appTools };
   installWeather({ fetchImpl });
   {
     const s = settings.get();

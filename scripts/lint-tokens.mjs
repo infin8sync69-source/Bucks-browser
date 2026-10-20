@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { lintText, kindOf } from '../design/build/lint.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ROOTS = ['ui/src', 'design/components', 'design/runtime', 'design/gallery', 'src/main', 'src/preload'];
+const ROOTS = ['ui/src', 'design/components', 'design/runtime', 'design/gallery', 'chrome/src', 'src/main', 'src/preload'];
 
 function* walk(dir) {
   let entries;

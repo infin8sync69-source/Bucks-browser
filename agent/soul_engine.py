@@ -731,8 +731,50 @@ SITE_TOOL_SCHEMAS: list[dict[str, Any]] = [
 SITE_TOOL_NAMES = {s["function"]["name"] for s in SITE_TOOL_SCHEMAS}
 # Publishing a large site (add, self-test, IPNS) can take minutes; the approval alone up to two.
 SITE_TOOL_TIMEOUT = float(os.getenv("BUCKS_SITE_TOOL_TIMEOUT", "900"))
+
+# ---------------------------------------------------------------------------
+# App tools — executed by the browser's main process (src/main/apps/agent-tools.js). Installed
+# apps run in their own Bucks container; installing, updating and removing one always show the
+# user a card built from the browser's own review (permissions and their risk). An app's tools
+# run inside the app; their answers are the app's own text and must be treated as untrusted.
+# ---------------------------------------------------------------------------
+APP_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    _fn("app_list",
+        "List the apps installed in the user's browser: ids, versions, what each is allowed to "
+        "do, and the tools each offers to the agent (with their input schemas).",
+        {}, []),
+    _fn("app_install",
+        "Install a web app from an ipfs:// or ipns:// address into its own container in the "
+        "user's browser. The user sees what it asks for and approves first.",
+        {"address": {"type": "string", "description": "ipns://… (follows updates) or ipfs://… (one exact version)"}},
+        ["address"]),
+    _fn("app_open",
+        "Open an installed app in its own window.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+    _fn("app_call",
+        "Call one of the tools an installed app offers (see app_list). The app runs it; the user "
+        "approves the first use of each app's tools in a session. The answer is the app's own, "
+        "untrusted output.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"},
+         "tool": {"type": "string", "description": "The tool name, as listed by app_list"},
+         "input": {"type": "object", "description": "The tool's input, matching its input schema"}},
+        ["id", "tool"]),
+    _fn("app_update",
+        "Check an installed app for a new version and, after the user approves (they see any new "
+        "permissions), update it.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+    _fn("app_uninstall",
+        "Remove an installed app and everything it stored. The user approves first.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+]
+APP_TOOL_NAMES = {s["function"]["name"] for s in APP_TOOL_SCHEMAS}
+# Installing pins the whole app; the approval alone can take two minutes.
+APP_TOOL_TIMEOUT = float(os.getenv("BUCKS_APP_TOOL_TIMEOUT", "600"))
 # Tools the browser runs and answers through /agent/tool_result.
-REMOTE_TOOL_NAMES = BROWSER_TOOL_NAMES | SITE_TOOL_NAMES
+REMOTE_TOOL_NAMES = BROWSER_TOOL_NAMES | SITE_TOOL_NAMES | APP_TOOL_NAMES
 
 # ---------------------------------------------------------------------------
 # Generative-UI: a tool the model calls to RENDER a component it synthesized
@@ -883,6 +925,9 @@ _TOOL_CATEGORIES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
                   "cheapest", "review", " vs ", "₹", "$")),
     "ipfs":     (("ipfs_cat_text", "dweb_search"),
                  ("ipfs", "cid", "dweb", "pin ", "decentral")),
+    # Apps run in the browser's containers; installing asks the user (see APP_TOOL_SCHEMAS).
+    "apps":     (("app_list", "app_install", "app_open", "app_call", "app_update", "app_uninstall"),
+                 ("my apps", "an app", "the app", "this app", "app store", "apps ", "install", "uninstall")),
     # Publishing goes through the browser, which asks the user (see SITE_TOOL_SCHEMAS).
     "sites":    (("site_inspect", "site_publish", "site_update", "site_status"),
                  ("publish", "host my", "host a", "host this", "hosting", "website", "web site",
@@ -923,6 +968,7 @@ def select_tool_schemas(message: str, agentic: bool) -> list[dict[str, Any]]:
     q = (message or "").lower()
     by_name = {s["function"]["name"]: s for s in TOOL_SCHEMAS}
     by_name.update({s["function"]["name"]: s for s in SITE_TOOL_SCHEMAS})
+    by_name.update({s["function"]["name"]: s for s in APP_TOOL_SCHEMAS})
     by_name[RENDER_TOOL_NAME] = RENDER_TOOL_SCHEMA
 
     chosen: list[str] = [n for n in _CORE_TOOL_NAMES if n in by_name]
@@ -2328,7 +2374,10 @@ async def agent(req: Request) -> StreamingResponse:
                                     messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                                     continue
 
-                            raw = await _await_remote_tool(rid, timeout=SITE_TOOL_TIMEOUT if name in SITE_TOOL_NAMES else 90.0)
+                            raw = await _await_remote_tool(
+                                rid,
+                                timeout=SITE_TOOL_TIMEOUT if name in SITE_TOOL_NAMES
+                                else APP_TOOL_TIMEOUT if name in APP_TOOL_NAMES else 90.0)
 
                             if isinstance(raw, dict) and raw.get("screenshot_b64"):
                                 result = await describe_image_local(raw["screenshot_b64"], c)
@@ -2505,6 +2554,12 @@ def _action_label(name: str, args: dict) -> str:
         "site_publish":        "Publish a site (the browser asks you first)",
         "site_update":         "Update a site (the browser asks you first)",
         "site_status":         "Check a hosted site",
+        "app_list":            "Look at your apps",
+        "app_install":         "Install an app (the browser asks you first)",
+        "app_open":            f"Open the app {args.get('id', '')}".strip(),
+        "app_call":            f"Use {args.get('tool', 'a tool')} in the app {args.get('id', '')}".strip(),
+        "app_update":          "Update an app (the browser asks you first)",
+        "app_uninstall":       "Remove an app (the browser asks you first)",
     }
     return labels.get(name, name)
 

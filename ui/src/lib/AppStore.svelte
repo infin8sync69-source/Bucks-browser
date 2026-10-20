@@ -2,7 +2,8 @@
     import { duration as motion } from '$design/dist/tokens.js';
     import { fade, fly, scale } from 'svelte/transition';
     import { cubicOut, quintOut } from 'svelte/easing';
-    import { X, Plus, Check, Grip } from 'lucide-svelte';
+    import { X, Plus, Check, Grip, Package } from 'lucide-svelte';
+    import { browserStore } from './stores';
     import AppIcon from './AppIcon.svelte';
     import { toneVars } from './tones';
     import {
@@ -110,7 +111,15 @@
         </div>
 
         <button
+            onclick={() => { browserStore.createOrFocusTab('bucks://apps'); onclose(); }}
+            class="h-9 px-3 rounded-xl flex items-center gap-2 bg-surface-2 hover:bg-surface-4 text-fg-muted hover:text-fg text-sm font-medium transition-all border border-line"
+        >
+            <Package size={14} /> Installed apps
+        </button>
+
+        <button
             onclick={onclose}
+            aria-label="Close the app store"
             class="w-9 h-9 rounded-xl flex items-center justify-center bg-surface-2 hover:bg-surface-4 text-fg-faint hover:text-fg transition-all border border-line"
         >
             <X size={16} />
