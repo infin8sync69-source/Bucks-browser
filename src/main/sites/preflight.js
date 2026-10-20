@@ -19,12 +19,18 @@ const SECRET_PATTERNS = [
   { kind: 'private key', re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/ },
   { kind: 'API key (sk-…)', re: /\bsk-(?:proj-|live-|test-)?[A-Za-z0-9_-]{20,}/ },
   { kind: 'Stripe secret key', re: /\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}/ },
-  { kind: 'Google API key', re: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/ },
   { kind: 'GitHub token', re: /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})/ },
   { kind: 'AWS access key', re: /\bAKIA[0-9A-Z]{16}\b/ },
   { kind: 'database URL with a password', re: /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^\s:/@'"`]+:[^\s@/'"`]+@/i },
 ];
 const ASSIGNED_SECRET = /\b(?:api[_-]?key|apikey|client[_-]?secret|secret|token|password|passwd|private[_-]?key|access[_-]?key)["']?\s*[:=]\s*["'`]([^"'`\s]{16,})["'`]/gi;
+const GOOGLE_KEY = /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/g;
+// A Firebase web config: { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId }.
+// Its apiKey is public by design (Firebase Security Rules and App Check guard the data), unlike other
+// Google keys of the same AIza… form (Maps, Gemini, Cloud APIs), which are billed secrets.
+const FIREBASE_API_KEY = /\bapiKey["']?\s*:\s*["'`]$/;
+const FIREBASE_FIELDS = /\b(?:projectId|appId|messagingSenderId|storageBucket)\b/;
+const FIREBASE_WINDOW = 600; // a config object, minified or formatted, fits well inside this
 
 const list = (items) => {
   const shown = items.slice(0, MAX_LISTED).join(', ');
@@ -32,21 +38,49 @@ const list = (items) => {
 };
 const mib = (bytes) => `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MiB`;
 
-/** Line numbers (1-based) and kinds of secret-looking text in one file. Exported for tests. */
+/**
+ * Is the Google key at `index` of `text` the apiKey of a Firebase web config: the value of an
+ * `apiKey` property, with `authDomain` and another config field within FIREBASE_WINDOW characters?
+ * Exported for tests.
+ */
+export function inFirebaseConfig(text, index, length) {
+  if (!FIREBASE_API_KEY.test(text.slice(Math.max(0, index - 32), index))) return false;
+  const around = text.slice(Math.max(0, index - FIREBASE_WINDOW), index + length + FIREBASE_WINDOW);
+  return /\bauthDomain\b/.test(around) && FIREBASE_FIELDS.test(around);
+}
+
+/**
+ * Line numbers (1-based) and kinds of secret-looking text in one file. A Firebase web API key is
+ * reported with `public: true` (a warning, not a block). Exported for tests.
+ */
 export function findSecrets(text) {
   const out = [];
-  const lines = String(text).split('\n');
-  for (let i = 0; i < lines.length && out.length < MAX_FINDINGS_PER_FILE; i += 1) {
+  const all = String(text);
+  const lines = all.split('\n');
+  let offset = 0;
+  for (let i = 0; i < lines.length && out.length < MAX_FINDINGS_PER_FILE; offset += lines[i].length + 1, i += 1) {
     const line = lines[i];
     if (line.length > 20_000_000) continue;
     for (const { kind, re } of SECRET_PATTERNS) {
       if (re.test(line)) out.push({ line: i + 1, kind });
     }
+    let firebase = false;
+    let google = false;
+    for (const g of line.matchAll(GOOGLE_KEY)) {
+      if (inFirebaseConfig(all, offset + g.index, g[0].length)) firebase = true; else google = true;
+    }
+    if (google) out.push({ line: i + 1, kind: 'Google API key' });
+    if (firebase) out.push({ line: i + 1, kind: 'Firebase web API key', public: true });
     ASSIGNED_SECRET.lastIndex = 0;
     let m;
     while ((m = ASSIGNED_SECRET.exec(line)) !== null) {
       // a real secret mixes letters and digits; prose and identifiers usually do not
-      if (/[A-Za-z]/.test(m[1]) && /[0-9]/.test(m[1])) { out.push({ line: i + 1, kind: 'long value assigned to a secret name' }); break; }
+      if (!(/[A-Za-z]/.test(m[1]) && /[0-9]/.test(m[1]))) continue;
+      // `apiKey: "AIza…"` of a Firebase config is the public key reported above
+      const at = offset + m.index + m[0].lastIndexOf(m[1]);
+      if (/^AIza[0-9A-Za-z_-]{35}$/.test(m[1]) && inFirebaseConfig(all, at, m[1].length)) continue;
+      out.push({ line: i + 1, kind: 'long value assigned to a secret name' });
+      break;
     }
   }
   return out.slice(0, MAX_FINDINGS_PER_FILE);
@@ -113,11 +147,12 @@ export function runPreflight({ files, excluded = [], contents = new Map(), descr
     checks.push({ id: 'P3', level: 'block', resolved: true, message: `Found files that look like private keys or passwords: ${list(secretFiles)}. They will not be published.`, files: secretFiles.slice(0, MAX_LISTED).map((path) => ({ path })) });
   }
 
-  // P4: secret-looking text inside files
+  // P4: secret-looking text inside files (a Firebase web API key is public by design: a warning)
   const findings = [];
+  const publicKeys = [];
   for (const [path, text] of texts) {
     if (findings.length >= MAX_FINDINGS) break;
-    for (const f of findSecrets(text)) findings.push({ path, ...f });
+    for (const f of findSecrets(text)) (f.public ? publicKeys : findings).push({ path, line: f.line, kind: f.kind });
   }
   if (findings.length) {
     const inFiles = [...new Set(findings.map((f) => f.path))];
@@ -127,6 +162,14 @@ export function runPreflight({ files, excluded = [], contents = new Map(), descr
       message: `Found text that looks like a password or key in ${list(inFiles)}. Secrets must never be published in a site. Exclude these files or cancel.`,
       files: findings.slice(0, MAX_FINDINGS),
       fix: { action: 'exclude', label: 'Exclude these files' },
+    });
+  }
+  if (publicKeys.length) {
+    checks.push({
+      id: 'P4-firebase',
+      level: 'warn',
+      message: `Found a Firebase web API key in ${list([...new Set(publicKeys.map((f) => f.path))])}. Firebase keys are public by design, so the site can be published, but anyone can use this key: in the Google Cloud console restrict it to the Firebase APIs (it works for every API enabled on the project), and protect your data with Firebase Security Rules and App Check.`,
+      files: publicKeys.slice(0, MAX_LISTED),
     });
   }
 

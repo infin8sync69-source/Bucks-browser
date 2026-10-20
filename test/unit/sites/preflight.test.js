@@ -118,3 +118,34 @@ test('configuration problems surface as a warning', () => {
   assert.equal(checks.find((c) => c.id === 'config').level, 'warn');
   assert.match(checks.find((c) => c.id === 'config').message, /^_redirects: .*forced rules/);
 });
+
+test('Firebase web API keys (public by design) warn; every other AIza… key still blocks', async () => {
+  const { inFirebaseConfig } = await import('../../../src/main/sites/preflight.js');
+  const key = `AIza${'Sy0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV'}`;
+  const gemini = `AIza${'Zz9yX8wV7uT6sR5qP4oN3mL2kJ1iH0gF9eD'}`;
+  const minified = `var x=1;const fb={apiKey:"${key}",authDomain:"shop-123.firebaseapp.com",projectId:"shop-123",storageBucket:"shop-123.appspot.com",messagingSenderId:"1234",appId:"1:1234:web:ab12"};initializeApp(fb);`;
+  const formatted = ['export const firebaseConfig = {', `  apiKey: "${key}",`, '  authDomain: "shop-123.firebaseapp.com",', '  projectId: "shop-123",', '};'].join('\n');
+  assert.deepEqual(findSecrets(minified), [{ line: 1, kind: 'Firebase web API key', public: true }], 'no "assigned to a secret name" finding either');
+  assert.deepEqual(findSecrets(formatted), [{ line: 2, kind: 'Firebase web API key', public: true }]);
+  assert.deepEqual(findSecrets(`const MAPS_KEY = "${key}";`).map((f) => f.kind), ['Google API key']);
+  assert.deepEqual(findSecrets(`const cfg = { apiKey: "${key}", projectId: "x" };`).map((f) => f.kind), ['Google API key', 'long value assigned to a secret name'], 'no authDomain: not a Firebase config');
+  const both = `${minified}\n${'/* filler */'.repeat(80)}\nconst GEMINI_KEY = "${gemini}";`;
+  assert.deepEqual(findSecrets(both).map((f) => [f.line, f.kind]), [[1, 'Firebase web API key'], [3, 'Google API key']], 'a key outside the config is not excused');
+  const inside = `const fb={apiKey:"${key}",authDomain:"shop.firebaseapp.com",projectId:"shop",geminiKey:"${gemini}"};`;
+  assert.deepEqual(findSecrets(inside).map((f) => f.kind), ['Google API key', 'Firebase web API key'], 'only the apiKey property is excused, even inside the config');
+  assert.equal(inFirebaseConfig(minified, minified.indexOf(key), key.length), true);
+  assert.equal(inFirebaseConfig(inside, inside.indexOf(gemini), gemini.length), false);
+
+  const checks = run(['index.html', 'assets/index.js'], { 'index.html': '<!doctype html><script type="module" src="assets/index.js"></script>', 'assets/index.js': minified }, { descriptor: { manifestText: '{"spa":true}' } });
+  assert.equal(isBlocked(checks), false, 'a Firebase app can be published');
+  const warning = checks.find((c) => c.id === 'P4-firebase');
+  assert.equal(warning.level, 'warn');
+  assert.match(warning.message, /^Found a Firebase web API key in assets\/index\.js\. Firebase keys are public by design/);
+  assert.match(warning.message, /restrict it to the Firebase APIs/);
+  assert.deepEqual(warning.files, [{ path: 'assets/index.js', line: 1, kind: 'Firebase web API key' }]);
+  assert.ok(!JSON.stringify(checks).includes(key), 'the key itself is never reported');
+  const mixed = run(['index.html', 'app.js'], { 'index.html': '<!doctype html>', 'app.js': both });
+  assert.equal(isBlocked(mixed), true);
+  assert.deepEqual(mixed.find((c) => c.id === 'P4').files.map((f) => f.line), [3]);
+  assert.ok(mixed.some((c) => c.id === 'P4-firebase'));
+});

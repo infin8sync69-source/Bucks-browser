@@ -427,7 +427,7 @@ interface SiteFolderHints { suggestedDir: string | null; framework: string | nul
 // suggestedDir: '' = the chosen folder is the site; 'dist/client' etc. = its build output (the token points there)
 
 interface SiteCheck {
-  id: 'P1' | 'P2' | … | 'P12' | 'config';
+  id: 'P1' | 'P2' | … | 'P12' | 'P4-firebase' | 'config';   // P4-firebase: a Firebase web API key (warn)
   level: 'block' | 'warn' | 'info';
   message: string;
   resolved?: boolean;          // a block the default action already handled (links, secret files left out)

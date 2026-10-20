@@ -113,3 +113,14 @@ test('detectProject: suggests the build output, recognises the framework and ser
   assert.match(s.note, /IPFS cannot run a server/);
   assert.match((await detectProject(await tree(t, { 'src/main.js': '' }))).note, /No built site found/);
 });
+
+test('inspectFolder: a Firebase web app is publishable, with a warning about its public key', async (t) => {
+  const key = `AIza${'Sy0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV'}`;
+  const dir = await tree(t, {
+    'index.html': '<!doctype html><div id=root></div><script type="module" src="./assets/index.js"></script>',
+    'assets/index.js': `const fb={apiKey:"${key}",authDomain:"shop.firebaseapp.com",projectId:"shop",appId:"1:2:web:3"};`,
+  });
+  const r = await inspectFolder(dir, { enableSpa: true });
+  assert.equal(r.blocked, false);
+  assert.deepEqual(r.checks.map((c) => c.id), ['P4-firebase']);
+});

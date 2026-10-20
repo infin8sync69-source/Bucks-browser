@@ -79,6 +79,7 @@ history router), while a missing `/assets/x.js` still answers 404. Without a man
 | P2 | block, handled | Symbolic links and special files: never published |
 | P3 | block, handled | Files that look like keys or passwords (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `.git/`, `credentials*`, `*.p12`): left out |
 | P4 | block | Text that looks like a secret (private keys, `sk-…`, `AIza…`, `ghp_…`, database URLs with passwords, long values assigned to `api_key`/`token`/`secret`): shown by file and line, never the value; exclude the file or cancel |
+| P4-firebase | warn | The `apiKey` of a Firebase web config (next to `authDomain`, `projectId`, …): public by design, so it does not block; restrict the key to the Firebase APIs in the Google Cloud console and protect data with Security Rules and App Check. Any other `AIza…` key still blocks |
 | P5 | block | Over the quota |
 | P6 | warn | Calls to a server (`/_serverFn/`, `createServerFn`, `fetch('/api/…')`): those features will not work |
 | P7 | warn | A history-router SPA without SPA mode (one-click fix) |
@@ -160,6 +161,7 @@ reports a newer release; updating is a deliberate change).
 | §6.5 verify public responses (CAR) or badge them | Badge only ("Unverified, via gateway") | The design allows either; verification needs a UnixFS/CAR verifier in the handler |
 | §6.6 `NoFetch=true` on gateways other pages can reach | Pages cannot reach the node's ports at all (subresource requests are cancelled) | Kubo has one gateway configuration; the handler needs `NoFetch=false` |
 | §8.3 "stop updating" | `stop` removes the site from Bucks; content and key stay | The design names the choice but not its effect |
+| P4 blocks every `AIza…` key | The `apiKey` of a Firebase web config is a warning (`P4-firebase`) | Firebase web apps ship that key in their bundle by design (Security Rules and App Check guard the data), so blocking it made every Firebase app unpublishable, and excluding the bundle breaks the app. Only the value of an `apiKey` property next to `authDomain` and another config field is excused; Maps, Gemini and Cloud keys still block |
 | §8.1 `hosting.keepOnline` | Always true | This computer keeps every version for rollback; turning it off is not supported yet |
 
 ## Not done yet
