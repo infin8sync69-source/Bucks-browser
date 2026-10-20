@@ -32,4 +32,4 @@
 
 <textarea bind:value={text} {oninput} onfocus={() => (focused = true)} onblur={() => { focused = false; save(); }}
     maxlength={MAX_NOTES} placeholder="Write anything…" aria-label="Notes"
-    class="w-full h-32 resize-none bg-transparent text-[12px] leading-relaxed text-white/80 placeholder-white/25 outline-none"></textarea>
+    class="w-full h-32 resize-none bg-transparent text-xs leading-relaxed text-fg-muted placeholder-fg-faint outline-none"></textarea>

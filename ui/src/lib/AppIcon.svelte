@@ -35,7 +35,7 @@
     let {
         name,
         size = 24,
-        color = 'white',
+        color = 'currentColor',
         strokeWidth = 1.75,
         class: cls = '',
     }: {
@@ -58,7 +58,7 @@
     />
 {:else}
     <!-- Fallback: render name initial if icon not found -->
-    <span style="font-size:{size * 0.55}px; color:{color}; font-weight:700; line-height:1;">
+    <span class="font-bold leading-none {cls}" style="font-size:{size * 0.55}px; color:{color};">
         {name.charAt(0)}
     </span>
 {/if}

@@ -7,6 +7,7 @@
 
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
+import { pageStyle, CARD_PAGE_CSS } from '../design/page.js';
 
 export const CONSENT_PARAM = 'bucks-gateway';
 const NONCE_TTL_MS = 10 * 60_000;
@@ -110,17 +111,9 @@ export function renderInterstitial({ url, nodeMessage, startHref, onceHref, gate
     ? `<p class="muted">${escapeHtml(gatewayProblem)} Change it in Settings (IPFS, public gateway).</p>`
     : `<p class="muted">The public gateway (<code>${escapeHtml(gatewayHost)}</code>) will see the address you request and your IP address, and Bucks cannot verify what it sends back. "Once" lasts for this site until Bucks restarts.</p>`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Your IPFS node is not running</title>
-<style>
-:root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1115;color:#e6e6e6;font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:600px;padding:32px 36px;margin:24px;background:#171a21;border:1px solid #262a33;border-radius:14px}
-h1{font-size:20px;margin:0 0 12px}p{margin:8px 0;color:#c3c7d1}code{background:#0f1115;border:1px solid #262a33;border-radius:6px;padding:2px 6px;font-size:13px;word-break:break-all}
-.muted{color:#8a90a0;font-size:13px}.row{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 6px}
-.btn{display:inline-block;padding:9px 16px;border-radius:9px;border:1px solid #3a3f4c;color:#e6e6e6;text-decoration:none}
-.btn.primary{background:#2f6fde;border-color:#2f6fde;color:#fff}.btn:focus{outline:2px solid #7cc4ff;outline-offset:2px}
-</style></head>
+${pageStyle(CARD_PAGE_CSS)}</head>
 <body><main>
 <h1>Your IPFS node is not running</h1>
 <p>Start it to load this page from your own node, or load it through a public gateway.</p>

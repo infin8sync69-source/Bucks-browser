@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     // The agent's chat drawer: threads, the model picker, a composer with attachments (files and
     // IPFS CIDs), slash commands and "act in this tab", live progress with approvals and Stop,
     // and per-answer copy / save as document or PDF.
@@ -223,7 +224,7 @@
             .replace(/`(.*?)`/g, "<code>$1</code>")
             // [label](https://…) → a link that openLink() opens in a new tab. The URL cannot contain
             // quotes or spaces, so it cannot break out of the attribute.
-            .replace(/\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)"'<>]{1,2048})\)/g, '<a data-href="$2" class="text-violet-300 underline decoration-violet-400/40 cursor-pointer hover:text-violet-200">$1</a>')
+            .replace(/\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)"'<>]{1,2048})\)/g, '<a data-href="$2" class="text-agent-fg-strong underline decoration-agent-fg/40 cursor-pointer hover:text-agent-fg-strong">$1</a>')
             .replace(/\n/g, "<br>");
     }
 
@@ -240,8 +241,8 @@
 
 <!-- Panel: sits below the header island; the web content area shrinks to its left (see ContentArea) -->
 <div
-    class="fixed right-0 top-24 bottom-0 z-[301] w-full max-w-[448px] flex flex-col bg-[#0d0d10] border-l border-white/[0.07] shadow-2xl"
-    transition:fly={{ x: 440, duration: 320, easing: cubicOut }}
+    class="fixed right-0 top-chrome-top bottom-0 z-drawer-raised w-full max-w-chat-panel flex flex-col bg-surface-raised border-l border-line shadow-2xl"
+    transition:fly={{ x: 440, duration: motion.moderate, easing: cubicOut }}
     ondragover={(e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); dragOver = true; } }}
     ondragleave={(e) => { if (e.currentTarget === e.target) dragOver = false; }}
     ondrop={onDrop}
@@ -249,40 +250,40 @@
     aria-label="Agent chat"
 >
     <!-- ── Header ─────────────────────────────────────────────────────────── -->
-    <div class="relative flex items-center gap-3 px-4 py-3.5 border-b border-white/[0.06] flex-shrink-0">
-        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0">
-            <Zap size={14} class="text-white" />
+    <div class="relative flex items-center gap-3 px-4 py-3.5 border-b border-line flex-shrink-0">
+        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-agent-emphasis to-cat-indigo-strong flex items-center justify-center flex-shrink-0">
+            <Zap size={14} class="text-on-emphasis" />
         </div>
 
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
-                <span class="text-white text-sm font-semibold tracking-wide truncate" title={threadTitle}>{$swarmStore.messages.length ? threadTitle : "Bucks AI"}</span>
+                <span class="text-fg text-md font-semibold tracking-wide truncate" title={threadTitle}>{$swarmStore.messages.length ? threadTitle : "Bucks AI"}</span>
                 <span class="relative flex h-2 w-2 flex-shrink-0">
                     {#if isOnline}
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40"></span>
-                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-40"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
                     {:else}
-                        <span class="relative inline-flex rounded-full h-2 w-2 bg-zinc-600"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-fg-disabled"></span>
                     {/if}
                 </span>
             </div>
-            <p class="text-[10px] text-zinc-500 font-medium tracking-wider uppercase mt-0.5 truncate">
+            <p class="text-3xs text-fg-faint font-medium tracking-wider uppercase mt-0.5 truncate">
                 {slmReady ? `${model ?? "local model"} on-device` : model ? `${provider} · ${model}` : provider === "offline" ? "offline rules" : provider}
             </p>
         </div>
 
         <div class="flex items-center gap-1">
             <button onclick={() => (threadsOpen = true)} title="Chats" aria-label="Chats"
-                class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"><MessagesSquare size={14} /></button>
+                class="p-2 rounded-lg text-fg-faint hover:text-fg-muted hover:bg-surface-2 transition-colors"><MessagesSquare size={14} /></button>
             <button onclick={() => swarmStore.newChat()} title="New chat" aria-label="New chat" disabled={$isSwarmThinking}
-                class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 disabled:opacity-30 transition-colors"><Plus size={15} /></button>
+                class="p-2 rounded-lg text-fg-faint hover:text-fg-muted hover:bg-surface-2 disabled:opacity-30 transition-colors"><Plus size={15} /></button>
             <div class="relative">
                 <button onclick={(e) => { e.stopPropagation(); pickerOpen = !pickerOpen; }} title="Choose model" aria-label="Choose model" aria-expanded={pickerOpen}
-                    class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"><SlidersHorizontal size={14} /></button>
+                    class="p-2 rounded-lg text-fg-faint hover:text-fg-muted hover:bg-surface-2 transition-colors"><SlidersHorizontal size={14} /></button>
                 {#if pickerOpen}<ModelPicker onclose={() => (pickerOpen = false)} />{/if}
             </div>
             <button onclick={onclose} title="Close" aria-label="Close chat"
-                class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"><X size={15} /></button>
+                class="p-2 rounded-lg text-fg-faint hover:text-fg-muted hover:bg-surface-2 transition-colors"><X size={15} /></button>
         </div>
     </div>
 
@@ -294,22 +295,22 @@
             bind:this={scrollEl}
             onscroll={onScroll}
             class="flex-1 overflow-y-auto px-4 py-4 space-y-5 scroll-smooth"
-            style="scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;"
+            style="scrollbar-width: thin; scrollbar-color: var(--bucks-color-surface-3) transparent;"
         >
             {#if $swarmStore.messages.length === 0}
                 <div class="flex flex-col items-center justify-center h-full gap-6 pb-8" transition:fade>
-                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/20 to-indigo-700/20 border border-violet-500/20 flex items-center justify-center">
-                        <Zap size={28} class="text-violet-400" />
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-agent/20 to-cat-indigo/20 border border-agent/20 flex items-center justify-center">
+                        <Zap size={28} class="text-agent-fg" />
                     </div>
                     <div class="text-center">
-                        <p class="text-white/80 text-base font-medium">How can I help?</p>
-                        <p class="text-zinc-500 text-xs mt-1">Ask anything, attach files or CIDs, or type / for commands</p>
+                        <p class="text-fg-muted text-base font-medium">How can I help?</p>
+                        <p class="text-fg-faint text-xs mt-1">Ask anything, attach files or CIDs, or type / for commands</p>
                     </div>
                     <div class="grid grid-cols-2 gap-2 w-full">
                         {#each SUGGESTIONS as s}
                             <button
                                 onclick={() => suggest(s)}
-                                class="text-left px-3 py-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.06] hover:border-white/[0.12] text-zinc-400 hover:text-zinc-200 text-xs transition-all duration-200"
+                                class="text-left px-3 py-2.5 rounded-xl bg-surface-1 hover:bg-surface-3 border border-line hover:border-line-strong text-fg-subtle hover:text-fg text-xs transition-all duration-base"
                             >{s}</button>
                         {/each}
                     </div>
@@ -317,42 +318,42 @@
             {:else}
                 {#each $swarmStore.messages as msg (msg.ts)}
                     {#if msg.role === "user"}
-                        <div class="flex justify-end gap-2.5" transition:fly={{ y: 10, duration: 200 }}>
+                        <div class="flex justify-end gap-2.5" transition:fly={{ y: 10, duration: motion.base }}>
                             <div class="max-w-[82%]">
-                                <div class="bg-violet-600/80 text-white text-sm px-4 py-2.5 rounded-2xl rounded-tr-md leading-relaxed whitespace-pre-wrap break-words">{msg.content}</div>
+                                <div class="bg-agent/80 text-fg text-md px-4 py-2.5 rounded-2xl rounded-tr-md leading-relaxed whitespace-pre-wrap break-words">{msg.content}</div>
                                 {#if msg.attachments?.length}
                                     <div class="mt-1 flex flex-wrap justify-end gap-1">
                                         {#each msg.attachments as a (a)}
-                                            <span class="text-[10px] text-violet-100/70 bg-violet-500/10 border border-violet-400/20 rounded-full px-2 py-0.5 max-w-[200px] truncate">📎 {a}</span>
+                                            <span class="text-3xs text-agent-fg-strong/70 bg-agent/10 border border-agent/20 rounded-full px-2 py-0.5 max-w-[200px] truncate">📎 {a}</span>
                                         {/each}
                                     </div>
                                 {/if}
-                                <p class="text-[10px] text-zinc-600 mt-1 text-right">{fmtTime(msg.ts)}</p>
+                                <p class="text-3xs text-fg-faint mt-1 text-right">{fmtTime(msg.ts)}</p>
                             </div>
-                            <div class="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <User size={13} class="text-zinc-300" />
+                            <div class="w-7 h-7 rounded-full bg-surface-4 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <User size={13} class="text-fg-muted" />
                             </div>
                         </div>
 
                     {:else if msg.role === "agent"}
-                        <div class="group flex gap-2.5" transition:fly={{ y: 10, duration: 200 }}>
-                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <Zap size={12} class="text-white" />
+                        <div class="group flex gap-2.5" transition:fly={{ y: 10, duration: motion.base }}>
+                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-agent-emphasis to-cat-indigo-strong flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <Zap size={12} class="text-on-emphasis" />
                             </div>
                             <div class="max-w-[82%] min-w-0">
                                 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                                <div onclick={openLink} class="bg-white/[0.05] border border-white/[0.07] text-zinc-200 text-sm px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed break-words">
+                                <div onclick={openLink} class="bg-surface-2 border border-line text-fg text-md px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed break-words">
                                     <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                                     {@html renderContent(msg.content)}
 
                                     {#if msg.a2ui && msg.a2ui.type !== "text"}
-                                        <div class="mt-2.5 pt-2.5 border-t border-white/[0.08] flex flex-wrap gap-1.5">
+                                        <div class="mt-2.5 pt-2.5 border-t border-line flex flex-wrap gap-1.5">
                                             {#if msg.a2ui.type === "navigate" && msg.a2ui.url}
-                                                <span class="inline-flex items-center gap-1 text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-full px-2.5 py-0.5">↗ {msg.a2ui.url}</span>
+                                                <span class="inline-flex items-center gap-1 text-3xs text-agent-fg bg-agent/10 border border-agent/20 rounded-full px-2.5 py-0.5">↗ {msg.a2ui.url}</span>
                                             {:else if msg.a2ui.type === "search" && msg.a2ui.content}
-                                                <span class="inline-flex items-center gap-1 text-[10px] text-sky-400 bg-sky-500/10 border border-sky-500/20 rounded-full px-2.5 py-0.5">🔍 {msg.a2ui.content}</span>
+                                                <span class="inline-flex items-center gap-1 text-3xs text-info-fg bg-info/10 border border-info/20 rounded-full px-2.5 py-0.5">🔍 {msg.a2ui.content}</span>
                                             {:else if msg.a2ui.type === "action"}
-                                                <span class="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5">⚡ {msg.a2ui.action?.replace(/_/g, " ")}</span>
+                                                <span class="inline-flex items-center gap-1 text-3xs text-success-fg bg-success/10 border border-success/20 rounded-full px-2.5 py-0.5">⚡ {msg.a2ui.action?.replace(/_/g, " ")}</span>
                                             {/if}
                                         </div>
                                     {/if}
@@ -364,10 +365,10 @@
                                     <div class="mt-2 space-y-1">
                                         {#each msg.documents as d (d)}
                                             <button onclick={() => showInFolder(d)} title={d}
-                                                class="w-full flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] px-3 py-2 text-left">
-                                                <FileText size={14} class="text-violet-300 flex-shrink-0" />
-                                                <span class="text-[12px] text-white/80 truncate">{fileName(d)}</span>
-                                                <span class="ml-auto flex items-center gap-1 text-[10px] text-white/40 flex-shrink-0"><FolderOpen size={11} /> Show</span>
+                                                class="w-full flex items-center gap-2 rounded-xl border border-line bg-surface-1 hover:bg-surface-3 px-3 py-2 text-left">
+                                                <FileText size={14} class="text-agent-fg-strong flex-shrink-0" />
+                                                <span class="text-xs text-fg-muted truncate">{fileName(d)}</span>
+                                                <span class="ml-auto flex items-center gap-1 text-3xs text-fg-faint flex-shrink-0"><FolderOpen size={11} /> Show</span>
                                             </button>
                                         {/each}
                                     </div>
@@ -378,35 +379,35 @@
                                             <button
                                                 onclick={() => swarmStore.sendQuery(q)}
                                                 disabled={$isSwarmThinking}
-                                                class="text-left text-[11px] text-violet-200/90 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-400/20 rounded-xl px-2.5 py-1 disabled:opacity-40 transition-colors"
+                                                class="text-left text-2xs text-agent-fg-strong/90 bg-agent/10 hover:bg-agent/20 border border-agent/20 rounded-xl px-2.5 py-1 disabled:opacity-40 transition-colors"
                                             >{q}</button>
                                         {/each}
                                     </div>
                                 {/if}
                                 <div class="mt-1 flex items-center gap-1 min-h-[22px]">
-                                    <p class="text-[10px] text-zinc-600 mr-1">{fmtTime(msg.ts)}</p>
+                                    <p class="text-3xs text-fg-faint mr-1">{fmtTime(msg.ts)}</p>
                                     {#if msg.content.trim()}
                                         <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                                            <button onclick={() => copyAnswer(msg)} title="Copy" aria-label="Copy answer" class="p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/5"><Copy size={11} /></button>
-                                            <button onclick={() => saveAnswer(msg, "md")} title="Save as a document (Markdown)" aria-label="Save answer as document" class="p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/5"><FileText size={11} /></button>
-                                            <button onclick={() => saveAnswer(msg, "pdf")} title="Save as PDF" aria-label="Save answer as PDF" class="p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-white/5"><FileDown size={11} /></button>
+                                            <button onclick={() => copyAnswer(msg)} title="Copy" aria-label="Copy answer" class="p-1 rounded-md text-fg-faint hover:text-fg hover:bg-surface-2"><Copy size={11} /></button>
+                                            <button onclick={() => saveAnswer(msg, "md")} title="Save as a document (Markdown)" aria-label="Save answer as document" class="p-1 rounded-md text-fg-faint hover:text-fg hover:bg-surface-2"><FileText size={11} /></button>
+                                            <button onclick={() => saveAnswer(msg, "pdf")} title="Save as PDF" aria-label="Save answer as PDF" class="p-1 rounded-md text-fg-faint hover:text-fg hover:bg-surface-2"><FileDown size={11} /></button>
                                         </div>
                                     {/if}
                                     {#if saved[msg.ts]}
                                         {@const s = saved[msg.ts]}
-                                        <span class="text-[10px] text-zinc-400 truncate" role="status">{s.text}</span>
-                                        {#if s.path}<button onclick={() => showInFolder(s.path!)} class="text-[10px] text-violet-300 hover:text-violet-200 flex-shrink-0">Show</button>{/if}
+                                        <span class="text-3xs text-fg-subtle truncate" role="status">{s.text}</span>
+                                        {#if s.path}<button onclick={() => showInFolder(s.path!)} class="text-3xs text-agent-fg-strong hover:text-agent-fg-strong flex-shrink-0">Show</button>{/if}
                                     {/if}
                                 </div>
                             </div>
                         </div>
 
                     {:else if msg.role === "error"}
-                        <div class="flex gap-2.5" transition:fly={{ y: 10, duration: 200 }}>
-                            <div class="w-7 h-7 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span class="text-red-400 text-xs">!</span>
+                        <div class="flex gap-2.5" transition:fly={{ y: 10, duration: motion.base }}>
+                            <div class="w-7 h-7 rounded-full bg-danger/20 border border-danger/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <span class="text-danger-fg text-xs">!</span>
                             </div>
-                            <div class="max-w-[82%] bg-red-500/10 border border-red-500/20 text-red-300 text-xs px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed">
+                            <div class="max-w-[82%] bg-danger/10 border border-danger/20 text-danger-fg-strong text-xs px-4 py-2.5 rounded-2xl rounded-tl-md leading-relaxed">
                                 {msg.content}
                             </div>
                         </div>
@@ -415,18 +416,18 @@
 
                 <!-- Live progress, and actions waiting for the user -->
                 {#if $isSwarmThinking}
-                    <div class="flex gap-2.5" transition:fade={{ duration: 150 }}>
-                        <div class="w-7 h-7 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0">
-                            <Zap size={12} class="text-white" />
+                    <div class="flex gap-2.5" transition:fade={{ duration: motion.fast }}>
+                        <div class="w-7 h-7 rounded-full bg-gradient-to-br from-agent-emphasis to-cat-indigo-strong flex items-center justify-center flex-shrink-0">
+                            <Zap size={12} class="text-on-emphasis" />
                         </div>
                         <div class="min-w-0 flex-1 space-y-2">
-                            <div class="inline-flex max-w-full bg-white/[0.05] border border-white/[0.07] px-4 py-3 rounded-2xl rounded-tl-md items-center gap-2">
+                            <div class="inline-flex max-w-full bg-surface-2 border border-line px-4 py-3 rounded-2xl rounded-tl-md items-center gap-2">
                                 <span class="flex items-center gap-1.5 flex-shrink-0">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style="animation-delay:0ms"></span>
-                                    <span class="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style="animation-delay:150ms"></span>
-                                    <span class="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style="animation-delay:300ms"></span>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-agent animate-bounce" style="animation-delay:0ms"></span>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-agent animate-bounce" style="animation-delay:150ms"></span>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-agent animate-bounce" style="animation-delay:300ms"></span>
                                 </span>
-                                {#if $swarmStore.status}<span class="text-[11px] text-zinc-400 truncate" aria-live="polite">{$swarmStore.status}</span>{/if}
+                                {#if $swarmStore.status}<span class="text-2xs text-fg-subtle truncate" aria-live="polite">{$swarmStore.status}</span>{/if}
                             </div>
                             {#each $swarmStore.approvals as a (a.requestId)}
                                 <ApprovalCard approval={a} onanswer={(yes) => swarmStore.approve(a.requestId, yes)} />
@@ -440,30 +441,30 @@
         {#if !atBottom && $swarmStore.messages.length > 0}
             <button
                 onclick={scrollToBottom}
-                transition:fade={{ duration: 150 }}
+                transition:fade={{ duration: motion.fast }}
                 aria-label="Scroll to the latest message"
-                class="absolute bottom-3 right-5 z-10 p-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 text-zinc-300 transition-colors shadow-lg"
+                class="absolute bottom-3 right-5 z-raised p-2 rounded-full bg-surface-4 hover:bg-surface-5 border border-line-strong text-fg-muted transition-colors shadow-lg"
             >
                 <ChevronDown size={16} />
             </button>
         {/if}
 
         {#if dragOver}
-            <div class="absolute inset-2 z-30 rounded-2xl border-2 border-dashed border-violet-400/50 bg-violet-500/10 flex items-center justify-center pointer-events-none">
-                <p class="text-[13px] text-violet-100">Drop files to attach them</p>
+            <div class="absolute inset-2 z-dropdown rounded-2xl border-2 border-dashed border-agent/50 bg-agent/10 flex items-center justify-center pointer-events-none">
+                <p class="text-sm text-agent-fg-strong">Drop files to attach them</p>
             </div>
         {/if}
     </div>
 
     <!-- ── Composer ────────────────────────────────────────────────────── -->
-    <div class="flex-shrink-0 border-t border-white/[0.06] p-3 space-y-2">
+    <div class="flex-shrink-0 border-t border-line p-3 space-y-2">
         {#if attachments.length}
             <div class="flex flex-wrap gap-1.5">
                 {#each attachments as a, i (a.label + i)}
-                    <span class="inline-flex items-center gap-1 max-w-[220px] text-[11px] text-zinc-300 bg-white/[0.05] border border-white/[0.08] rounded-full pl-2.5 pr-1 py-0.5">
-                        {#if a.kind === "cid"}<Hexagon size={10} class="text-cyan-300 flex-shrink-0" />{:else}<Paperclip size={10} class="flex-shrink-0" />{/if}
+                    <span class="inline-flex items-center gap-1 max-w-[220px] text-2xs text-fg-muted bg-surface-2 border border-line rounded-full pl-2.5 pr-1 py-0.5">
+                        {#if a.kind === "cid"}<Hexagon size={10} class="text-cat-cyan-fg flex-shrink-0" />{:else}<Paperclip size={10} class="flex-shrink-0" />{/if}
                         <span class="truncate">{a.label}</span>
-                        <button onclick={() => (attachments = attachments.filter((_, j) => j !== i))} aria-label="Remove {a.label}" class="p-0.5 rounded-full hover:bg-white/10 text-zinc-500 hover:text-white"><X size={10} /></button>
+                        <button onclick={() => (attachments = attachments.filter((_, j) => j !== i))} aria-label="Remove {a.label}" class="p-0.5 rounded-full hover:bg-surface-4 text-fg-faint hover:text-fg"><X size={10} /></button>
                     </span>
                 {/each}
             </div>
@@ -472,29 +473,29 @@
             <form onsubmit={(e) => { e.preventDefault(); addCid(); }} class="flex gap-1.5">
                 <!-- svelte-ignore a11y_autofocus -->
                 <input bind:value={cidInput} autofocus placeholder="bafy… or ipfs://bafy…/file.txt" aria-label="IPFS CID to attach" spellcheck="false"
-                    class="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-[12px] text-white/80 font-mono placeholder-zinc-600 outline-none focus:border-white/20" />
-                <button type="submit" class="px-3 rounded-xl bg-white/[0.06] hover:bg-white/10 text-[11px] text-white/70">Attach</button>
-                <button type="button" onclick={() => (cidOpen = false)} class="px-2 rounded-xl hover:bg-white/10 text-[11px] text-white/40">Cancel</button>
+                    class="flex-1 min-w-0 bg-surface-2 border border-line rounded-xl px-3 py-1.5 text-xs text-fg-muted font-mono placeholder-fg-faint outline-none focus:border-line-emphasis" />
+                <button type="submit" class="px-3 rounded-xl bg-surface-3 hover:bg-surface-4 text-2xs text-fg-muted">Attach</button>
+                <button type="button" onclick={() => (cidOpen = false)} class="px-2 rounded-xl hover:bg-surface-4 text-2xs text-fg-faint">Cancel</button>
             </form>
         {/if}
-        {#if composerError}<p class="text-[11px] text-amber-200/80" role="alert">{composerError}</p>{/if}
+        {#if composerError}<p class="text-2xs text-warning-fg-strong/80" role="alert">{composerError}</p>{/if}
 
         <div class="relative">
             {#if slashItems.length}
                 <SlashMenu items={slashItems} active={slashIndex} onpick={pickSlash} />
             {/if}
-            <div class="flex items-end gap-2 bg-white/[0.04] border rounded-2xl px-2 py-2 focus-within:bg-white/[0.06] transition-all duration-200
-                        {agentic ? 'border-amber-300/30 focus-within:border-amber-300/50' : 'border-white/[0.08] focus-within:border-violet-500/40'}">
+            <div class="flex items-end gap-2 bg-surface-2 border rounded-2xl px-2 py-2 focus-within:bg-surface-3 transition-all duration-base
+                        {agentic ? 'border-warning/30 focus-within:border-warning/50' : 'border-line focus-within:border-agent/40'}">
                 <div class="flex items-center flex-shrink-0">
                     <button onclick={() => fileInput.click()} title="Attach files" aria-label="Attach files" disabled={$isSwarmThinking}
-                        class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/5 disabled:opacity-30"><Paperclip size={14} /></button>
+                        class="p-1.5 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 disabled:opacity-30"><Paperclip size={14} /></button>
                     <button onclick={() => (cidOpen = !cidOpen)} title="Attach an IPFS CID" aria-label="Attach an IPFS CID" disabled={$isSwarmThinking}
-                        class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/5 disabled:opacity-30"><Hexagon size={14} /></button>
+                        class="p-1.5 rounded-lg text-fg-faint hover:text-fg hover:bg-surface-2 disabled:opacity-30"><Hexagon size={14} /></button>
                     {#if provider === "soul"}
                         <button onclick={() => (agentic = !agentic)} disabled={!canAct || $isSwarmThinking} aria-pressed={agentic}
                             title={canAct ? (agentic ? "The agent may act in this tab (it asks before changing anything)" : "Let the agent act in this tab") : "Open a web page to let the agent act in it"}
                             aria-label="Act in this tab"
-                            class="p-1.5 rounded-lg disabled:opacity-30 {agentic ? 'text-amber-200 bg-amber-300/10' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}"><MousePointerClick size={14} /></button>
+                            class="p-1.5 rounded-lg disabled:opacity-30 {agentic ? 'text-warning-fg-strong bg-warning/10' : 'text-fg-faint hover:text-fg hover:bg-surface-2'}"><MousePointerClick size={14} /></button>
                     {/if}
                 </div>
                 <input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => addFiles((e.currentTarget as HTMLInputElement).files)} />
@@ -507,12 +508,12 @@
                     placeholder={$isSwarmThinking ? "Bucks is working…" : agentic ? "What should I do on this page?" : "Message Bucks, or / for commands"}
                     aria-label="Message"
                     rows="1"
-                    class="flex-1 bg-transparent resize-none border-none outline-none text-white text-sm leading-relaxed placeholder-zinc-600 disabled:opacity-50 min-h-[22px] max-h-[160px] py-0.5"
+                    class="flex-1 bg-transparent resize-none border-none outline-none text-fg text-md leading-relaxed placeholder-fg-faint disabled:opacity-50 min-h-[22px] max-h-[160px] py-0.5"
                 ></textarea>
 
                 {#if $isSwarmThinking}
                     <button onclick={() => swarmStore.stop()} title="Stop" aria-label="Stop"
-                        class="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-colors">
+                        class="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-surface-4 hover:bg-surface-5 text-fg transition-colors">
                         <Square size={12} fill="currentColor" />
                     </button>
                 {:else}
@@ -520,18 +521,18 @@
                         onclick={submit}
                         disabled={!query.trim() && !attachments.length}
                         aria-label="Send"
-                        class="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200
+                        class="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-base
                                {query.trim() || attachments.length
-                                   ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20'
-                                   : 'bg-white/5 text-zinc-600 cursor-not-allowed'}"
+                                   ? 'bg-agent-emphasis hover:bg-agent-emphasis-hover text-on-emphasis shadow-lg shadow-agent/20'
+                                   : 'bg-surface-2 text-fg-faint cursor-not-allowed'}"
                     >
                         <Send size={14} />
                     </button>
                 {/if}
             </div>
         </div>
-        <p class="text-center text-[10px] text-zinc-700">
-            {#if agentic}<span class="text-amber-200/60">Acting in this tab · asks before clicking, typing or opening pages</span>{:else}Enter to send · Shift+Enter for a new line · / for commands{/if}
+        <p class="text-center text-3xs text-fg-disabled">
+            {#if agentic}<span class="text-warning-fg-strong/60">Acting in this tab · asks before clicking, typing or opening pages</span>{:else}Enter to send · Shift+Enter for a new line · / for commands{/if}
         </p>
     </div>
 </div>
@@ -540,6 +541,6 @@
     /* Custom thin scrollbar */
     div::-webkit-scrollbar       { width: 4px; }
     div::-webkit-scrollbar-track { background: transparent; }
-    div::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 4px; }
-    div::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+    div::-webkit-scrollbar-thumb { background: var(--bucks-color-surface-3); border-radius: var(--bucks-radius-sm); }
+    div::-webkit-scrollbar-thumb:hover { background: var(--bucks-color-surface-4); }
 </style>

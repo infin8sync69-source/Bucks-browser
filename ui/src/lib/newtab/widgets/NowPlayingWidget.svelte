@@ -11,16 +11,16 @@
 </script>
 
 {#if playing.length === 0}
-    <p class="text-[11px] text-white/30">No tab is playing sound.</p>
+    <p class="text-2xs text-fg-faint">No tab is playing sound.</p>
 {:else}
     <div class="space-y-1">
         {#each playing as t (t.id)}
             <div class="flex items-center gap-2">
-                <button onclick={() => browserStore.setActiveTab(t.id)} class="min-w-0 flex-1 text-left text-[12px] text-white/75 hover:text-white truncate" title="Switch to this tab">
+                <button onclick={() => browserStore.setActiveTab(t.id)} class="min-w-0 flex-1 text-left text-xs text-fg-muted hover:text-fg truncate" title="Switch to this tab">
                     {t.customTitle || t.title || t.url}
                 </button>
                 <button onclick={() => browserStore.setMuted(t.id, !t.muted)} title={t.muted ? "Unmute" : "Mute"} aria-label={t.muted ? "Unmute" : "Mute"}
-                    class="w-6 h-6 flex items-center justify-center rounded-md hover:bg-white/10 {t.muted ? 'text-white/35' : 'text-emerald-300/80'}">
+                    class="w-6 h-6 flex items-center justify-center rounded-md hover:bg-surface-4 {t.muted ? 'text-fg-faint' : 'text-success-fg-strong/80'}">
                     {#if t.muted}<VolumeX size={12} />{:else}<Volume2 size={12} />{/if}
                 </button>
             </div>

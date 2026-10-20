@@ -53,7 +53,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check the chrome and syntax-check the main process
+      - name: Type-check the chrome, syntax-check the main process, check the design tokens
+        # npm run check ends with lint:design: the generated token files are current, every
+        # contrast rule holds, and no UI file bypasses the tokens (docs/DESIGN-SYSTEM.md).
         run: npm run check
 
       - name: Lint the installer scripts

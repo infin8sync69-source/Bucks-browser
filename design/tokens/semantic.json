@@ -1,0 +1,139 @@
+{
+  "$description": "Semantic colours: what a colour is for, per theme. Only these become CSS variables (--bucks-color-<name>) and Tailwind colours. A value is an object with one entry per theme; alpha(ref, a) is the reference at opacity a. bucks.contrast lists the backgrounds a text colour must stay readable on (WCAG 2.1: 4.5 for text, 3 for focus rings and large text); the build fails when one does not.",
+  "$themes": ["dark", "light"],
+  "color": {
+    "$type": "color",
+
+    "canvas": { "$value": { "dark": "{color.ink.1}", "light": "{color.zinc.50}" }, "$description": "Window and page background" },
+    "canvas-deep": { "$value": { "dark": "{color.ink.0}", "light": "{color.white}" }, "$description": "Behind the canvas: hero areas, the new-tab page" },
+    "surface-raised": { "$value": { "dark": "{color.ink.3}", "light": "{color.white}" }, "$description": "Opaque panels, menus, drawers" },
+    "surface-overlay": { "$value": { "dark": "{color.ink.4}", "light": "{color.white}" }, "$description": "Opaque layer above a raised surface (menus inside panels)" },
+    "surface-1": { "$value": { "dark": "alpha({color.white}, 0.03)", "light": "alpha({color.black}, 0.02)" }, "$description": "Glass, faintest: rows, wells" },
+    "surface-2": { "$value": { "dark": "alpha({color.white}, 0.05)", "light": "alpha({color.black}, 0.035)" }, "$description": "Glass: cards, inputs" },
+    "surface-3": { "$value": { "dark": "alpha({color.white}, 0.06)", "light": "alpha({color.black}, 0.045)" }, "$description": "Glass: hover on a card, raised cards" },
+    "surface-4": { "$value": { "dark": "alpha({color.white}, 0.1)", "light": "alpha({color.black}, 0.07)" }, "$description": "Glass: hover, selected" },
+    "surface-5": { "$value": { "dark": "alpha({color.white}, 0.16)", "light": "alpha({color.black}, 0.1)" }, "$description": "Glass: pressed, strong selection" },
+    "surface-6": { "$value": { "dark": "alpha({color.white}, 0.25)", "light": "alpha({color.black}, 0.16)" }, "$description": "Glass: strongest fill (scrollbar thumbs, toggles off)" },
+    "scrim": { "$value": { "dark": "{color.black}", "light": "{color.black}" }, "$description": "Backdrops behind dialogs and drawers; always used with an opacity (bg-scrim/60)" },
+
+    "fg": {
+      "$value": { "dark": "{color.white}", "light": "{color.zinc.950}" }, "$description": "Primary text and icons",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "canvas-deep", "surface-raised", "surface-overlay", "surface-4"] } }
+    },
+    "fg-muted": {
+      "$value": { "dark": "alpha({color.white}, 0.76)", "light": "{color.zinc.800}" }, "$description": "Secondary text",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "canvas-deep", "surface-raised", "surface-overlay", "surface-4"] } }
+    },
+    "fg-subtle": {
+      "$value": { "dark": "alpha({color.white}, 0.6)", "light": "{color.zinc.700}" }, "$description": "Tertiary text: metadata, labels",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "canvas-deep", "surface-raised", "surface-overlay", "surface-3"] } }
+    },
+    "fg-faint": {
+      "$value": { "dark": "alpha({color.white}, 0.48)", "light": "{color.zinc.600}" }, "$description": "The quietest readable text: hints, placeholders, timestamps",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "canvas-deep", "surface-raised", "surface-2"] } }
+    },
+    "fg-disabled": { "$value": { "dark": "alpha({color.white}, 0.32)", "light": "{color.zinc.400}" }, "$description": "Disabled controls and purely decorative glyphs (exempt from contrast rules)" },
+    "fg-inverse": {
+      "$value": { "dark": "{color.black}", "light": "{color.white}" }, "$description": "Text on an fg-coloured fill (bg-fg)",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["fg"] } }
+    },
+    "on-emphasis": {
+      "$value": { "dark": "{color.white}", "light": "{color.white}" }, "$description": "Text on any *-emphasis fill",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": [
+        "accent-emphasis", "accent-emphasis-hover", "agent-emphasis", "agent-emphasis-hover", "success-emphasis", "success-emphasis-hover",
+        "danger-emphasis", "danger-emphasis-hover", "warning-emphasis", "warning-emphasis-hover", "info-emphasis", "info-emphasis-hover"
+      ] } }
+    },
+
+    "line-subtle": { "$value": { "dark": "alpha({color.white}, 0.05)", "light": "alpha({color.black}, 0.06)" }, "$description": "Hairlines, dividers" },
+    "line": { "$value": { "dark": "alpha({color.white}, 0.07)", "light": "alpha({color.black}, 0.1)" }, "$description": "Default border of cards and inputs" },
+    "line-strong": { "$value": { "dark": "alpha({color.white}, 0.1)", "light": "alpha({color.black}, 0.14)" }, "$description": "Hovered and raised borders" },
+    "line-emphasis": { "$value": { "dark": "alpha({color.white}, 0.18)", "light": "alpha({color.black}, 0.24)" }, "$description": "Selected and focused borders" },
+    "focus": {
+      "$value": { "dark": "{color.blue.400}", "light": "{color.blue.600}" }, "$description": "Keyboard focus ring",
+      "$extensions": { "bucks.contrast": { "min": 3, "on": ["canvas", "surface-raised"] } }
+    },
+
+    "accent": { "$value": { "dark": "{color.blue.500}", "light": "{color.blue.600}" }, "$description": "Bucks blue: links, primary actions, selection. Tints: bg-accent/15, border-accent/30" },
+    "accent-fg": {
+      "$value": { "dark": "{color.blue.400}", "light": "{color.blue.700}" }, "$description": "Accent text and icons on neutral surfaces",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "accent-fg-strong": {
+      "$value": { "dark": "{color.blue.300}", "light": "{color.blue.800}" }, "$description": "Accent text on accent tints",
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "accent-emphasis": { "$value": { "dark": "{color.blue.600}", "light": "{color.blue.600}" }, "$description": "Solid fill behind on-emphasis text (primary buttons)" },
+    "accent-emphasis-hover": { "$value": { "dark": "{color.blue.700}", "light": "{color.blue.700}" } },
+
+    "agent": { "$value": { "dark": "{color.violet.500}", "light": "{color.violet.600}" }, "$description": "The agent's colour: AI activity, agent messages, tools" },
+    "agent-fg": {
+      "$value": { "dark": "{color.violet.400}", "light": "{color.violet.700}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "agent-fg-strong": {
+      "$value": { "dark": "{color.violet.300}", "light": "{color.violet.800}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "agent-emphasis": { "$value": { "dark": "{color.violet.600}", "light": "{color.violet.600}" } },
+    "agent-emphasis-hover": { "$value": { "dark": "{color.violet.700}", "light": "{color.violet.700}" } },
+
+    "success": { "$value": { "dark": "{color.emerald.500}", "light": "{color.emerald.600}" }, "$description": "Done, online, verified" },
+    "success-fg": {
+      "$value": { "dark": "{color.emerald.400}", "light": "{color.emerald.700}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "success-fg-strong": {
+      "$value": { "dark": "{color.emerald.300}", "light": "{color.emerald.800}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "success-emphasis": { "$value": { "dark": "{color.emerald.700}", "light": "{color.emerald.700}" } },
+    "success-emphasis-hover": { "$value": { "dark": "{color.emerald.800}", "light": "{color.emerald.800}" } },
+
+    "danger": { "$value": { "dark": "{color.red.500}", "light": "{color.red.600}" }, "$description": "Errors, destructive actions" },
+    "danger-fg": {
+      "$value": { "dark": "{color.red.400}", "light": "{color.red.700}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "danger-fg-strong": {
+      "$value": { "dark": "{color.red.300}", "light": "{color.red.800}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "danger-emphasis": { "$value": { "dark": "{color.red.600}", "light": "{color.red.600}" } },
+    "danger-emphasis-hover": { "$value": { "dark": "{color.red.700}", "light": "{color.red.700}" } },
+
+    "warning": { "$value": { "dark": "{color.amber.500}", "light": "{color.amber.600}" }, "$description": "Caution, pending, starting" },
+    "warning-fg": {
+      "$value": { "dark": "{color.amber.400}", "light": "{color.amber.800}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "warning-fg-strong": {
+      "$value": { "dark": "{color.amber.200}", "light": "{color.amber.900}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "warning-emphasis": { "$value": { "dark": "{color.amber.700}", "light": "{color.amber.700}" } },
+    "warning-emphasis-hover": { "$value": { "dark": "{color.amber.800}", "light": "{color.amber.800}" } },
+
+    "info": { "$value": { "dark": "{color.sky.500}", "light": "{color.sky.600}" }, "$description": "Neutral information, network activity" },
+    "info-fg": {
+      "$value": { "dark": "{color.sky.400}", "light": "{color.sky.700}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-3"] } }
+    },
+    "info-fg-strong": {
+      "$value": { "dark": "{color.sky.200}", "light": "{color.sky.800}" },
+      "$extensions": { "bucks.contrast": { "min": 4.5, "on": ["canvas", "surface-raised", "surface-4"] } }
+    },
+    "info-emphasis": { "$value": { "dark": "{color.sky.700}", "light": "{color.sky.700}" } },
+    "info-emphasis-hover": { "$value": { "dark": "{color.sky.800}", "light": "{color.sky.800}" } }
+  },
+  "$categorical": {
+    "$description": "Decorative tones with no meaning of their own: tab groups, app icons, widget kinds, illustrations. Each hue h gives cat-h (identity, use with an opacity for tints), cat-h-fg (text), cat-h-strong and cat-h-deep (gradients).",
+    "hues": ["slate", "red", "orange", "amber", "yellow", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose"],
+    "steps": {
+      "": { "dark": 500, "light": 500 },
+      "fg": { "dark": 300, "light": 700, "contrast": { "min": 4.5, "on": ["canvas", "surface-raised"] } },
+      "strong": { "dark": 700, "light": 700 },
+      "deep": { "dark": 900, "light": 900 }
+    }
+  }
+}

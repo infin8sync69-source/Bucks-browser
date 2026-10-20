@@ -28,27 +28,27 @@
 </script>
 
 <div class="space-y-2">
-    <p class="text-[11px] text-white/35 leading-relaxed">
+    <p class="text-2xs text-fg-faint leading-relaxed">
         Put unpacked Chrome extensions (a folder with a <span class="font-mono">manifest.json</span>) in
-        <span class="font-mono break-all text-white/50">{folder || "the extensions folder"}</span>, then reload.
+        <span class="font-mono break-all text-fg-faint">{folder || "the extensions folder"}</span>, then reload.
         They run in web pages only. Content blockers and userscript managers work; toolbar buttons and popups are not shown.
     </p>
     {#each extensions as ext (ext.path)}
-        <div class="flex items-center gap-3 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
-            <Puzzle size={14} class={ext.error ? "text-red-300/70" : "text-emerald-300/70"} />
+        <div class="flex items-center gap-3 p-3 rounded-2xl border border-line bg-surface-1">
+            <Puzzle size={14} class={ext.error ? "text-danger-fg-strong/70" : "text-success-fg-strong/70"} />
             <div class="min-w-0">
-                <p class="text-[12px] text-white/75 truncate">{ext.name} <span class="text-white/30">{ext.version}</span></p>
-                <p class="text-[10px] {ext.error ? 'text-red-300/70' : 'text-white/30'} truncate">{ext.error ?? ext.path}</p>
+                <p class="text-xs text-fg-muted truncate">{ext.name} <span class="text-fg-faint">{ext.version}</span></p>
+                <p class="text-3xs {ext.error ? 'text-danger-fg-strong/70' : 'text-fg-faint'} truncate">{ext.error ?? ext.path}</p>
             </div>
         </div>
     {:else}
-        <p class="text-[11px] text-white/30 px-1">No extensions installed.</p>
+        <p class="text-2xs text-fg-faint px-1">No extensions installed.</p>
     {/each}
     <div class="flex items-center gap-2">
         <button onclick={() => bucks.extensions.openFolder().catch((e) => (message = errorMessage(e)))}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/10 text-[12px] text-white/70"><FolderOpen size={12} /> Open folder</button>
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-4 text-xs text-fg-muted"><FolderOpen size={12} /> Open folder</button>
         <button onclick={() => apply(bucks.extensions.reload())} disabled={busy}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 text-[12px] text-white/70"><RefreshCw size={12} class={busy ? "animate-spin" : ""} /> Reload</button>
-        {#if message}<span class="text-[11px] text-red-300/80">{message}</span>{/if}
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 text-xs text-fg-muted"><RefreshCw size={12} class={busy ? "animate-spin" : ""} /> Reload</button>
+        {#if message}<span class="text-2xs text-danger-fg-strong/80">{message}</span>{/if}
     </div>
 </div>

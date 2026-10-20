@@ -173,7 +173,7 @@ export function normalizeExternalUrl(url: string): string {
 
 function routeTo(url: string) {
     if (typeof window === 'undefined') return;
-    // keepFocus: SvelteKit would otherwise blur the omnibox after every navigation.
+    // keepFocus: SvelteKit would otherwise blur-sm the omnibox after every navigation.
     const opts = { keepFocus: true };
     if (url === 'bucks://newtab') { void goto('/', opts); return; }
     if (url.startsWith('bucks://')) { void goto(url.replace('bucks://', '/'), opts); return; }

@@ -23,12 +23,12 @@
 </script>
 
 <div class="flex flex-col items-center select-none">
-    <div class="text-[64px] leading-none font-extralight tracking-tight text-white/90 tabular-nums" aria-label="Time">{time}</div>
-    <div class="mt-2 text-[15px] text-white/70">
-        {greeting(now.getHours())}{#if name}, <span class="text-white/90">{name}</span>{/if}
+    <div class="text-6xl leading-none font-extralight tracking-tight text-fg tabular-nums" aria-label="Time">{time}</div>
+    <div class="mt-2 text-md text-fg-muted">
+        {greeting(now.getHours())}{#if name}, <span class="text-fg">{name}</span>{/if}
         {#if !name}
-            <button onclick={() => profilePanelOpen.set(true)} class="ml-2 text-[11px] text-white/30 hover:text-white/70 underline-offset-2 hover:underline transition-colors">Add your name</button>
+            <button onclick={() => profilePanelOpen.set(true)} class="ml-2 text-2xs text-fg-faint hover:text-fg-muted underline-offset-2 hover:underline transition-colors">Add your name</button>
         {/if}
     </div>
-    <div class="mt-1 text-[12px] text-white/35">{date}</div>
+    <div class="mt-1 text-xs text-fg-faint">{date}</div>
 </div>

@@ -15,10 +15,10 @@
 <div class="space-y-1">
     {#each spaces as s (s.id)}
         <button onclick={() => browserStore.switchSpace(s.id)}
-            class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-white/[0.05] transition-colors {s.id === $browserStore.activeSpaceId ? 'bg-white/[0.04]' : ''}">
+            class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-surface-2 transition-colors {s.id === $browserStore.activeSpaceId ? 'bg-surface-2' : ''}">
             <span class="w-2 h-2 rounded-full {tabColorClass(s.color)}"></span>
-            <span class="text-[12px] text-white/75 truncate">{s.name}</span>
-            <span class="ml-auto text-[11px] text-white/35 tabular-nums">{s.count} tab{s.count === 1 ? "" : "s"}</span>
+            <span class="text-xs text-fg-muted truncate">{s.name}</span>
+            <span class="ml-auto text-2xs text-fg-faint tabular-nums">{s.count} tab{s.count === 1 ? "" : "s"}</span>
         </button>
     {/each}
 </div>

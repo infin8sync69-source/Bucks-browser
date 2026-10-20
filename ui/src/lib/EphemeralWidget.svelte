@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     import { fly, fade, scale } from "svelte/transition";
     import { cubicOut, elasticOut } from "svelte/easing";
     import { swarmStore } from "./swarmStore";
@@ -175,115 +176,115 @@
 {#if visible}
     <!-- Backdrop -->
     <div
-        class="fixed inset-0 z-[498] bg-black/50 backdrop-blur-[6px]"
-        transition:fade={{ duration: 200 }}
+        class="fixed inset-0 z-modal-backdrop bg-scrim/50 backdrop-blur-sm"
+        transition:fade={{ duration: motion.base }}
         onclick={close}
         role="presentation"
     ></div>
 
     <!-- Modal wrapper — centers vertically, avoids Header and AgenticBar -->
     <div
-        class="fixed inset-0 z-[499] flex items-center justify-center px-4 pointer-events-none"
+        class="fixed inset-0 z-modal flex items-center justify-center px-4 pointer-events-none"
         style="padding-top: 5.5rem; padding-bottom: 6rem;"
     >
         <div
-            class="pointer-events-auto w-full max-w-[500px] bg-[#0c0c10]/98 backdrop-blur-3xl border border-white/[0.09] rounded-2xl overflow-hidden shadow-[0_48px_120px_-20px_rgba(0,0,0,0.95),0_0_0_1px_rgba(255,255,255,0.04)]"
-            in:fly={{ y: 24, duration: 380, easing: cubicOut }}
-            out:fly={{ y: 12, duration: 240, easing: cubicOut }}
+            class="pointer-events-auto w-full max-w-[500px] bg-surface-raised/98 backdrop-blur-3xl border border-line-strong rounded-2xl overflow-hidden shadow-dialog"
+            in:fly={{ y: 24, duration: motion.moderate, easing: cubicOut }}
+            out:fly={{ y: 12, duration: motion.base, easing: cubicOut }}
             role="dialog"
             aria-modal="true"
         >
             <!-- ── Header ──────────────────────────────────────────────────── -->
-            <div class="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06]">
+            <div class="flex items-center gap-3 px-5 py-4 border-b border-line">
                 <!-- Icon badge -->
                 <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0
                             bg-{accent}-500/10 border border-{accent}-500/20">
                     {#if type === "taxi_booking"}         <span class="text-lg">🚕</span>
                     {:else if type === "food_order"}      <span class="text-lg">🍕</span>
                     {:else if type === "payment_send"}    <span class="text-lg">💸</span>
-                    {:else if type === "weather_check"}   <Cloud size={16} class="text-sky-400" />
-                    {:else if type === "ipfs_action"}     <Globe size={16} class="text-cyan-400" />
-                    {:else if type === "product_search"}  <Package size={16} class="text-amber-400" />
-                    {:else if type === "nearby_search"}   <MapPin size={16} class="text-emerald-400" />
-                    {:else if type === "news_search"}     <Newspaper size={16} class="text-zinc-400" />
-                    {:else if type === "navigate"}        <Navigation size={16} class="text-blue-400" />
-                    {:else if type === "search"}          <Search size={16} class="text-blue-400" />
-                    {:else if type === "code"}            <Code2 size={16} class="text-emerald-400" />
-                    {:else}                               <Zap size={16} class="text-violet-400" />
+                    {:else if type === "weather_check"}   <Cloud size={16} class="text-info-fg" />
+                    {:else if type === "ipfs_action"}     <Globe size={16} class="text-cat-cyan-fg" />
+                    {:else if type === "product_search"}  <Package size={16} class="text-warning-fg" />
+                    {:else if type === "nearby_search"}   <MapPin size={16} class="text-success-fg" />
+                    {:else if type === "news_search"}     <Newspaper size={16} class="text-fg-subtle" />
+                    {:else if type === "navigate"}        <Navigation size={16} class="text-accent-fg" />
+                    {:else if type === "search"}          <Search size={16} class="text-accent-fg" />
+                    {:else if type === "code"}            <Code2 size={16} class="text-success-fg" />
+                    {:else}                               <Zap size={16} class="text-agent-fg" />
                     {/if}
                 </div>
 
                 <div class="flex-1 min-w-0">
                     {#if intentMeta}
-                        <p class="text-[13px] font-semibold text-white/90 leading-none">{intentMeta.label}</p>
-                        <p class="text-[10px] text-white/35 mt-1 leading-none">{intentMeta.description}</p>
+                        <p class="text-sm font-semibold text-fg leading-none">{intentMeta.label}</p>
+                        <p class="text-3xs text-fg-faint mt-1 leading-none">{intentMeta.description}</p>
                     {:else}
-                        <p class="text-[13px] font-semibold text-white/90 leading-none">Bucks Agent</p>
-                        <p class="text-[10px] text-white/35 mt-1 leading-none">Action ready</p>
+                        <p class="text-sm font-semibold text-fg leading-none">Bucks Agent</p>
+                        <p class="text-3xs text-fg-faint mt-1 leading-none">Action ready</p>
                     {/if}
                 </div>
 
                 <button
                     onclick={close}
                     aria-label="Close"
-                    class="w-7 h-7 rounded-lg flex items-center justify-center text-white/25 hover:text-white/70 hover:bg-white/[0.06] transition-all"
+                    class="w-7 h-7 rounded-lg flex items-center justify-center text-fg-faint hover:text-fg-muted hover:bg-surface-3 transition-all"
                 >
                     <X size={14} />
                 </button>
             </div>
 
             <!-- ── Body ───────────────────────────────────────────────────── -->
-            <div class="p-5 space-y-3 max-h-[60vh] overflow-y-auto" style="scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.06) transparent;">
+            <div class="p-5 space-y-3 max-h-[60vh] overflow-y-auto" style="scrollbar-width:thin;scrollbar-color:var(--bucks-color-surface-3) transparent;">
 
                 {#if description}
-                    <p class="text-[13px] text-white/55 leading-relaxed">{description}</p>
+                    <p class="text-sm text-fg-subtle leading-relaxed">{description}</p>
                 {/if}
 
                 <!-- TAXI -->
                 {#if type === "taxi_booking"}
                     <div class="space-y-2.5">
                         <div class="relative">
-                            <div class="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 ring-2 ring-blue-400/20"></div>
+                            <div class="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-accent ring-2 ring-accent/20"></div>
                             <input bind:value={taxiPickup} placeholder="Pickup location"
-                                class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-8 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-blue-500/50 transition-colors" />
+                                class="w-full bg-surface-2 border border-line rounded-xl pl-8 pr-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-accent/50 transition-colors" />
                         </div>
-                        <div class="pl-3.5"><div class="w-[1px] h-4 bg-white/10 rounded-full ml-[3px]"></div></div>
+                        <div class="pl-3.5"><div class="w-[1px] h-4 bg-surface-4 rounded-full ml-0.75"></div></div>
                         <div class="relative">
-                            <div class="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-md bg-emerald-400 ring-2 ring-emerald-400/20"></div>
+                            <div class="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-md bg-success ring-2 ring-success/20"></div>
                             <input bind:value={taxiDrop} placeholder="Drop location"
-                                class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-8 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/50 transition-colors" />
+                                class="w-full bg-surface-2 border border-line rounded-xl pl-8 pr-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-success/50 transition-colors" />
                         </div>
                         <div class="flex gap-2 pt-1">
                             {#each (["economy","comfort","premium"] as const) as rt}
                                 <button onclick={() => taxiRideType = rt}
-                                    class="flex-1 py-2 rounded-xl text-[11px] font-semibold transition-all
-                                           {taxiRideType === rt ? 'bg-violet-500/15 border border-violet-500/30 text-violet-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/30 hover:text-white/60'}">
+                                    class="flex-1 py-2 rounded-xl text-2xs font-semibold transition-all
+                                           {taxiRideType === rt ? 'bg-agent/15 border border-agent/30 text-agent-fg-strong' : 'bg-surface-1 border border-line text-fg-faint hover:text-fg-subtle'}">
                                     {rt === 'economy' ? '🏎 Economy' : rt === 'comfort' ? '🚗 Comfort' : '✨ Premium'}
                                 </button>
                             {/each}
                         </div>
                         <button onclick={findDrivers} disabled={!taxiPickup || !taxiDrop || taxiSearching}
-                            class="w-full bg-violet-500/12 hover:bg-violet-500/20 border border-violet-500/25 text-violet-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                            class="w-full bg-agent/12 hover:bg-agent/20 border border-agent/25 text-agent-fg-strong rounded-xl py-2.5 text-sm font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
                             {#if taxiSearching}
-                                <div class="w-3.5 h-3.5 border border-violet-400/40 border-t-violet-400 rounded-full animate-spin"></div>
+                                <div class="w-3.5 h-3.5 border border-agent/40 border-t-agent rounded-full animate-spin"></div>
                                 Searching drivers…
                             {:else}
                                 Find Drivers
                             {/if}
                         </button>
                         {#if taxiDrivers.length > 0}
-                            <div class="space-y-1.5" in:scale={{ duration: 280, start: 0.97, easing: cubicOut }}>
+                            <div class="space-y-1.5" in:scale={{ duration: motion.moderate, start: 0.97, easing: cubicOut }}>
                                 {#each taxiDrivers as driver}
                                     <button onclick={() => bookDriver(driver)}
-                                        class="w-full flex items-center gap-3 p-3 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] rounded-xl transition-all">
-                                        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center text-sm font-semibold text-white/60 shrink-0">{driver.name[0]}</div>
+                                        class="w-full flex items-center gap-3 p-3 bg-surface-1 hover:bg-surface-3 border border-line rounded-xl transition-all">
+                                        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-agent/20 to-cat-indigo/20 flex items-center justify-center text-md font-semibold text-fg-subtle shrink-0">{driver.name[0]}</div>
                                         <div class="flex-1 text-left">
-                                            <p class="text-[12px] font-semibold text-white/80">{driver.name}</p>
-                                            <p class="text-[10px] text-white/30 mt-0.5">⭐ {driver.rating} · {driver.eta} min away</p>
+                                            <p class="text-xs font-semibold text-fg-muted">{driver.name}</p>
+                                            <p class="text-3xs text-fg-faint mt-0.5">⭐ {driver.rating} · {driver.eta} min away</p>
                                         </div>
                                         <div class="text-right">
-                                            <p class="text-[13px] font-bold text-white/70">₹{driver.price}</p>
-                                            <p class="text-[10px] text-emerald-400/70 mt-0.5">Book →</p>
+                                            <p class="text-sm font-bold text-fg-muted">₹{driver.price}</p>
+                                            <p class="text-3xs text-success-fg/70 mt-0.5">Book →</p>
                                         </div>
                                     </button>
                                 {/each}
@@ -297,8 +298,8 @@
                         <div class="flex flex-wrap gap-1.5">
                             {#each CUISINES as c}
                                 <button onclick={() => foodCuisine = (foodCuisine === c ? "" : c)}
-                                    class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all border
-                                           {foodCuisine === c ? 'bg-orange-500/15 border-orange-500/30 text-orange-300' : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70'}">
+                                    class="px-2.5 py-1 rounded-full text-2xs font-medium transition-all border
+                                           {foodCuisine === c ? 'bg-cat-orange/15 border-cat-orange/30 text-cat-orange-fg' : 'bg-surface-1 border-line text-fg-faint hover:text-fg-muted'}">
                                     {c}
                                 </button>
                             {/each}
@@ -306,12 +307,12 @@
                         <div class="relative">
                             <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs">📍</span>
                             <input bind:value={foodLocation} placeholder="Delivery location"
-                                class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-8 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-orange-500/40 transition-colors" />
+                                class="w-full bg-surface-2 border border-line rounded-xl pl-8 pr-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-cat-orange/40 transition-colors" />
                         </div>
                         <button onclick={searchRestaurants} disabled={foodLoading}
-                            class="w-full bg-orange-500/12 hover:bg-orange-500/20 border border-orange-500/25 text-orange-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all flex items-center justify-center gap-2">
+                            class="w-full bg-cat-orange/12 hover:bg-cat-orange/20 border border-cat-orange/25 text-cat-orange-fg rounded-xl py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-2">
                             {#if foodLoading}
-                                <div class="w-3.5 h-3.5 border border-orange-400/40 border-t-orange-400 rounded-full animate-spin"></div>
+                                <div class="w-3.5 h-3.5 border border-cat-orange/40 border-t-cat-orange rounded-full animate-spin"></div>
                                 Finding restaurants…
                             {:else}
                                 🍽️ Search Restaurants
@@ -323,25 +324,25 @@
                 {:else if type === "payment_send"}
                     <div class="space-y-2.5">
                         {#if payDone}
-                            <div class="text-center py-6" in:scale={{ duration: 400, easing: elasticOut, start: 0.7 }}>
+                            <div class="text-center py-6" in:scale={{ duration: motion.moderate, easing: elasticOut, start: 0.7 }}>
                                 <div class="text-5xl mb-3">✅</div>
-                                <p class="text-base font-semibold text-emerald-400">Sent ₹{payAmount}</p>
-                                <p class="text-xs text-white/30 mt-1.5">Opening wallet for {payTo}</p>
+                                <p class="text-base font-semibold text-success-fg">Sent ₹{payAmount}</p>
+                                <p class="text-xs text-fg-faint mt-1.5">Opening wallet for {payTo}</p>
                             </div>
                         {:else}
                             <input bind:value={payTo} placeholder="UPI / Phone / Wallet Address"
-                                class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-violet-500/40 transition-colors" />
+                                class="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-agent/40 transition-colors" />
                             <div class="relative">
-                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/30 font-bold">₹</span>
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-fg-faint font-bold">₹</span>
                                 <input bind:value={payAmount} type="number" placeholder="Amount"
-                                    class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-7 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-violet-500/40 transition-colors" />
+                                    class="w-full bg-surface-2 border border-line rounded-xl pl-7 pr-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-agent/40 transition-colors" />
                             </div>
                             <input bind:value={payNote} placeholder="Note (optional)"
-                                class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-violet-500/40 transition-colors" />
+                                class="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-agent/40 transition-colors" />
                             <button onclick={sendPayment} disabled={!payTo || !payAmount || paySending}
-                                class="w-full bg-violet-500/12 hover:bg-violet-500/20 border border-violet-500/25 text-violet-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                                class="w-full bg-agent/12 hover:bg-agent/20 border border-agent/25 text-agent-fg-strong rounded-xl py-2.5 text-sm font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
                                 {#if paySending}
-                                    <div class="w-3.5 h-3.5 border border-violet-400/40 border-t-violet-400 rounded-full animate-spin"></div>
+                                    <div class="w-3.5 h-3.5 border border-agent/40 border-t-agent rounded-full animate-spin"></div>
                                     Sending…
                                 {:else}
                                     💸 Send via Wallet
@@ -356,10 +357,10 @@
                             <div class="relative">
                                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs">📍</span>
                                 <input bind:value={weatherLoc} placeholder="City or location"
-                                    class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl pl-8 pr-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-sky-500/40 transition-colors" />
+                                    class="w-full bg-surface-2 border border-line rounded-xl pl-8 pr-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-info/40 transition-colors" />
                             </div>
                             <button onclick={checkWeather}
-                                class="w-full bg-sky-500/12 hover:bg-sky-500/20 border border-sky-500/25 text-sky-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all flex items-center justify-center gap-2">
+                                class="w-full bg-info/12 hover:bg-info/20 border border-info/25 text-info-fg-strong rounded-xl py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-2">
                                 🌤️ Search Weather
                             </button>
                     </div>
@@ -367,7 +368,7 @@
                 <!-- IPFS -->
                 {:else if type === "ipfs_action"}
                     <button onclick={openIpfs}
-                        class="w-full bg-cyan-500/12 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all">
+                        class="w-full bg-cat-cyan/12 hover:bg-cat-cyan/20 border border-cat-cyan/25 text-cat-cyan-fg rounded-xl py-2.5 text-sm font-semibold transition-all">
                         🌐 Open IPFS Dashboard
                     </button>
 
@@ -375,9 +376,9 @@
                 {:else if type === "product_search"}
                     <div class="space-y-2.5">
                         <input bind:value={productQuery} placeholder="What are you looking for?"
-                            class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 transition-colors" />
+                            class="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-warning/40 transition-colors" />
                         <button onclick={searchProduct}
-                            class="w-full bg-amber-500/12 hover:bg-amber-500/20 border border-amber-500/25 text-amber-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all">
+                            class="w-full bg-warning/12 hover:bg-warning/20 border border-warning/25 text-warning-fg-strong rounded-xl py-2.5 text-sm font-semibold transition-all">
                             🛍️ Find Best Prices
                         </button>
                     </div>
@@ -386,9 +387,9 @@
                 {:else if type === "nearby_search"}
                     <div class="space-y-2.5">
                         <input bind:value={nearbyQuery} placeholder="What are you looking for nearby?"
-                            class="w-full bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-2.5 text-[13px] text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors" />
+                            class="w-full bg-surface-2 border border-line rounded-xl px-3 py-2.5 text-sm text-fg placeholder-fg-faint focus:outline-none focus:border-success/40 transition-colors" />
                         <button onclick={searchNearby}
-                            class="w-full bg-emerald-500/12 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all">
+                            class="w-full bg-success/12 hover:bg-success/20 border border-success/25 text-success-fg-strong rounded-xl py-2.5 text-sm font-semibold transition-all">
                             📍 Search Nearby
                         </button>
                     </div>
@@ -396,40 +397,40 @@
                 <!-- NEWS -->
                 {:else if type === "news_search"}
                     <button onclick={searchNews}
-                        class="w-full bg-zinc-500/12 hover:bg-zinc-500/20 border border-zinc-500/25 text-zinc-300 rounded-xl py-2.5 text-[13px] font-semibold transition-all">
+                        class="w-full bg-surface-3 hover:bg-surface-3 border border-line-emphasis/25 text-fg-muted rounded-xl py-2.5 text-sm font-semibold transition-all">
                         📰 Search Latest News
                     </button>
 
                 <!-- NAVIGATE / SEARCH -->
                 {:else if type === "navigate" || type === "search"}
                     <a href={url || "#"} target="_blank" rel="noopener noreferrer"
-                        class="flex items-center gap-3 p-3.5 bg-blue-500/5 rounded-xl border border-blue-500/15 hover:border-blue-500/30 transition-all no-underline">
-                        <div class="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+                        class="flex items-center gap-3 p-3.5 bg-accent/5 rounded-xl border border-accent/15 hover:border-accent/30 transition-all no-underline">
+                        <div class="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
                             {#if type === "navigate"}
-                                <Navigation size={16} class="text-blue-400" />
+                                <Navigation size={16} class="text-accent-fg" />
                             {:else}
-                                <Search size={16} class="text-blue-400" />
+                                <Search size={16} class="text-accent-fg" />
                             {/if}
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-[10px] text-white/30 uppercase tracking-wide">{type === "navigate" ? "Navigate to" : "Search"}</p>
-                            <p class="text-[13px] text-blue-300 font-medium truncate mt-0.5">{url || text || "Link"}</p>
+                            <p class="text-3xs text-fg-faint uppercase tracking-wide">{type === "navigate" ? "Navigate to" : "Search"}</p>
+                            <p class="text-sm text-accent-fg-strong font-medium truncate mt-0.5">{url || text || "Link"}</p>
                         </div>
                     </a>
 
                 <!-- CODE -->
                 {:else if type === "code"}
-                    <pre class="text-[11px] font-mono text-emerald-300/80 bg-black/50 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap border border-white/[0.05] max-h-64">{text || content}</pre>
+                    <pre class="text-2xs font-mono text-success-fg-strong/80 bg-scrim/50 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap border border-line-subtle max-h-64">{text || content}</pre>
 
                 {/if}
             </div>
 
             <!-- ── IPFS verified footer ──────────────────────────────────── -->
             {#if cid}
-                <div class="px-5 py-2.5 border-t border-white/[0.05] bg-cyan-400/[0.02] flex items-center justify-between">
-                    <span class="text-[9px] text-cyan-400/40 uppercase font-bold tracking-[0.2em]">Verified Fragment</span>
+                <div class="px-5 py-2.5 border-t border-line-subtle bg-cat-cyan/2 flex items-center justify-between">
+                    <span class="text-3xs text-cat-cyan-fg/40 uppercase font-bold tracking-caps">Verified Fragment</span>
                     <a href="https://ipfs.io/ipfs/{cid}" target="_blank"
-                        class="text-[11px] font-mono text-cyan-300/50 hover:text-cyan-200 flex items-center gap-1">
+                        class="text-2xs font-mono text-cat-cyan-fg/50 hover:text-cat-cyan-fg flex items-center gap-1">
                         {cid.slice(0,6)}…{cid.slice(-4)} ↗
                     </a>
                 </div>
@@ -437,24 +438,24 @@
 
             <!-- ── Feedback ─────────────────────────────────────────────── -->
             {#if taskId && !showCorrection}
-                <div class="px-5 py-3 flex items-center gap-2 border-t border-white/[0.05]">
-                    <span class="text-[9px] text-white/20 uppercase tracking-widest flex-1">Was this helpful?</span>
+                <div class="px-5 py-3 flex items-center gap-2 border-t border-line-subtle">
+                    <span class="text-3xs text-fg-disabled uppercase tracking-widest flex-1">Was this helpful?</span>
                     <button onclick={() => handleFeedback(1)} aria-label="Good"
-                        class="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all {feedbackScore===1 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25' : 'text-white/25 hover:text-white/60 hover:bg-white/5'}">
+                        class="px-3 py-1.5 rounded-lg text-2xs font-medium transition-all {feedbackScore===1 ? 'bg-success/15 text-success-fg-strong border border-success/25' : 'text-fg-faint hover:text-fg-subtle hover:bg-surface-2'}">
                         👍 Yes
                     </button>
                     <button onclick={() => handleFeedback(-1)} aria-label="No"
-                        class="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all {feedbackScore===-1 ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25' : 'text-white/25 hover:text-white/60 hover:bg-white/5'}">
+                        class="px-3 py-1.5 rounded-lg text-2xs font-medium transition-all {feedbackScore===-1 ? 'bg-cat-rose/15 text-cat-rose-fg border border-cat-rose/25' : 'text-fg-faint hover:text-fg-subtle hover:bg-surface-2'}">
                         👎 No
                     </button>
                 </div>
             {:else if showCorrection}
-                <div class="p-4 border-t border-white/[0.05]" in:scale={{ duration: 200, start: 0.95 }}>
+                <div class="p-4 border-t border-line-subtle" in:scale={{ duration: motion.base, start: 0.95 }}>
                     <textarea bind:value={correctionText} placeholder="What should it have done?"
-                        class="w-full bg-black/40 border border-white/[0.08] rounded-xl p-3 text-[12px] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-rose-500/40 resize-none h-20"></textarea>
+                        class="w-full bg-scrim/40 border border-line rounded-xl p-3 text-xs text-fg-muted placeholder:text-fg-faint focus:outline-none focus:border-cat-rose/40 resize-none h-20"></textarea>
                     <div class="flex justify-end gap-2 mt-2.5">
-                        <button onclick={() => showCorrection = false} class="px-3 py-1.5 text-[11px] text-white/40 hover:text-white/60">Cancel</button>
-                        <button onclick={submitCorrection} class="px-4 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-[11px] rounded-lg transition-colors border border-rose-500/20">Submit</button>
+                        <button onclick={() => showCorrection = false} class="px-3 py-1.5 text-2xs text-fg-faint hover:text-fg-subtle">Cancel</button>
+                        <button onclick={submitCorrection} class="px-4 py-1.5 bg-cat-rose/15 hover:bg-cat-rose/25 text-cat-rose-fg text-2xs rounded-lg transition-colors border border-cat-rose/20">Submit</button>
                     </div>
                 </div>
             {/if}

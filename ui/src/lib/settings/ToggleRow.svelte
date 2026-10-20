@@ -12,10 +12,10 @@
     } = $props();
 </script>
 
-<div class="flex items-center justify-between gap-4 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+<div class="flex items-center justify-between gap-4 p-3 rounded-2xl border border-line bg-surface-1">
     <div class="min-w-0">
-        <p class="text-[13px] text-white/70">{label}</p>
-        {#if description}<p class="text-[11px] text-white/30 mt-0.5">{description}</p>{/if}
+        <p class="text-sm text-fg-muted">{label}</p>
+        {#if description}<p class="text-2xs text-fg-faint mt-0.5">{description}</p>{/if}
     </div>
     <button
         type="button"
@@ -24,8 +24,8 @@
         aria-label={label}
         onclick={() => onchange(!checked)}
         class="relative w-10 h-6 rounded-full shrink-0 border transition-colors
-               {checked ? 'bg-blue-500/60 border-blue-400/50' : 'bg-white/10 border-white/10'}"
+               {checked ? 'bg-accent/60 border-accent/50' : 'bg-surface-4 border-line-strong'}"
     >
-        <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform {checked ? 'translate-x-4' : ''}"></span>
+        <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-fg transition-transform {checked ? 'translate-x-4' : ''}"></span>
     </button>
 </div>

@@ -435,10 +435,10 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
         nodeIntegration: false,
         webSecurity: true,
         spellcheck: true,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff', // tokens-ignore: web pages paint on white unless they set a background (the platform default)
       },
     });
-    if (typeof view.setBackgroundColor === 'function') view.setBackgroundColor('#ffffff');
+    if (typeof view.setBackgroundColor === 'function') view.setBackgroundColor('#ffffff'); // tokens-ignore: as above
     /** @type {Tab} */
     const tab = {
       id,

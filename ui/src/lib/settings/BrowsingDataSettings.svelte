@@ -52,31 +52,31 @@
 </script>
 
 <div class="space-y-3">
-    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
-        <p class="text-[13px] text-white/70">Clear browsing data</p>
+    <div class="rounded-2xl border border-line bg-surface-1 p-3 space-y-2">
+        <p class="text-sm text-fg-muted">Clear browsing data</p>
         {#each options as o (o.key)}
             <label class="flex items-start gap-3 px-1 py-1 cursor-pointer">
-                <input type="checkbox" bind:checked={what[o.key]} class="mt-0.5 accent-blue-500" />
+                <input type="checkbox" bind:checked={what[o.key]} class="mt-0.5 accent-accent" />
                 <span>
-                    <span class="block text-[12px] text-white/70">{o.label}</span>
-                    <span class="block text-[10px] text-white/30">{o.hint}</span>
+                    <span class="block text-xs text-fg-muted">{o.label}</span>
+                    <span class="block text-3xs text-fg-faint">{o.hint}</span>
                 </span>
             </label>
         {/each}
         <div class="flex items-center gap-3 pt-1">
             <button onclick={clearNow} disabled={busy}
-                class="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 text-[12px] text-white/80 transition-colors">
+                class="px-4 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 text-xs text-fg-muted transition-colors">
                 {busy ? "Clearing…" : "Clear now"}
             </button>
-            {#if result}<span class="text-[11px] text-white/40">{result}</span>{/if}
+            {#if result}<span class="text-2xs text-fg-faint">{result}</span>{/if}
         </div>
-        <p class="text-[10px] text-white/25">Private tabs never keep any of this: their data is wiped when the last one closes.</p>
+        <p class="text-3xs text-fg-faint">Private tabs never keep any of this: their data is wiped when the last one closes.</p>
     </div>
 
-    <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between gap-4">
+    <div class="rounded-2xl border border-line bg-surface-1 p-3 flex items-center justify-between gap-4">
         <div class="min-w-0">
-            <p class="text-[13px] text-white/70">Default browser</p>
-            <p class="text-[11px] text-white/30 mt-0.5">
+            <p class="text-sm text-fg-muted">Default browser</p>
+            <p class="text-2xs text-fg-faint mt-0.5">
                 {#if defaultStatus?.isDefault}
                     Bucks opens links from other apps, including ipfs:// and ipns:// links.
                 {:else if defaultStatus?.opensSystemSettings}
@@ -85,15 +85,15 @@
                     Links from other apps open in another browser.
                 {/if}
             </p>
-            {#if defaultError}<p class="text-[11px] text-red-300/80 mt-1">{defaultError}</p>{/if}
+            {#if defaultError}<p class="text-2xs text-danger-fg-strong/80 mt-1">{defaultError}</p>{/if}
         </div>
         {#if !defaultStatus?.isDefault}
             <button onclick={makeDefault}
-                class="flex-shrink-0 px-4 py-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-400/25 text-blue-100 text-[12px] transition-colors">
+                class="flex-shrink-0 px-4 py-2 rounded-xl bg-accent/15 hover:bg-accent/25 border border-accent/25 text-accent-fg-strong text-xs transition-colors">
                 {defaultStatus?.opensSystemSettings ? "Open Windows settings" : "Make default"}
             </button>
         {:else}
-            <span class="flex-shrink-0 text-[11px] text-emerald-300/80">Default</span>
+            <span class="flex-shrink-0 text-2xs text-success-fg-strong/80">Default</span>
         {/if}
     </div>
 </div>

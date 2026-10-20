@@ -23,12 +23,12 @@
     ];
 
     const tone: Record<string, string> = {
-        ready: "bg-emerald-400",
-        loading: "bg-amber-400 animate-pulse",
-        starting: "bg-amber-400 animate-pulse",
-        installing: "bg-amber-400 animate-pulse",
-        error: "bg-red-400",
-        unavailable: "bg-red-400",
+        ready: "bg-success",
+        loading: "bg-warning animate-pulse",
+        starting: "bg-warning animate-pulse",
+        installing: "bg-warning animate-pulse",
+        error: "bg-danger",
+        unavailable: "bg-danger",
     };
 
     const running = $derived(status ? ["starting", "loading", "ready", "error"].includes(status.state) && !!status.url : false);
@@ -57,7 +57,7 @@
 </script>
 
 <div class="space-y-3">
-    <p class="text-[11px] text-white/35 leading-relaxed">
+    <p class="text-2xs text-fg-faint leading-relaxed">
         The Soul Engine is Bucks' full agent: it searches and reads the web, works with IPFS and answers with cards
         (tables, charts, checklists). It runs on this computer as a separate process that only Bucks can talk to.
     </p>
@@ -74,7 +74,7 @@
         <TextRow label="Ollama URL" value={s.agent.ollamaUrl} placeholder="http://127.0.0.1:11434" onchange={(v) => save({ agent: { ollamaUrl: v } })} />
         <TextRow label="Ollama model" value={s.agent.ollamaModel} placeholder="llama3.2" onchange={(v) => save({ agent: { ollamaModel: v } })} />
     {:else if s.agent.soul.backend === "nim" || s.agent.soul.backend === "litai"}
-        <p class="text-[11px] text-amber-200/70 leading-relaxed">
+        <p class="text-2xs text-warning-fg-strong/70 leading-relaxed">
             With a cloud backend your questions and the page text you ask about are sent to
             {s.agent.soul.backend === "nim" ? "NVIDIA" : "Lightning AI"}. Put your own key
             ({s.agent.soul.backend === "nim" ? "NGC_API_KEY" : "LITAI_API_KEY"}=…) in
@@ -90,40 +90,40 @@
         onchange={(v) => soulPatch({ autoStart: v })}
     />
 
-    <div class="p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] space-y-2.5">
+    <div class="p-3 rounded-2xl border border-line bg-surface-1 space-y-2.5">
         <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full shrink-0 {tone[status?.state ?? ''] ?? 'bg-white/20'}"></span>
-            <span class="text-[12px] text-white/70 capitalize">{status?.state ?? "unknown"}</span>
-            {#if status?.model}<span class="ml-auto text-[10px] text-white/30 font-mono truncate max-w-[220px]">{status.model}</span>{/if}
+            <span class="w-2 h-2 rounded-full shrink-0 {tone[status?.state ?? ''] ?? 'bg-surface-5'}"></span>
+            <span class="text-xs text-fg-muted capitalize">{status?.state ?? "unknown"}</span>
+            {#if status?.model}<span class="ml-auto text-3xs text-fg-faint font-mono truncate max-w-[220px]">{status.model}</span>{/if}
         </div>
-        {#if status?.message}<p class="text-[11px] text-white/40 leading-relaxed break-words">{status.message}</p>{/if}
+        {#if status?.message}<p class="text-2xs text-fg-faint leading-relaxed break-words">{status.message}</p>{/if}
         <div class="flex flex-wrap items-center gap-2">
             {#if running}
                 <button
                     onclick={() => run(() => bucks.agent.soulStop())}
                     disabled={busy}
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 text-[12px] text-white/70 transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 text-xs text-fg-muted transition-colors"
                 ><Square size={11} /> Stop</button>
                 <button
                     onclick={() => run(async () => { await bucks.agent.soulStop(); return bucks.agent.soulStart(); })}
                     disabled={busy}
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 text-[12px] text-white/70 transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 text-xs text-fg-muted transition-colors"
                 ><RotateCw size={11} /> Restart</button>
             {:else}
                 <button
                     onclick={() => run(() => bucks.agent.soulStart())}
                     disabled={busy || status?.state === "installing"}
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/30 disabled:opacity-40 text-[12px] text-violet-100 transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-agent/20 hover:bg-agent/30 border border-agent/30 disabled:opacity-40 text-xs text-agent-fg-strong transition-colors"
                 ><Play size={11} /> Start</button>
             {/if}
             <button
                 onclick={() => run(() => bucks.agent.soulInstall())}
                 disabled={busy || status?.state === "installing"}
                 title="Create a private Python environment for the engine and install its packages"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] transition-colors disabled:opacity-40
-                       {needsInstall ? 'bg-violet-500/20 hover:bg-violet-500/30 border border-violet-400/30 text-violet-100' : 'bg-white/[0.06] hover:bg-white/10 text-white/50'}"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-colors disabled:opacity-40
+                       {needsInstall ? 'bg-agent/20 hover:bg-agent/30 border border-agent/30 text-agent-fg-strong' : 'bg-surface-3 hover:bg-surface-4 text-fg-faint'}"
             ><Download size={11} /> {needsInstall ? "Install" : "Reinstall packages"}</button>
         </div>
-        {#if actionError}<p class="text-[11px] text-red-300/80 break-words">{actionError}</p>{/if}
+        {#if actionError}<p class="text-2xs text-danger-fg-strong/80 break-words">{actionError}</p>{/if}
     </div>
 </div>

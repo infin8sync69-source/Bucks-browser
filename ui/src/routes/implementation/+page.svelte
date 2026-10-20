@@ -108,40 +108,40 @@
     <title>Bucks Implementation Phases</title>
 </svelte:head>
 
-<main class="min-h-screen overflow-auto bg-[#050507] text-white pt-28 pb-16">
+<main class="min-h-screen overflow-auto bg-canvas text-fg pt-28 pb-16">
     <div class="mx-auto w-full max-w-6xl px-6">
         <section class="grid grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
             <div>
-                <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[10px] uppercase tracking-[0.28em] text-white/45">
-                    <RadioTower size={13} class="text-emerald-200" />
+                <div class="inline-flex items-center gap-2 rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 text-3xs uppercase tracking-caps-wide text-fg-faint">
+                    <RadioTower size={13} class="text-success-fg-strong" />
                     Desktop P2P Build Plan
                 </div>
-                <h1 class="mt-6 text-5xl font-semibold tracking-[-0.04em] text-white/90">
+                <h1 class="mt-6 text-5xl font-semibold tracking-display text-fg">
                     Phase-by-phase setup for the Bucks super app.
                 </h1>
-                <p class="mt-5 max-w-2xl text-sm leading-7 text-white/45">
+                <p class="mt-5 max-w-2xl text-md leading-7 text-fg-faint">
                     This sequence keeps the desktop shell usable while moving trust from central services
                     into signed local events, IPFS content, peer discovery, relay/index nodes, and future
                     Bucks-chain contracts.
                 </p>
             </div>
 
-            <aside class="rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-2xl">
+            <aside class="rounded-3xl border border-line-strong bg-surface-2 p-5 backdrop-blur-2xl">
                 <div class="flex items-center gap-3">
-                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/20">
-                        <Database size={18} class="text-violet-200" />
+                    <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-line-strong bg-scrim/20">
+                        <Database size={18} class="text-agent-fg-strong" />
                     </div>
                     <div>
-                        <div class="text-[10px] uppercase tracking-[0.24em] text-white/30">Architecture Bias</div>
-                        <div class="text-sm font-semibold text-white/80">Local-first, verifiable sync</div>
+                        <div class="text-3xs uppercase tracking-caps text-fg-faint">Architecture Bias</div>
+                        <div class="text-md font-semibold text-fg-muted">Local-first, verifiable sync</div>
                     </div>
                 </div>
 
                 <div class="mt-5 space-y-2">
                     {#each stack as item}
-                        <div class="flex items-center justify-between gap-3 rounded-2xl bg-black/18 px-3 py-2.5">
-                            <span class="text-[11px] text-white/35">{item.label}</span>
-                            <span class="text-[11px] font-medium text-white/70">{item.value}</span>
+                        <div class="flex items-center justify-between gap-3 rounded-2xl bg-scrim/18 px-3 py-2.5">
+                            <span class="text-2xs text-fg-faint">{item.label}</span>
+                            <span class="text-2xs font-medium text-fg-muted">{item.value}</span>
                         </div>
                     {/each}
                 </div>
@@ -151,49 +151,49 @@
         <section class="mt-10 grid grid-cols-2 gap-4">
             {#each phases as phase}
                 {@const Icon = phase.icon}
-                <article class="rounded-[26px] border border-white/10 bg-white/[0.035] p-5 backdrop-blur-xl">
+                <article class="rounded-3xl border border-line-strong bg-surface-1 p-5 backdrop-blur-xl">
                     <div class="flex items-start justify-between gap-4">
                         <div class="flex items-center gap-3">
-                            <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/20">
-                                <Icon size={19} class="text-white/75" />
+                            <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-line-strong bg-scrim/20">
+                                <Icon size={19} class="text-fg-muted" />
                             </div>
                             <div>
-                                <div class="text-[10px] uppercase tracking-[0.24em] text-white/28">Phase {phase.id}</div>
-                                <h2 class="mt-1 text-lg font-semibold tracking-[-0.02em] text-white/88">{phase.title}</h2>
+                                <div class="text-3xs uppercase tracking-caps text-fg-faint">Phase {phase.id}</div>
+                                <h2 class="mt-1 text-lg font-semibold tracking-tight text-fg">{phase.title}</h2>
                             </div>
                         </div>
-                        <span class="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/42">
+                        <span class="rounded-full border border-line-strong bg-surface-2 px-2.5 py-1 text-3xs text-fg-faint">
                             {phase.status}
                         </span>
                     </div>
 
-                    <p class="mt-4 text-[13px] leading-6 text-white/48">{phase.goal}</p>
+                    <p class="mt-4 text-sm leading-6 text-fg-faint">{phase.goal}</p>
 
                     <div class="mt-4 space-y-2">
                         {#each phase.tasks as task}
-                            <div class="flex gap-2 rounded-2xl bg-black/16 px-3 py-2">
-                                <CheckCircle2 size={14} class="mt-0.5 shrink-0 text-emerald-200/70" />
-                                <span class="text-[12px] leading-5 text-white/55">{task}</span>
+                            <div class="flex gap-2 rounded-2xl bg-scrim/16 px-3 py-2">
+                                <CheckCircle2 size={14} class="mt-0.5 shrink-0 text-success-fg-strong/70" />
+                                <span class="text-xs leading-5 text-fg-subtle">{task}</span>
                             </div>
                         {/each}
                     </div>
 
-                    <div class="mt-4 flex items-start gap-2 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
-                        <ArrowRight size={14} class="mt-0.5 shrink-0 text-sky-200/70" />
-                        <span class="text-[11px] leading-5 text-white/42">{phase.acceptance}</span>
+                    <div class="mt-4 flex items-start gap-2 rounded-2xl border border-line bg-surface-1 px-3 py-2.5">
+                        <ArrowRight size={14} class="mt-0.5 shrink-0 text-info-fg-strong/70" />
+                        <span class="text-2xs leading-5 text-fg-faint">{phase.acceptance}</span>
                     </div>
                 </article>
             {/each}
         </section>
 
-        <section class="mt-5 rounded-[26px] border border-white/10 bg-white/[0.035] p-5 backdrop-blur-xl">
+        <section class="mt-5 rounded-3xl border border-line-strong bg-surface-1 p-5 backdrop-blur-xl">
             <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/20">
-                    <Server size={18} class="text-amber-200" />
+                <div class="flex h-10 w-10 items-center justify-center rounded-2xl border border-line-strong bg-scrim/20">
+                    <Server size={18} class="text-warning-fg-strong" />
                 </div>
                 <div>
-                    <h2 class="text-base font-semibold text-white/85">Implementation rule</h2>
-                    <p class="mt-1 text-[12px] text-white/42">
+                    <h2 class="text-base font-semibold text-fg-muted">Implementation rule</h2>
+                    <p class="mt-1 text-xs text-fg-faint">
                         Every feature should work locally first, write a signed event second, publish to P2P third,
                         and only then depend on relays, indexers, staking, or chain settlement.
                     </p>

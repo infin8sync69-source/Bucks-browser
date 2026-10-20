@@ -15,6 +15,7 @@ import {
   createDescriptorCache, createRootResolver, rootFromHeaders, IPNS_CACHE_CONTROL, isSafeRequestPath,
 } from './site-serving.js';
 import { validatePublicGateway, createConsent, readConsentParam, consentUrl, renderInterstitial } from './gateway-consent.js';
+import { pageStyle, CARD_PAGE_CSS } from '../design/page.js';
 
 const log = createLogger('ipfs-protocol');
 
@@ -84,22 +85,15 @@ function escapeHtml(s) {
 }
 
 /**
- * Render a tiny dark-themed, self-contained HTML page.
+ * Render a small self-contained HTML page in the Bucks dark theme (design tokens, src/main/design).
  * @param {{ title: string, heading?: string, message?: string, detail?: string, extraHtml?: string, refreshSeconds?: number }} opts
  */
 export function renderErrorPage({ title, heading, message = '', detail = '', extraHtml = '', refreshSeconds }) {
   const refresh = refreshSeconds ? `<meta http-equiv="refresh" content="${Number(refreshSeconds)}">` : '';
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${refresh}
+<html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${refresh}
 <title>${escapeHtml(title)}</title>
-<style>
-:root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1115;color:#e6e6e6;font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:560px;padding:32px 36px;margin:24px;background:#171a21;border:1px solid #262a33;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.4)}
-h1{font-size:20px;margin:0 0 12px}p{margin:8px 0;color:#c3c7d1}code{background:#0f1115;border:1px solid #262a33;border-radius:6px;padding:2px 6px;font-size:13px;word-break:break-all}
-a{color:#7cc4ff}.muted{color:#8a90a0;font-size:13px}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #3a3f4c;border-top-color:#7cc4ff;border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:8px}
-@keyframes s{to{transform:rotate(360deg)}}
-</style></head>
+${pageStyle(`${CARD_PAGE_CSS}main{max-width:560px}`)}</head>
 <body><main><h1>${escapeHtml(heading || title)}</h1>${message ? `<p>${message}</p>` : ''}${detail ? `<p class="muted"><code>${escapeHtml(detail)}</code></p>` : ''}${extraHtml}</main></body></html>`;
 }
 

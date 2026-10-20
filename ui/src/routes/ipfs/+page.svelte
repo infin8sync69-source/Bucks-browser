@@ -24,14 +24,14 @@
     });
 </script>
 
-<div class="min-h-full bg-[#07070a] text-white px-6 py-8 space-y-8 max-w-3xl mx-auto">
+<div class="min-h-full bg-canvas text-fg px-6 py-8 space-y-8 max-w-3xl mx-auto">
     <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-2xl bg-blue-600/20 border border-blue-500/20 flex items-center justify-center text-lg">
+        <div class="w-10 h-10 rounded-2xl bg-accent/20 border border-accent/20 flex items-center justify-center text-lg">
             🌐
         </div>
         <div>
             <h1 class="text-xl font-semibold tracking-tight">IPFS</h1>
-            <p class="text-xs text-zinc-500">InterPlanetary File System</p>
+            <p class="text-xs text-fg-faint">InterPlanetary File System</p>
         </div>
     </div>
 

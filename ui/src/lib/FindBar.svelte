@@ -69,7 +69,7 @@
 
 {#if $findBarOpen}
     <div
-        class="fixed top-[100px] right-6 z-[120] flex items-center gap-1 h-9 pl-3 pr-1 rounded-xl bg-[#0d0d10]/95 border border-white/10 shadow-xl backdrop-blur-xl"
+        class="fixed top-[100px] right-6 z-find-bar flex items-center gap-1 h-9 pl-3 pr-1 rounded-xl bg-surface-raised/95 border border-line-strong shadow-xl backdrop-blur-xl"
         role="search"
     >
         <input
@@ -80,22 +80,22 @@
             placeholder="Find in page"
             aria-label="Find in page"
             spellcheck="false"
-            class="w-52 bg-transparent text-[12px] text-white/85 placeholder-white/25 outline-none"
+            class="w-52 bg-transparent text-xs text-fg-muted placeholder-fg-faint outline-none"
         />
-        <span class="min-w-[52px] text-right text-[10px] font-mono {total === 0 ? 'text-red-300/80' : 'text-white/35'}">
+        <span class="min-w-[52px] text-right text-3xs font-mono {total === 0 ? 'text-danger-fg-strong/80' : 'text-fg-faint'}">
             {#if total !== null && text}{total === 0 ? "no match" : `${active}/${total}`}{/if}
         </span>
         <button
             onclick={() => { matchCase = !matchCase; search(); }}
             title="Match case"
             aria-pressed={matchCase}
-            class="w-7 h-7 flex items-center justify-center rounded-lg transition-colors {matchCase ? 'bg-blue-500/20 text-blue-300' : 'text-white/40 hover:text-white hover:bg-white/10'}"
+            class="w-7 h-7 flex items-center justify-center rounded-lg transition-colors {matchCase ? 'bg-accent/20 text-accent-fg-strong' : 'text-fg-faint hover:text-fg hover:bg-surface-4'}"
         ><CaseSensitive size={14} /></button>
         <button onclick={() => search({ findNext: true, forward: false })} title="Previous match (Shift+Enter)" aria-label="Previous match"
-            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10"><ChevronUp size={14} /></button>
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4"><ChevronUp size={14} /></button>
         <button onclick={() => search({ findNext: true, forward: true })} title="Next match (Enter)" aria-label="Next match"
-            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10"><ChevronDown size={14} /></button>
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4"><ChevronDown size={14} /></button>
         <button onclick={close} title="Close (Esc)" aria-label="Close find bar"
-            class="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10"><X size={13} /></button>
+            class="w-7 h-7 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4"><X size={13} /></button>
     </div>
 {/if}

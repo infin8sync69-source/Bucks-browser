@@ -34,52 +34,52 @@
 </script>
 
 <section class="space-y-3">
-    <h2 class="text-sm font-medium text-zinc-300">Pin a CID</h2>
+    <h2 class="text-md font-medium text-fg-muted">Pin a CID</h2>
     <form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); void addPin(); }}>
         <input
             bind:value={pinInput}
             placeholder="Qm… or bafy…"
             aria-label="CID to pin"
-            class="flex-1 bg-white/[0.03] border border-white/5 rounded-xl px-4 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500/40 transition-colors font-mono"
+            class="flex-1 bg-surface-1 border border-line-subtle rounded-xl px-4 py-2 text-md text-fg placeholder-fg-faint focus:outline-none focus:border-accent/40 transition-colors font-mono"
         />
         <button type="submit" disabled={pinning || !pinInput.trim()}
-                class="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-sm transition-colors">
+                class="px-4 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 disabled:cursor-not-allowed text-md transition-colors">
             {pinning ? 'Pinning…' : 'Pin'}
         </button>
     </form>
-    {#if error}<p class="text-xs text-red-400">{error}</p>{/if}
+    {#if error}<p class="text-xs text-danger-fg">{error}</p>{/if}
 </section>
 
 <section class="space-y-3">
     <div class="flex items-center justify-between">
-        <h2 class="text-sm font-medium text-zinc-300">
+        <h2 class="text-md font-medium text-fg-muted">
             Pinned content
             {#if $ipfsStore.pins.length > 0}
-                <span class="ml-1.5 text-zinc-600">({$ipfsStore.pins.length})</span>
+                <span class="ml-1.5 text-fg-faint">({$ipfsStore.pins.length})</span>
             {/if}
         </h2>
-        <button onclick={() => ipfsStore.listPins()} class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+        <button onclick={() => ipfsStore.listPins()} class="text-xs text-fg-faint hover:text-fg-muted transition-colors">
             {$ipfsStore.isLoadingPins ? 'Loading…' : 'Refresh'}
         </button>
     </div>
     {#if $ipfsStore.isLoadingPins && $ipfsStore.pins.length === 0}
-        <div class="text-xs text-zinc-600 py-4 text-center">Loading pins…</div>
+        <div class="text-xs text-fg-faint py-4 text-center">Loading pins…</div>
     {:else if $ipfsStore.pins.length === 0}
-        <div class="text-xs text-zinc-600 py-4 text-center rounded-xl border border-white/5">No pinned content yet</div>
+        <div class="text-xs text-fg-faint py-4 text-center rounded-xl border border-line-subtle">No pinned content yet</div>
     {:else}
-        <div class="rounded-2xl border border-white/5 overflow-hidden divide-y divide-white/[0.04]">
+        <div class="rounded-2xl border border-line-subtle overflow-hidden divide-y divide-line-subtle">
             {#each $ipfsStore.pins as pin (pin.cid)}
-                <div class="flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors group focus-within:bg-white/[0.02]">
+                <div class="flex items-center justify-between px-4 py-3 hover:bg-surface-1 transition-colors group focus-within:bg-surface-1">
                     <div class="flex items-center gap-3 min-w-0">
-                        <span class="w-1.5 h-1.5 rounded-full bg-blue-500/60 shrink-0"></span>
-                        <span class="font-mono text-xs text-zinc-300 truncate" title={pin.cid}>{shortId(pin.cid, 10, 8)}</span>
-                        <span class="text-xs text-zinc-600">{pin.pin_type}</span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-accent/60 shrink-0"></span>
+                        <span class="font-mono text-xs text-fg-muted truncate" title={pin.cid}>{shortId(pin.cid, 10, 8)}</span>
+                        <span class="text-xs text-fg-faint">{pin.pin_type}</span>
                     </div>
                     <div class="flex items-center gap-3 min-w-0">
                         <SendToDevicesButton cid={pin.cid} compact />
                         <div class="flex gap-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-                            <button onclick={() => browserStore.createTab(`ipfs://${pin.cid}`)} class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Open</button>
-                            <button onclick={() => unpin(pin.cid)} class="text-xs text-red-400/70 hover:text-red-400 transition-colors">Unpin</button>
+                            <button onclick={() => browserStore.createTab(`ipfs://${pin.cid}`)} class="text-xs text-accent-fg hover:text-accent-fg-strong transition-colors">Open</button>
+                            <button onclick={() => unpin(pin.cid)} class="text-xs text-danger-fg/70 hover:text-danger-fg transition-colors">Unpin</button>
                         </div>
                     </div>
                 </div>
