@@ -19,6 +19,13 @@ platform they will be built on.
 - **Hosting sites.** Publish a folder as `ipfs://` and `ipns://` from the browser: preflight checks,
   SPA deep links, updates with a diff, rollback, key backup, health, and agent tools with approval
   ([HOSTING.md](HOSTING.md)). The wizard and dashboard wait for the new chrome.
+- **Apps in Bucks containers.** Install an app from an `ipns://` or `ipfs://` address, a folder or
+  a hosted site after reviewing its permissions; each runs in its own window, session and
+  `bucks-app://` origin with a network allowlist; updates with permission diffs, rollback,
+  uninstall, "Host it", and agent tools with approval ([APP-ENVIRONMENT.md](APP-ENVIRONMENT.md)).
+- **Design system.** Tokens for colour (dark and light, contrast-checked), type, space, radius,
+  elevation, motion and layers; a Tailwind theme with nothing outside them; twelve framework-free
+  components; a linter in CI; the whole Svelte chrome migrated ([DESIGN-SYSTEM.md](DESIGN-SYSTEM.md)).
 - **Kubo sidecar.** Locate or download (SHA-512 verified), init, configure, spawn, health check,
   restart after crashes, clean shutdown; reuse of a running daemon; external-node mode; the
   `bucks://ipfs` dashboard (status, add, browse, pin).

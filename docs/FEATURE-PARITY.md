@@ -78,7 +78,7 @@ carried over** (reason given).
 
 | Feature | Bucks Core | Bucks Browser |
 |---|---|---|
-| App store with a catalogue of open-source web apps (install, preview, launch) | ✅ | ⏳ batch D |
+| App store with a catalogue of open-source web apps (install, preview, launch) | ✅ | 🟡 install from `ipns://`/`ipfs://`, a folder or a hosted site, review permissions, run each app in its own container, update, roll back, uninstall, agent tools ([APP-ENVIRONMENT.md](APP-ENVIRONMENT.md)); the catalogue is still the mock list |
 | Built-in mini apps (calculator, clock, converter, notes, QR) | ✅ | ⏳ batch D |
 | dWeb studio (site builder from templates) | ✅ | ⏳ |
 | Wallet: create, restore, send | ✅ (keys on the node) | ✅ keys stay in the browser, signing client-side |

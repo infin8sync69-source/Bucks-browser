@@ -24,6 +24,16 @@ with privacy-protective defaults turned on.
   features, single-page-app deep links, updates with a diff, rollback and key backup. See
   [docs/HOSTING.md](docs/HOSTING.md) (the screens are not built yet: publish with
   `scripts/site.mjs` or the agent).
+- **Apps in their own containers.** Install a web app from an `ipns://` or `ipfs://` address, a
+  folder on your computer, or a site you host, at `bucks://apps`. Each runs in its own window and
+  session with its own storage, reaches only the network origins you allowed, never your node's
+  API, and can offer tools to your agent. You see every permission and its risk before anything is
+  installed; updates that ask for more ask again. A folder app can be hosted from your browser in
+  one step. See [docs/APP-ENVIRONMENT.md](docs/APP-ENVIRONMENT.md).
+- **One design system.** Every colour, size, radius, shadow, layer and duration in the interface
+  comes from design tokens (dark and light themes, WCAG contrast checked at build time) and a set
+  of framework-free components; CI fails on anything outside it. See
+  [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md).
 - **Privacy defaults.** HTTPS-only mode, ad and tracker blocking, third-party cookie blocking,
   and a deny-by-default permission policy (camera, microphone, location, notifications and
   device access are refused). Every tab is a sandboxed Chromium renderer, with Chromium's
@@ -167,9 +177,14 @@ system's keychain is the first roadmap item, so treat this wallet as experimenta
 ## Project layout
 
 ```
-src/main/        Electron main process (ES modules): window, tabs, protocols, Kubo, security, agent, wallet
-src/preload/     The sandboxed preload script that exposes window.bucks to the interface
+src/main/        Electron main process (ES modules): window, tabs, protocols, Kubo, security, agent, wallet,
+                 sites (hosting), apps (installing and running apps in containers)
+src/preload/     The sandboxed preload scripts: window.bucks for the interface, window.bucks.app for apps
 ui/              The browser interface (SvelteKit single-page app), served to the window as bucks://app/
+design/          The design system: tokens (design/tokens), generated CSS/Tailwind/JS (design/dist),
+                 web components (design/components), build and lint tooling (design/build)
+chrome/          The framework-free chrome that replaces ui/ (docs/CONSOLIDATION-PLAN.md); today the
+                 Apps screens (chrome/src/apps), mounted in ui/ at bucks://apps
 agent/           The Soul Engine (Python, FastAPI): the agent behind the "soul" provider
 scripts/         install-linux.sh and install-macos.sh (source installers), dev.mjs (developer runner),
                  fetch-kubo.mjs (download Kubo), check-main.mjs (syntax check)
@@ -186,6 +201,9 @@ electron-builder.yml    packaging configuration
   and the main process.
 - [docs/BUILDING.md](docs/BUILDING.md) covers building and releasing.
 - [docs/DEVICES.md](docs/DEVICES.md) explains pairing computers and sending files between them.
+- [docs/HOSTING.md](docs/HOSTING.md) and [docs/APP-ENVIRONMENT.md](docs/APP-ENVIRONMENT.md) cover
+  hosting sites and installing and running apps.
+- [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) is the token and component reference.
 - [docs/ALIGNMENT.md](docs/ALIGNMENT.md) maps the older "Bucks Core" app (buckscore `Bucks-App/`) onto
   this repository: what has moved here, what is planned, and what was left behind on purpose.
 

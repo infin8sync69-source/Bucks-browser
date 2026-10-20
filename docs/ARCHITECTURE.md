@@ -41,6 +41,11 @@ Four kinds of code run, and they trust each other as little as possible.
   `WebContentsView` owned by the main process. They use the session partition `persist:bucks-web`,
   separate from the interface's session, with `sandbox: true`, `contextIsolation: true`,
   `nodeIntegration: false`, `webSecurity: true` and no preload.
+- **App containers.** Each installed app runs in its own window on its own session partition
+  (`persist:bucks-app-<id>`), served from `bucks-app://<id>/` (its pinned version, local node
+  only), sandboxed, with a network allowlist of the origins its user granted, Chromium permissions
+  only as granted, and one preload (`src/preload/app-preload.cjs`) exposing `window.bucks.app`.
+  See [APP-ENVIRONMENT.md](APP-ENVIRONMENT.md).
 
 ### Why WebContentsView
 
@@ -401,6 +406,7 @@ src/
       index.js                scheme privileges
       bucks.js                bucks://app/* from ui/build
       ipfs.js                 ipfs:// and ipns:// handler
+      site-serving.js, gateway-consent.js  site descriptors, SPA fallback, consent interstitial
     ipfs/
       kubo.js                 sidecar supervisor
       dist.js                 Kubo download + checksum (shared with scripts/fetch-kubo.mjs)
@@ -412,10 +418,19 @@ src/
     agent/                    bridge.js, a2ui.js, genui.js (cards), soul-engine.js (sidecar supervisor),
                               providers/{offline,remote,ollama,soul}.js
     wallet/proxy.js           bucks:wallet:rpc
+    sites/                    hosting sites (HOSTING.md): service, store, folder checks, keys, health, agent tools
+    apps/                     apps in Bucks containers (APP-ENVIRONMENT.md): service, store, manifest,
+                              policy (pure rules), protocol (bucks-app://), container (sessions, windows,
+                              the app bridge), ipc, agent tools
+    lib/record-store.js       atomic, versioned JSON collections (sites.json, apps.json)
+    design/                   tokens.generated.js (the design tokens' CSS and hex colours), page.js
     chat/                     end-to-end encrypted chat engine from Bucks-App v1.1.0; reference
                               code, not loaded by index.js yet (see chat/README.md, ROADMAP.md)
-  preload/preload.cjs         window.bucks
-ui/                           SvelteKit chrome (src/routes: ipfs, settings, wallet, downloads, ...)
+  preload/preload.cjs         window.bucks (the chrome)
+  preload/app-preload.cjs     window.bucks.app (apps in containers)
+ui/                           SvelteKit chrome (src/routes: ipfs, settings, wallet, downloads, apps, ...)
+design/                       the design system (DESIGN-SYSTEM.md): tokens/, dist/ (generated), components/, build/
+chrome/src/                   framework-free chrome features (CONSOLIDATION-PLAN.md); apps/ is mounted at bucks://apps
 agent/                        Soul Engine (Python): soul_engine.py, local_auth.py (token gate), tools/,
                               requirements-engine.txt / requirements-edge.txt, tests/
 scripts/                      dev.mjs, fetch-kubo.mjs, check-main.mjs

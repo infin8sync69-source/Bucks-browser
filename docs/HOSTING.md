@@ -65,6 +65,10 @@ without network.
 }
 ```
 
+An `"app"` section makes the site an installable app as well (name, version, icon, permissions,
+agent tools): see [APP-ENVIRONMENT.md](APP-ENVIRONMENT.md). Any Bucks user can install it from your
+`ipns://` address and run it in its own container; it follows your updates.
+
 `spa: true` serves the entry for page navigations to paths that do not exist (deep links of a
 history router), while a missing `/assets/x.js` still answers 404. Without a manifest, a
 `_redirects` file is honoured (`from to [status]`, `*` and `:param`, statuses 200, 301, 302, 404;

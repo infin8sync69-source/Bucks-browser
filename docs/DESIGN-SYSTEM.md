@@ -83,9 +83,37 @@ In `ui/src`, `design/components`, `design/runtime`, and (colours only) `src/main
 - in CSS, `font-size`, `border-radius`, `box-shadow`, `z-index`, `letter-spacing` and timings use
   `var(--bucks-…)`.
 
-An exception needs a reason on the line or the line above: `tokens-ignore: <why>`. There are
-four, all in code that is not UI styling (a canvas helper, Chromium's white default for web
-pages, a CSS mask).
+An exception needs a reason on the line or the line above: `tokens-ignore: <why>`. The few that
+exist are not UI styling: the canvas colour helper, Chromium's white default under web pages
+(tabs and app windows), a CSS mask (`grep -rn tokens-ignore`).
+
+## Components
+
+Framework-free custom elements in `design/components/` (import `design/components/index.js`;
+the page loads `design/dist/tokens.css`). They work in the Svelte chrome today
+(`import '$design/components/index.js'`), in the framework-free chrome, and in any page Bucks
+serves. Each builds its shadow DOM once from text nodes (never markup) and syncs on attribute
+changes; styles are one shared constructed stylesheet per component, written only with
+`var(--bucks-…)`.
+
+| Element | Use |
+|---|---|
+| `<bucks-button variant="primary\|secondary\|ghost\|danger\|agent" size="sm" disabled loading label>` | A native button inside; `label` names an icon-only button; `slot="icon"` |
+| `<bucks-card interactive selected padding>` | Glass surface |
+| `<bucks-badge tone dot>` | Status label; tones `neutral accent agent success danger warning info` |
+| `<bucks-notice tone heading>` | Inline message; danger is `role=alert` |
+| `<bucks-empty-state heading>` | Slots `icon`, default, `actions` |
+| `<bucks-field label placeholder type message invalid multiline>` | Labelled input; `value` property; `change` from the host |
+| `<bucks-switch label checked disabled>` | `role=switch`; cancellable `change` |
+| `<bucks-progress value max label>` | Determinate or indeterminate `progressbar` |
+| `<bucks-spinner label>` | Busy indicator |
+| `<bucks-dialog heading description open>` | Modal on native `<dialog>`; slot `actions`; `show()`, `close(value)` |
+| `<bucks-icon name size label>` | Lucide icons (ISC), decorative unless labelled |
+| `<bucks-permission-list editable>` | `items` = what something may do, with risk; `permission-change` |
+
+The Apps screens (`chrome/src/apps/`, [APP-ENVIRONMENT.md](APP-ENVIRONMENT.md)) and the agent's
+approval card for apps are built from them. Tests: `test/unit/design/components.test.js`
+(happy-dom); types: `tsc -p design/jsconfig.json` (part of `npm run lint:design`).
 
 ## What the audit found, and what changed
 
