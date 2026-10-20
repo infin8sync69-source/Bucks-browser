@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadTokenFiles, buildModel, renderAll } from '../design/build/tokens.mjs';
 
@@ -39,6 +40,21 @@ for (const [rel, content] of Object.entries(outputs)) {
 if (stale.length) {
   console.error(`Generated token files are out of date: ${stale.join(', ')}. Run: node scripts/build-tokens.mjs`);
   process.exit(1);
+}
+// The outputs are committed: a fresh checkout (CI, a packaged build) has no build step for them.
+if (args.has('--check')) {
+  const untracked = Object.keys(outputs).filter((rel) => {
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', rel], { cwd: root, stdio: 'ignore' });
+      return false;
+    } catch (e) {
+      return e.code !== 'ENOENT'; // no git here: nothing to check
+    }
+  });
+  if (untracked.length) {
+    console.error(`Generated token files are not tracked by git (ignored or never added): ${untracked.join(', ')}. Add them: git add ${untracked.join(' ')}`);
+    process.exit(1);
+  }
 }
 const colors = model.colors.size;
 console.log(`Design tokens OK: ${colors} colours × ${model.themes.length} themes, ${model.scales.size} scale tokens, ${model.contrast.length} contrast checks.`);
