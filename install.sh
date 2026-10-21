@@ -88,7 +88,25 @@ else
   ok "electron packages installed"
 fi
 
-# ── 4. Python agent ──────────────────────────────────────────────────────────
+if [ -d electron/hosting/node_modules ]; then
+  ok "hosting packages already present"
+else
+  printf "  ${DIM}npm install (electron/hosting: ipfs:// browsing, site hosting, device pairing)…${R}\n"
+  (cd electron/hosting && npm install --no-audit --no-fund --loglevel=error)
+  ok "hosting packages installed"
+fi
+
+# ── 4. IPFS node ─────────────────────────────────────────────────────────────
+# Kubo serves ipfs:// and ipns://, hosts sites and pairs devices. Not fatal: without it here,
+# Bucks downloads it on first start.
+step "Downloading the IPFS node (Kubo)"
+if (cd electron/hosting && npm run --silent fetch:kubo >/dev/null 2>&1); then
+  ok "Kubo ready (electron/hosting/resources/kubo)"
+else
+  warn "could not download Kubo now; Bucks will download it on first start"
+fi
+
+# ── 5. Python agent ──────────────────────────────────────────────────────────
 step "Setting up the AI agent"
 if [ -x agent/.venv/bin/python ]; then
   ok "virtualenv already present"
@@ -111,7 +129,7 @@ else
   ok "agent dependencies installed"
 fi
 
-# ── 5. Done ──────────────────────────────────────────────────────────────────
+# ── 6. Done ──────────────────────────────────────────────────────────────────
 step "Ready"
 cat <<EOF
   ${DIM}The AI model (~2 GB) downloads on first use — you'll see live progress

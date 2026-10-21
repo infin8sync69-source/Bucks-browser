@@ -14,7 +14,7 @@
 //   node scripts/site.mjs backup-key <site-id> <file.bucks-key>     (passphrase: BUCKS_KEY_PASSPHRASE, or asked)
 //   node scripts/site.mjs unpublish <site-id> stop|unpin|delete-key [--confirm <site name>]
 //
-// Options: --user-data <dir> (default: BUCKS_USER_DATA, else the Bucks profile of this OS user),
+// Options: --user-data <dir> (default: BUCKS_USER_DATA, else <the Bucks profile>/hosting of this OS user),
 //          --offline (start the node without network, when this script starts it).
 // When Bucks is running, its node is used and left running; otherwise the script starts the node
 // on the Bucks profile and stops it at the end.
@@ -57,13 +57,18 @@ if (opts.help || !command) {
   process.exit(command || opts.help ? 0 : 1);
 }
 
-/** Electron's userData for productName "Bucks Browser". */
+/**
+ * The hosting profile of the Bucks app in electron/: <Electron userData>/hosting (hosting-bridge.js),
+ * where userData is named after electron/package.json "name" (bucks-browser). In Bucks-browser this
+ * was the "Bucks Browser" profile itself.
+ */
 function defaultUserData() {
   if (process.env.BUCKS_USER_DATA) return process.env.BUCKS_USER_DATA;
   const home = os.homedir();
-  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Bucks Browser');
-  if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Bucks Browser');
-  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'Bucks Browser');
+  const appName = 'bucks-browser';
+  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', appName, 'hosting');
+  if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), appName, 'hosting');
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), appName, 'hosting');
 }
 
 function loadSettings(userData) {

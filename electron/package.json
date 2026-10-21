@@ -8,9 +8,10 @@
     "start": "npx electron .",
     "test": "playwright test tests/",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
-    "dist": "electron-builder",
-    "pack": "electron-builder --dir",
-    "preview": "electron-builder --dir"
+    "hosting:prepare": "npm --prefix hosting install --no-audit --no-fund && npm --prefix hosting run fetch:kubo",
+    "dist": "npm run hosting:prepare && electron-builder",
+    "pack": "npm run hosting:prepare && electron-builder --dir",
+    "preview": "npm run hosting:prepare && electron-builder --dir"
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "14.1.2",
@@ -43,7 +44,7 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "electron": "^42.4.1",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.61.1"
   },
   "build": {
@@ -95,9 +96,27 @@
       "*.html",
       "*.css",
       "*.png",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "fonts/**/*",
+      "security/**/*",
+      "hosting/package.json",
+      "hosting/src/**/*",
+      {
+        "from": "hosting/node_modules",
+        "to": "hosting/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "extraResources": [
+      {
+        "from": "hosting/resources/kubo/${os}-${arch}",
+        "to": "kubo",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "../agent",
         "to": "agent",
