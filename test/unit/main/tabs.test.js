@@ -121,3 +121,14 @@ test('buildTabState reports mute, zoom and private', () => {
   assert.equal(st.private, true);
   assert.equal(buildTabState({ id: 't', wc: { ...wc, isAudioMuted: undefined, getZoomFactor: undefined }, favicon: null, error: null }).zoom, 100);
 });
+
+test('buildTabState carries the ipfs:// badge when the handler has one', () => {
+  const wc = { getURL: () => 'ipfs://bafyx/', getTitle: () => '', isLoading: () => false };
+  const seen = [];
+  const badgeFor = (url) => { seen.push(url); return url.startsWith('ipfs://') ? { kind: 'content-addressed', label: 'Content-addressed' } : null; };
+  assert.deepEqual(buildTabState({ id: 't', wc, favicon: null, error: null, badgeFor }).badge, { kind: 'content-addressed', label: 'Content-addressed' });
+  assert.deepEqual(seen, ['ipfs://bafyx/']);
+  const web = { ...wc, getURL: () => 'https://example.com/' };
+  assert.equal('badge' in buildTabState({ id: 't', wc: web, favicon: null, error: null, badgeFor }), false);
+  assert.equal('badge' in buildTabState({ id: 't', wc, favicon: null, error: null }), false);
+});

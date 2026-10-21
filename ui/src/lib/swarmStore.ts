@@ -7,7 +7,7 @@
  * through bucks.agent.onEvent, and can be stopped.
  */
 import { writable, get } from 'svelte/store';
-import { bucks, type A2UIPayload, type AgentAttachment, type AgentResult, type UiComponent } from './bridge';
+import { bucks, type A2UIPayload, type AgentAttachment, type AgentResult, type ApprovalAppCard, type UiComponent } from './bridge';
 import { isSwarmThinking, browserStore, activeTab } from './stores';
 import { settingsStore } from './settingsStore';
 import { ipfsStore } from './ipfsStore';
@@ -56,6 +56,8 @@ export interface PendingApproval {
     name: string;
     label: string;
     expiresAt: number;
+    /** An app card (install, update, uninstall, tools): what Bucks found, not the engine's words. */
+    app?: ApprovalAppCard;
 }
 
 const THREADS_KEY = 'bucks_chat_threads_v1';
@@ -162,7 +164,7 @@ function createSwarmStore() {
             if (ev.queryId !== s.queryId) return s;
             if (ev.type === 'status') return { ...s, status: ev.label };
             if (ev.type === 'approval') {
-                return { ...s, approvals: [...s.approvals, { requestId: ev.requestId, name: ev.name, label: ev.label, expiresAt: ev.expiresAt }] };
+                return { ...s, approvals: [...s.approvals, { requestId: ev.requestId, name: ev.name, label: ev.label, expiresAt: ev.expiresAt, ...(ev.app ? { app: ev.app } : {}) }] };
             }
             return { ...s, approvals: s.approvals.filter((a) => a.requestId !== ev.requestId) };
         });

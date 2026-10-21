@@ -102,7 +102,13 @@ test('devices: two Kubo nodes pair over peering + pubsub, share a file, auto-pin
   const afterPairA = await svcA.pair({ peerId: readyB.self.peerId, addrs: bAddrs.addrs });
   await svcB.pair({ peerId: `${aAddrs.addrs[0]}/p2p/${readyA.self.peerId}` }); // the multiaddr form a user pastes
   assert.deepEqual(settingsA.get().ipfs.peers.map((p) => p.peerId), [readyB.self.peerId]);
-  assert.deepEqual(settingsB.get().ipfs.peers.map((p) => [p.peerId, p.addrs]), [[readyA.self.peerId, [aAddrs.addrs[0]]]]);
+  // B stores the pasted address; once A's presence arrives it follows what A advertises (all its
+  // addresses, which on a host with several interfaces is more than the one pasted).
+  const storedB = settingsB.get().ipfs.peers;
+  assert.deepEqual(storedB.map((p) => p.peerId), [readyA.self.peerId]);
+  assert.ok(storedB[0].addrs.includes(aAddrs.addrs[0]), 'the pasted address is kept');
+  const advertisedA = new Set([...aAddrs.addrs, ...svcA.status().self.addrs]);
+  assert.ok(storedB[0].addrs.every((a) => advertisedA.has(a)), 'only addresses A advertises');
   assert.equal(afterPairA.paired.length, 1);
   assert.equal(afterPairA.error, null, 'live peering calls succeeded');
   const peeringA = await kuboA.rpc.configGet('Peering.Peers');

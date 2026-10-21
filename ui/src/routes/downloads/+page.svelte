@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     import { onMount } from "svelte";
     import { fade } from "svelte/transition";
     import { Download, FolderOpen, File as FileIcon, X, Trash2, ExternalLink } from "lucide-svelte";
@@ -78,21 +79,21 @@
     }
 </script>
 
-<div class="min-h-full bg-[#07070a] text-white px-8 py-10 max-w-2xl mx-auto space-y-6" in:fade={{ duration: 300 }}>
+<div class="min-h-full bg-canvas text-fg px-8 py-10 max-w-2xl mx-auto space-y-6" in:fade={{ duration: motion.moderate }}>
     <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                <Download size={16} class="text-blue-400" />
+            <div class="w-9 h-9 rounded-2xl bg-surface-2 border border-line-strong flex items-center justify-center">
+                <Download size={16} class="text-accent-fg" />
             </div>
             <div>
                 <h1 class="text-lg font-semibold tracking-tight">Downloads</h1>
-                <p class="text-[11px] text-white/30">{items.length} item{items.length === 1 ? "" : "s"}</p>
+                <p class="text-2xs text-fg-faint">{items.length} item{items.length === 1 ? "" : "s"}</p>
             </div>
         </div>
         {#if hasFinished}
             <button
                 onclick={clearAll}
-                class="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-[12px] font-medium transition-all"
+                class="flex items-center gap-2 px-4 py-2 rounded-xl bg-danger/10 hover:bg-danger/20 border border-danger/20 text-danger-fg text-xs font-medium transition-all"
             >
                 <Trash2 size={12} /> Clear list
             </button>
@@ -100,29 +101,29 @@
     </div>
 
     {#if error}
-        <p class="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{error}</p>
+        <p class="text-xs text-danger-fg bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>
     {/if}
 
     {#if !loaded}
-        <p class="text-[13px] text-white/30 py-8 text-center">Loading…</p>
+        <p class="text-sm text-fg-faint py-8 text-center">Loading…</p>
     {:else if sorted.length === 0}
-        <div class="text-center py-16 rounded-2xl border border-white/5 bg-white/[0.02]">
-            <Download size={28} class="mx-auto text-white/15 mb-3" />
-            <p class="text-[13px] text-white/40">No downloads yet</p>
-            <p class="text-[11px] text-white/20 mt-1">Files you download from web pages appear here.</p>
+        <div class="text-center py-16 rounded-2xl border border-line-subtle bg-surface-1">
+            <Download size={28} class="mx-auto text-fg-disabled mb-3" />
+            <p class="text-sm text-fg-faint">No downloads yet</p>
+            <p class="text-2xs text-fg-disabled mt-1">Files you download from web pages appear here.</p>
         </div>
     {:else}
         <div class="space-y-2">
             {#each sorted as d (d.id)}
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+                <div class="rounded-2xl border border-line bg-surface-1 p-4 space-y-3">
                     <div class="flex items-start gap-3">
-                        <div class="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                            <FileIcon size={16} class="text-white/40" />
+                        <div class="w-9 h-9 rounded-xl bg-surface-2 flex items-center justify-center shrink-0">
+                            <FileIcon size={16} class="text-fg-faint" />
                         </div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] text-white/80 truncate" title={d.filename}>{d.filename}</p>
-                            <p class="text-[11px] text-white/30 truncate" title={d.url}>{host(d.url)}</p>
-                            <p class="text-[11px] mt-0.5 {d.state === 'completed' ? 'text-emerald-400/70' : d.state === 'progressing' ? 'text-blue-300/70' : 'text-amber-400/70'}">
+                            <p class="text-sm text-fg-muted truncate" title={d.filename}>{d.filename}</p>
+                            <p class="text-2xs text-fg-faint truncate" title={d.url}>{host(d.url)}</p>
+                            <p class="text-2xs mt-0.5 {d.state === 'completed' ? 'text-success-fg/70' : d.state === 'progressing' ? 'text-accent-fg-strong/70' : 'text-warning-fg/70'}">
                                 {stateLabel(d)}
                             </p>
                         </div>
@@ -132,7 +133,7 @@
                                     onclick={() => run(() => bucks.downloads.cancel(d.id))}
                                     title="Cancel download"
                                     aria-label="Cancel download"
-                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-danger-fg hover:bg-danger/10 transition-colors"
                                 ><X size={14} /></button>
                             {:else}
                                 {#if d.state === "completed"}
@@ -140,21 +141,21 @@
                                         onclick={() => run(() => bucks.downloads.open(d.id))}
                                         title="Open file"
                                         aria-label="Open file"
-                                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                                        class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-colors"
                                     ><ExternalLink size={14} /></button>
                                 {/if}
                                 <button
                                     onclick={() => run(() => bucks.downloads.showInFolder(d.id))}
                                     title="Show in folder"
                                     aria-label="Show in folder"
-                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-colors"
                                 ><FolderOpen size={14} /></button>
                             {/if}
                         </div>
                     </div>
                     {#if d.state === "progressing"}
                         <div
-                            class="h-1.5 rounded-full bg-white/10 overflow-hidden"
+                            class="h-1.5 rounded-full bg-surface-4 overflow-hidden"
                             role="progressbar"
                             aria-valuemin="0"
                             aria-valuemax="100"
@@ -162,9 +163,9 @@
                             aria-label="Download progress"
                         >
                             {#if d.totalBytes}
-                                <div class="h-full bg-blue-500 transition-[width] duration-300" style:width="{percent(d)}%"></div>
+                                <div class="h-full bg-accent transition-[width] duration-moderate" style:width="{percent(d)}%"></div>
                             {:else}
-                                <div class="h-full w-1/3 bg-blue-500/70 animate-pulse"></div>
+                                <div class="h-full w-1/3 bg-accent/70 animate-pulse"></div>
                             {/if}
                         </div>
                     {/if}

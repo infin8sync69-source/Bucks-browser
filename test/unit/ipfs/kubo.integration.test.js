@@ -107,6 +107,15 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
   assert.equal(repoConfig.Pubsub.Enabled, true);
   assert.equal(repoConfig.Pubsub.Router, 'gossipsub');
   assert.equal(repoConfig.Discovery.MDNS.Enabled, true);
+  // hosting: a new repo is not lowpower, announces only pins, and keeps host-sized connection limits
+  assert.equal(repoConfig.Routing.Type, 'auto');
+  assert.equal(repoConfig.Routing.AcceleratedDHTClient, false);
+  assert.equal(repoConfig.Provide.Strategy, 'pinned');
+  assert.equal(repoConfig.Swarm.ConnMgr.LowWater, 50);
+  assert.equal(repoConfig.Swarm.ConnMgr.HighWater, 150);
+  assert.equal(repoConfig.Datastore.StorageMax, '10GB');
+  assert.equal(repoConfig.Gateway.NoFetch, false);
+  assert.notEqual(repoConfig.AutoNAT?.ServiceMode, 'disabled', 'no lowpower profile on new repos');
 
   const pid = kubo.pid();
   assert.ok(Number.isInteger(pid) && isAlive(pid), 'daemon pid is alive');
@@ -143,6 +152,7 @@ test('embedded Kubo: start → add/cat/ls/pin → gateway → stop leaves nothin
   assert.equal(await rpc.configGet('Pubsub.Enabled'), true);
   assert.equal(await rpc.configGet('Pubsub.Router'), 'gossipsub');
   assert.equal(await rpc.configGet('Discovery.MDNS.Enabled'), true);
+  assert.equal(await rpc.configGet('Provide.Strategy'), 'pinned', 'the running daemon accepted the hosting keys');
   assert.deepEqual(await rpc.configGet('Peering.Peers'), [{ ID: PAIRED_PEER, Addrs: ['/ip4/198.51.100.7/tcp/40785'] }]);
   assert.ok((await rpc.swarmPeeringLs()).some((p) => p.id === PAIRED_PEER), 'paired peer is in the live peering set');
   await rpc.pubsubPub('bucks-integration-smoke', 'pubsub works'); // fails if pubsub were disabled

@@ -75,30 +75,30 @@
 <!-- Layer 0: Animated background canvas -->
 <SwarmCanvas />
 
-<!-- Layer 1: Persistent top chrome (z-[110]) -->
+<!-- Layer 1: Persistent top chrome (z-chrome) -->
 <Header />
 
-<!-- Layer 2: Placeholder for the native web view of the active external tab (z-0, top 96px → bottom 88px) -->
+<!-- Layer 2: Placeholder for the native web view of the active external tab (z-base, between top-chrome-top and bottom-dock) -->
 <ContentArea />
 
 <!-- Find in page (Ctrl/Cmd+F); the content area moves down while it is open -->
 <FindBar />
 
-<!-- New-tab home screen (z-0) -->
+<!-- New-tab home screen (z-base) -->
 {#if $activeTab?.url === 'bucks://newtab' || !$activeTab}
     <LuminaHomepage />
 {/if}
 
-<!-- Layer 3: Internal route content (z-10, below all overlays) -->
-<div class="fixed left-0 right-0 top-24 bottom-[88px] z-10 overflow-y-auto pointer-events-auto bg-[#07070a]"
+<!-- Layer 3: Internal route content (z-raised, below all overlays) -->
+<div class="fixed left-0 right-0 top-chrome-top bottom-dock z-raised overflow-y-auto pointer-events-auto bg-canvas"
      style="display: {($activeTab?.type === 'internal' || $activeTab?.type === 'newtab') && $activeTab?.url !== 'bucks://newtab' ? 'block' : 'none'}">
     {@render children()}
 </div>
 
-<!-- Layer 4: Command dock — AgenticBar lives in the reserved bottom band (z-[200]) -->
+<!-- Layer 4: Command dock — AgenticBar lives in the reserved bottom band (z-dock) -->
 <!-- Shifts left when the chat panel is open so it never hides under the panel -->
-<div class="fixed bottom-0 z-[200] h-[88px] flex items-end justify-center pb-4 pointer-events-none transition-all duration-300 ease-out
-            {$chatOpen ? 'left-0 right-[448px] px-4' : 'left-1/2 -translate-x-1/2 w-full max-w-2xl px-4'}">
+<div class="fixed bottom-0 z-dock h-dock flex items-end justify-center pb-4 pointer-events-none transition-all duration-moderate ease-out
+            {$chatOpen ? 'left-0 right-chat-panel px-4' : 'left-1/2 -translate-x-1/2 w-full max-w-2xl px-4'}">
     <div class="w-full pointer-events-auto">
         <AgenticBar
             isOnline={$swarmStore.isOnline}
@@ -111,7 +111,7 @@
     </div>
 </div>
 
-<!-- Layer 5: Chat panel — right-side drawer (z-[300]) -->
+<!-- Layer 5: Chat panel — right-side drawer (z-drawer) -->
 {#if $chatOpen}
     <ChatPanel
         isOnline={$swarmStore.isOnline}
@@ -121,7 +121,7 @@
     />
 {/if}
 
-<!-- Layer 6: Ephemeral action modal — center spotlight (z-[498/499]) -->
+<!-- Layer 6: Ephemeral action modal — center spotlight (z-modal-backdrop / z-modal) -->
 <!-- Has its own backdrop; always above everything else -->
 {#if actionWidget}
     <EphemeralWidget

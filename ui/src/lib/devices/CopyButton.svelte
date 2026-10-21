@@ -30,8 +30,8 @@
     onclick={copy}
     aria-label={label}
     title={copyState === 'failed' ? `Copy failed: ${failure}` : label}
-    class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] shrink-0 transition-colors
-           {copyState === 'copied' ? 'text-emerald-300 bg-emerald-500/10' : copyState === 'failed' ? 'text-red-300 bg-red-500/10' : 'text-zinc-400 hover:text-zinc-200 bg-white/[0.04] hover:bg-white/[0.08]'}"
+    class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs shrink-0 transition-colors
+           {copyState === 'copied' ? 'text-success-fg-strong bg-success/10' : copyState === 'failed' ? 'text-danger-fg-strong bg-danger/10' : 'text-fg-subtle hover:text-fg bg-surface-2 hover:bg-surface-4'}"
 >
     {#if copyState === 'copied'}
         <Check size={12} /> Copied

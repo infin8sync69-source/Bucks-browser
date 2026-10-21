@@ -1,0 +1,179 @@
+{
+  "space": {
+    "$type": "dimension",
+    "$description": "One spacing unit. Every padding, margin and gap (p-3, gap-2, ...) is a multiple of it.",
+    "unit": { "$value": "0.25rem" }
+  },
+  "size": {
+    "$type": "dimension",
+    "$description": "The chrome's skeleton. The native web view is placed between these (ContentArea), so they are shared, not per component.",
+    "chrome-top": { "$value": "96px", "$description": "Header island and tab strip" },
+    "find-bar": { "$value": "44px", "$description": "Find-in-page bar, below the header" },
+    "chrome-top-find": { "$value": "calc({size.chrome-top} + {size.find-bar})", "$description": "Top of the content while the find bar is open" },
+    "dock": { "$value": "88px", "$description": "Command dock (agentic bar) band at the bottom" },
+    "chat-panel": { "$value": "448px", "$description": "Agent chat drawer, right side" },
+    "chat-panel-gap": { "$value": "calc({size.chat-panel} + 24px)", "$description": "Right edge of things floating beside the open chat drawer" },
+    "hairline": { "$value": "1px" }
+  },
+  "radius": {
+    "$type": "dimension",
+    "xs": { "$value": "2px" },
+    "sm": { "$value": "4px" },
+    "md": { "$value": "6px" },
+    "lg": { "$value": "8px" },
+    "xl": { "$value": "12px" },
+    "2xl": { "$value": "16px" },
+    "3xl": { "$value": "24px" },
+    "4xl": { "$value": "32px" },
+    "full": { "$value": "9999px" }
+  },
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "sans": { "$value": "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
+      "mono": { "$value": "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" }
+    },
+    "size": {
+      "$type": "dimension",
+      "$description": "Type scale. 3xs to sm replace the 10, 11 and 13 px one-off sizes; md is Tailwind's old text-sm (14 px).",
+      "3xs": { "$value": "10px" },
+      "2xs": { "$value": "11px" },
+      "xs": { "$value": "12px", "$extensions": { "bucks.lineHeight": "16px" } },
+      "sm": { "$value": "13px" },
+      "md": { "$value": "14px", "$extensions": { "bucks.lineHeight": "20px" } },
+      "base": { "$value": "16px", "$extensions": { "bucks.lineHeight": "24px" } },
+      "lg": { "$value": "18px", "$extensions": { "bucks.lineHeight": "28px" } },
+      "xl": { "$value": "20px", "$extensions": { "bucks.lineHeight": "28px" } },
+      "2xl": { "$value": "24px", "$extensions": { "bucks.lineHeight": "32px" } },
+      "3xl": { "$value": "30px", "$extensions": { "bucks.lineHeight": "36px" } },
+      "4xl": { "$value": "36px", "$extensions": { "bucks.lineHeight": "40px" } },
+      "5xl": { "$value": "48px", "$extensions": { "bucks.lineHeight": "1" } },
+      "6xl": { "$value": "64px", "$extensions": { "bucks.lineHeight": "1" } },
+      "7xl": { "$value": "72px", "$extensions": { "bucks.lineHeight": "1" } }
+    },
+    "weight": {
+      "$type": "fontWeight",
+      "extralight": { "$value": 200 },
+      "light": { "$value": 300 },
+      "normal": { "$value": 400 },
+      "medium": { "$value": 500 },
+      "semibold": { "$value": 600 },
+      "bold": { "$value": 700 },
+      "black": { "$value": 900 }
+    },
+    "tracking": {
+      "$type": "dimension",
+      "$description": "Letter spacing. caps and caps-wide are for small uppercase labels; display for large headings.",
+      "display": { "$value": "-0.04em" },
+      "tighter": { "$value": "-0.05em" },
+      "tight": { "$value": "-0.025em" },
+      "normal": { "$value": "0em" },
+      "wide": { "$value": "0.025em" },
+      "wider": { "$value": "0.05em" },
+      "widest": { "$value": "0.1em" },
+      "caps": { "$value": "0.2em" },
+      "caps-wide": { "$value": "0.3em" }
+    },
+    "leading": {
+      "$type": "number",
+      "none": { "$value": 1 },
+      "tight": { "$value": 1.25 },
+      "snug": { "$value": 1.375 },
+      "normal": { "$value": 1.5 },
+      "relaxed": { "$value": 1.625 },
+      "loose": { "$value": 2 }
+    }
+  },
+  "shadow": {
+    "$type": "shadow",
+    "$description": "Elevation. The chrome is dark, so shadows are deep; glow-agent is the agent's violet halo.",
+    "xs": { "$value": "0 1px 2px 0 alpha({color.black}, 0.05)" },
+    "sm": { "$value": "0 1px 3px 0 alpha({color.black}, 0.1), 0 1px 2px -1px alpha({color.black}, 0.1)" },
+    "md": { "$value": "0 4px 6px -1px alpha({color.black}, 0.1), 0 2px 4px -2px alpha({color.black}, 0.1)" },
+    "lg": { "$value": "0 10px 15px -3px alpha({color.black}, 0.1), 0 4px 6px -4px alpha({color.black}, 0.1)" },
+    "xl": { "$value": "0 20px 25px -5px alpha({color.black}, 0.1), 0 8px 10px -6px alpha({color.black}, 0.1)" },
+    "2xl": { "$value": "0 25px 50px -12px alpha({color.black}, 0.25)" },
+    "inner": { "$value": "inset 0 2px 4px 0 alpha({color.black}, 0.05)" },
+    "float": { "$value": "0 20px 60px alpha({color.black}, 0.6)", "$description": "Command dock" },
+    "menu": { "$value": "0 20px 50px -15px alpha({color.black}, 0.8)", "$description": "Menus and dropdowns" },
+    "popover": { "$value": "0 25px 50px -12px alpha({color.black}, 0.9)", "$description": "Popovers below the header" },
+    "dialog": { "$value": "0 48px 120px -20px alpha({color.black}, 0.95), 0 0 0 1px alpha({color.white}, 0.04)", "$description": "Modal dialogs" },
+    "glow-agent": { "$value": "0 30px 80px alpha({color.violet.500}, 0.15)" },
+    "thinking": { "$value": "0 0 30px alpha({color.violet.500}, 0.1), 0 20px 50px alpha({color.black}, 0.5)", "$description": "The command bar while the agent works" },
+    "app-icon": { "$value": "0 8px 24px -4px var(--bucks-glow, transparent), 0 2px 8px alpha({color.black}, 0.4)", "$description": "Mini-app icon tiles; the tile sets --bucks-glow from its tone" },
+    "glow": { "$value": "0 20px 60px -10px var(--bucks-glow, transparent)", "$description": "A coloured halo; the element sets --bucks-glow (e.g. an app icon's tone)" }
+  },
+  "drop-shadow": {
+    "$type": "shadow",
+    "$description": "filter: drop-shadow() for icons and glyphs",
+    "sm": { "$value": "0 1px 2px alpha({color.black}, 0.15)" },
+    "md": { "$value": "0 3px 3px alpha({color.black}, 0.12)" },
+    "lg": { "$value": "0 4px 4px alpha({color.black}, 0.15)" }
+  },
+  "animation": {
+    "$type": "string",
+    "$description": "Looping animations (Tailwind's animate-* keyframes) timed by the motion tokens",
+    "spin": { "$value": "spin {duration.slowest} linear infinite" },
+    "ping": { "$value": "ping {duration.slowest} {easing.out} infinite" },
+    "pulse": { "$value": "pulse {duration.ambient} {easing.pulse} infinite" },
+    "bounce": { "$value": "bounce {duration.slowest} infinite" }
+  },
+  "blur": {
+    "$type": "dimension",
+    "2xs": { "$value": "2px" },
+    "xs": { "$value": "4px" },
+    "sm": { "$value": "8px" },
+    "md": { "$value": "12px" },
+    "lg": { "$value": "16px" },
+    "xl": { "$value": "24px" },
+    "2xl": { "$value": "40px" },
+    "3xl": { "$value": "64px" },
+    "4xl": { "$value": "100px", "$description": "Decorative glows" }
+  },
+  "duration": {
+    "$type": "duration",
+    "instant": { "$value": "100ms" },
+    "fast": { "$value": "150ms" },
+    "base": { "$value": "200ms" },
+    "moderate": { "$value": "300ms" },
+    "slow": { "$value": "500ms" },
+    "slower": { "$value": "700ms" },
+    "slowest": { "$value": "1000ms" },
+    "ambient": { "$value": "2000ms", "$description": "Slow ambient loops (shimmer, pulse)" },
+    "drift": { "$value": "26s", "$description": "Background drift of decorative glows" }
+  },
+  "easing": {
+    "$type": "cubicBezier",
+    "standard": { "$value": [0.4, 0, 0.2, 1] },
+    "in": { "$value": [0.4, 0, 1, 1] },
+    "out": { "$value": [0, 0, 0.2, 1] },
+    "in-out": { "$value": [0.4, 0, 0.2, 1] },
+    "emphasized": { "$value": [0.2, 0, 0, 1] },
+    "pulse": { "$value": [0.4, 0, 0.6, 1] }
+  },
+  "z": {
+    "$type": "number",
+    "$description": "Stacking. Local steps (behind to popover) order elements inside one component; the chrome steps order the window's layers, lowest first. Never use raw z-index numbers.",
+    "behind": { "$value": -1 },
+    "base": { "$value": 0 },
+    "lift": { "$value": 5 },
+    "raised": { "$value": 10 },
+    "float": { "$value": 20 },
+    "dropdown": { "$value": 30 },
+    "popover": { "$value": 50 },
+    "chrome": { "$value": 110, "$description": "Header and tab strip" },
+    "find-bar": { "$value": 120 },
+    "panel-backdrop": { "$value": 150 },
+    "panel": { "$value": 160, "$description": "Profile panel" },
+    "dock": { "$value": 200, "$description": "Command dock" },
+    "drawer": { "$value": 300, "$description": "Agent chat drawer" },
+    "drawer-raised": { "$value": 301 },
+    "menu-backdrop": { "$value": 400 },
+    "menu": { "$value": 401, "$description": "Context menus, widget picker" },
+    "modal-backdrop": { "$value": 498 },
+    "modal": { "$value": 499, "$description": "Ephemeral widget spotlight" },
+    "sheet-backdrop": { "$value": 600 },
+    "sheet": { "$value": 601, "$description": "Full-window sheets (app store)" },
+    "toast": { "$value": 700 }
+  }
+}

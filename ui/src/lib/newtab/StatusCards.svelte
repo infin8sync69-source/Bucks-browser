@@ -98,8 +98,8 @@
     });
     const agentDot = $derived(
         provider === "soul" && (soul?.state === "loading" || soul?.state === "starting" || soul?.state === "installing")
-            ? "bg-amber-400 animate-pulse"
-            : $swarmStore.isOnline ? "bg-emerald-400" : "bg-white/20",
+            ? "bg-warning animate-pulse"
+            : $swarmStore.isOnline ? "bg-success" : "bg-surface-5",
     );
     const shortAddress = (a: string) => `${a.slice(0, 8)}…${a.slice(-4)}`;
 </script>
@@ -107,60 +107,60 @@
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
     <!-- Wallet -->
     <button onclick={() => browserStore.createOrFocusTab("bucks://wallet")} aria-label="Open wallet"
-        class="group text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] p-4 transition-colors">
-        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/40">
-            <span class="w-1.5 h-1.5 rounded-full {address && !walletError ? 'bg-emerald-400' : 'bg-white/20'}"></span>
+        class="group text-left rounded-2xl border border-line bg-surface-1 hover:bg-surface-3 hover:border-line-strong p-4 transition-colors">
+        <div class="flex items-center gap-2 text-2xs uppercase tracking-wider text-fg-faint">
+            <span class="w-1.5 h-1.5 rounded-full {address && !walletError ? 'bg-success' : 'bg-surface-5'}"></span>
             <Wallet size={12} /> Wallet
             <ChevronRight size={13} class="ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
         </div>
         {#if address}
-            <div class="mt-2 text-[18px] text-white/90 tabular-nums">{balance !== null ? `${(balance / 1e8).toFixed(4)} BUCKS` : walletError ? "—" : "…"}</div>
-            <div class="mt-0.5 text-[11px] text-white/35 font-mono">{walletError ? "Node not reachable" : shortAddress(address)}</div>
+            <div class="mt-2 text-lg text-fg tabular-nums">{balance !== null ? `${(balance / 1e8).toFixed(4)} BUCKS` : walletError ? "—" : "…"}</div>
+            <div class="mt-0.5 text-2xs text-fg-faint font-mono">{walletError ? "Node not reachable" : shortAddress(address)}</div>
         {:else}
-            <div class="mt-2 text-[15px] text-white/70">No wallet yet</div>
-            <div class="mt-0.5 text-[11px] text-white/35">Create or restore one</div>
+            <div class="mt-2 text-md text-fg-muted">No wallet yet</div>
+            <div class="mt-0.5 text-2xs text-fg-faint">Create or restore one</div>
         {/if}
     </button>
 
     <!-- IPFS node -->
     <button onclick={() => browserStore.createOrFocusTab("bucks://ipfs")} aria-label="Open IPFS node"
-        class="group text-left rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] p-4 transition-colors">
-        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/40">
-            <span class="w-1.5 h-1.5 rounded-full {ipfsState === 'ready' ? (peers ? 'bg-emerald-400' : 'bg-amber-400') : ipfsState === 'initializing' ? 'bg-amber-400 animate-pulse' : 'bg-white/20'}"></span>
+        class="group text-left rounded-2xl border border-line bg-surface-1 hover:bg-surface-3 hover:border-line-strong p-4 transition-colors">
+        <div class="flex items-center gap-2 text-2xs uppercase tracking-wider text-fg-faint">
+            <span class="w-1.5 h-1.5 rounded-full {ipfsState === 'ready' ? (peers ? 'bg-success' : 'bg-warning') : ipfsState === 'initializing' ? 'bg-warning animate-pulse' : 'bg-surface-5'}"></span>
             <Globe size={12} /> IPFS node
             <ChevronRight size={13} class="ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
         </div>
         {#if ipfsState === "ready"}
-            <div class="mt-2 text-[18px] text-white/90 tabular-nums">{peers === null ? "…" : `${peers} peer${peers === 1 ? "" : "s"}`}</div>
-            <div class="mt-0.5 text-[11px] text-white/35">{peers ? "Online" : "Looking for peers…"}</div>
+            <div class="mt-2 text-lg text-fg tabular-nums">{peers === null ? "…" : `${peers} peer${peers === 1 ? "" : "s"}`}</div>
+            <div class="mt-0.5 text-2xs text-fg-faint">{peers ? "Online" : "Looking for peers…"}</div>
         {:else if ipfsState === "initializing"}
-            <div class="mt-2 text-[15px] text-white/70">Starting…</div>
-            <div class="mt-0.5 text-[11px] text-white/35">{$ipfsStore.status?.message ?? ""}</div>
+            <div class="mt-2 text-md text-fg-muted">Starting…</div>
+            <div class="mt-0.5 text-2xs text-fg-faint">{$ipfsStore.status?.message ?? ""}</div>
         {:else}
-            <div class="mt-2 text-[15px] text-white/70">Offline</div>
-            <div class="mt-0.5 text-[11px] text-white/35 truncate">{$ipfsStore.status?.message || "The node is not running"}</div>
+            <div class="mt-2 text-md text-fg-muted">Offline</div>
+            <div class="mt-0.5 text-2xs text-fg-faint truncate">{$ipfsStore.status?.message || "The node is not running"}</div>
         {/if}
     </button>
 
     <!-- Agent -->
-    <div bind:this={agentCard} class="relative group rounded-2xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] transition-colors {pickerOpen ? 'z-30' : ''}">
+    <div bind:this={agentCard} class="relative group rounded-2xl border border-line bg-surface-1 hover:bg-surface-3 hover:border-line-strong transition-colors {pickerOpen ? 'z-dropdown' : ''}">
         <button onclick={() => chatOpen.set(true)} aria-label="Open agent chat" class="w-full text-left p-4">
-            <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/40">
+            <div class="flex items-center gap-2 text-2xs uppercase tracking-wider text-fg-faint">
                 <span class="w-1.5 h-1.5 rounded-full {agentDot}"></span>
                 <Bot size={12} /> Agent
             </div>
-            <div class="mt-2 text-[15px] text-white/90 truncate pr-16">
-                {PROVIDER_LABEL[provider] ?? provider}{#if $swarmStore.model}<span class="text-white/45 font-mono text-[12px]"> · {$swarmStore.model}</span>{/if}
+            <div class="mt-2 text-md text-fg truncate pr-16">
+                {PROVIDER_LABEL[provider] ?? provider}{#if $swarmStore.model}<span class="text-fg-faint font-mono text-xs"> · {$swarmStore.model}</span>{/if}
             </div>
-            <div class="mt-0.5 text-[11px] text-white/35 line-clamp-2">{agentDetail}</div>
+            <div class="mt-0.5 text-2xs text-fg-faint line-clamp-2">{agentDetail}</div>
         </button>
         <div class="absolute top-3 right-3 flex items-center gap-1">
             <button onclick={(e) => { e.stopPropagation(); requestAgentBar(); }} title="Start a task"
-                class="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors">
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-colors">
                 <Sparkles size={13} />
             </button>
             <button onclick={(e) => { e.stopPropagation(); togglePicker(); }} title="Choose model" aria-label="Choose model" aria-expanded={pickerOpen}
-                class="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors">
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-colors">
                 <SlidersHorizontal size={13} />
             </button>
         </div>

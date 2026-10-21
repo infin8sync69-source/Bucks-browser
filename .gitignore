@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# The design tokens' generated files are committed (docs/DESIGN-SYSTEM.md).
+!design/dist/
 release/
 ui/build/
 ui/.svelte-kit/

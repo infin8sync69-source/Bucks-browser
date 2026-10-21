@@ -232,3 +232,19 @@ test('handlers never throw or hang on malformed details', async () => {
     assert.deepEqual(await call(ses.headers.fn, {}), {});
   } finally { cleanup(); }
 });
+
+test('decideRequest: web pages cannot call the IPFS node directly; a typed navigation can', async () => {
+  const { isNodeAddress } = await import('../../../src/main/security/filter.js');
+  const nodes = ['http://127.0.0.1:45001', 'http://127.0.0.1:45002'];
+  const s = { ...state(), nodeUrls: () => nodes };
+  const sub = (url) => ({ url, resourceType: 'xhr' });
+  assert.deepEqual(decideRequest(sub('http://127.0.0.1:45002/ipfs/bafyx'), s), { cancel: true });
+  assert.deepEqual(decideRequest(sub('http://127.0.0.1:45001/api/v0/id'), s), { cancel: true });
+  assert.deepEqual(decideRequest(sub('http://localhost:45002/ipfs/bafyx'), s), { cancel: true });
+  assert.deepEqual(decideRequest(sub('http://bafyx.ipfs.localhost:45002/'), s), { cancel: true });
+  assert.deepEqual(decideRequest({ url: 'http://127.0.0.1:45001/webui', resourceType: 'mainFrame' }, s), {});
+  assert.deepEqual(decideRequest(sub('http://127.0.0.1:3000/'), s), {}, 'other local ports are fine');
+  assert.deepEqual(decideRequest(sub('http://127.0.0.1:45002/'), { ...state(), nodeUrls: () => [null, null] }), {}, 'node not running');
+  assert.equal(isNodeAddress(new URL('https://example.com:45002/'), nodes), false);
+  assert.equal(isNodeAddress(new URL('ipfs://bafyx/'), nodes), false);
+});

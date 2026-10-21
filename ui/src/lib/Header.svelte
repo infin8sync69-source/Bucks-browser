@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     import { onMount, tick } from "svelte";
     import { browserStore, activeTab, visibleTabs, type Tab } from "$lib/stores";
     import { buildSuggestions, securityKind, type Suggestion } from "$lib/omnibox";
@@ -283,24 +284,24 @@
                         (e.key === "Enter" || e.key === " ") &&
                         browserStore.setActiveTab(tab.id)}
                     transition:scale={{
-                        duration: 300,
+                        duration: motion.moderate,
                         easing: cubicOut,
                         start: 0.9,
                     }}
-                    class="group/tab relative h-8 {tab.pinned ? 'px-2.5' : 'px-3'} rounded-xl flex items-center space-x-2 transition-all duration-300 cursor-pointer select-none whitespace-nowrap border flex-shrink-0
-                           {tab.private ? 'border-fuchsia-400/25' : 'border-white/5'}
+                    class="group/tab relative h-8 {tab.pinned ? 'px-2.5' : 'px-3'} rounded-xl flex items-center space-x-2 transition-all duration-moderate cursor-pointer select-none whitespace-nowrap border flex-shrink-0
+                           {tab.private ? 'border-cat-fuchsia/25' : 'border-line-subtle'}
                            {isActive
-                        ? 'bg-white/10 text-white border-white/20'
-                        : 'bg-white/[0.02] text-white/30 hover:text-white/60 hover:bg-white/5'}"
+                        ? 'bg-surface-4 text-fg border-line-emphasis'
+                        : 'bg-surface-1 text-fg-faint hover:text-fg-subtle hover:bg-surface-2'}"
                 >
                     {#if tab.color}
                         <span class="absolute left-1.5 top-1.5 bottom-1.5 w-[2px] rounded-full {tabColorClass(tab.color)}"></span>
                     {/if}
                     <!-- Favicon, or a small glyph when the page has none -->
                     {#if tab.private}
-                        <EyeOff size={11} class="flex-shrink-0 text-fuchsia-300/80" />
+                        <EyeOff size={11} class="flex-shrink-0 text-cat-fuchsia-fg/80" />
                     {:else if tab.type === "external" && tab.isLoading && !tab.favicon}
-                        <RotateCw size={11} class="animate-spin text-blue-400/80 flex-shrink-0" />
+                        <RotateCw size={11} class="animate-spin text-accent-fg/80 flex-shrink-0" />
                     {:else if tab.favicon && !brokenFavicons[tab.favicon]}
                         <img
                             src={tab.favicon}
@@ -317,7 +318,7 @@
                     {/if}
                     {#if !tab.pinned}
                         <span
-                            class="text-[10px] font-bold tracking-tight truncate max-w-[130px]"
+                            class="text-3xs font-bold tracking-tight truncate max-w-[130px]"
                             >{tab.customTitle || tab.title}</span
                         >
                     {/if}
@@ -326,7 +327,7 @@
                             onclick={(e) => { e.stopPropagation(); browserStore.setMuted(tab.id, !tab.muted); }}
                             title={tab.muted ? "Unmute site" : "Mute site"}
                             aria-label={tab.muted ? "Unmute site" : "Mute site"}
-                            class="p-0.5 rounded-md hover:bg-white/10 {tab.muted ? 'text-white/40' : 'text-blue-300/80'}"
+                            class="p-0.5 rounded-md hover:bg-surface-4 {tab.muted ? 'text-fg-faint' : 'text-accent-fg-strong/80'}"
                         >
                             {#if tab.muted}<VolumeX size={11} />{:else}<Volume2 size={11} />{/if}
                         </button>
@@ -339,14 +340,14 @@
                             }}
                             title="Close tab"
                             aria-label="Close tab"
-                            class="opacity-0 group-hover/tab:opacity-100 focus:opacity-100 p-0.5 hover:bg-white/10 rounded-md transition-all"
+                            class="opacity-0 group-hover/tab:opacity-100 focus:opacity-100 p-0.5 hover:bg-surface-4 rounded-md transition-all"
                         >
                             <X size={10} />
                         </button>
                     {/if}
                     {#if isActive}
                         <div
-                            class="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-[1.5px] {tab.private ? 'bg-fuchsia-400' : 'bg-blue-500'} rounded-full"
+                            class="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-[1.5px] {tab.private ? 'bg-cat-fuchsia' : 'bg-accent'} rounded-full"
                         ></div>
                     {/if}
                 </div>
@@ -356,44 +357,44 @@
 <svelte:window onkeydown={handleGlobalKey} onclick={handleWindowClick} />
 
 <header
-    class="fixed top-6 inset-x-0 z-[110] pointer-events-none px-6"
+    class="fixed top-6 inset-x-0 z-chrome pointer-events-none px-6"
 >
     <!-- The island is the window's drag handle; every interactive child opts out with .no-drag -->
     <div
         style="-webkit-app-region: drag"
-        class="max-w-[1600px] mx-auto flex items-center h-16 px-3 bg-[#0a0a0c]/80 backdrop-blur-2xl rounded-3xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] border border-white/5 pointer-events-auto relative group/header"
+        class="max-w-[1600px] mx-auto flex items-center h-16 px-3 bg-surface-raised/80 backdrop-blur-2xl rounded-3xl shadow-menu border border-line-subtle pointer-events-auto relative group/header"
     >
         <!-- Animated edge glow for the whole island -->
         <div class="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
             <div
-                class="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-white/5 to-blue-500/0 translate-x-[-100%] group-hover/header:translate-x-[100%] transition-transform duration-[2000ms]"
+                class="absolute inset-0 bg-gradient-to-r from-accent/0 via-surface-2 to-accent/0 translate-x-[-100%] group-hover/header:translate-x-[100%] transition-transform duration-ambient"
             ></div>
         </div>
 
         <!-- Left: App Store icon + Nav -->
-        <div class="flex items-center space-x-1 relative z-10 {isMac ? 'pl-[70px]' : 'pl-2'}">
+        <div class="flex items-center space-x-1 relative z-raised {isMac ? 'pl-17.5' : 'pl-2'}">
             <!-- App Store launcher (replaces hamburger) -->
             <button
                 onclick={() => storeOpen = !storeOpen}
                 title="App Store"
                 aria-label="App Store"
                 class="no-drag w-10 h-10 flex items-center justify-center rounded-2xl transition-all active:scale-95 group/btn relative overflow-hidden
-                       {storeOpen ? 'bg-violet-500/20 text-violet-300' : 'hover:bg-white/5 text-white/60 hover:text-white'}"
+                       {storeOpen ? 'bg-agent/20 text-agent-fg-strong' : 'hover:bg-surface-2 text-fg-subtle hover:text-fg'}"
             >
-                <div class="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-blue-500/10 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl"></div>
+                <div class="absolute inset-0 bg-gradient-to-br from-agent/10 to-accent/10 opacity-0 group-hover/btn:opacity-100 transition-opacity rounded-2xl"></div>
                 {#if storeOpen}
-                    <X size={18} class="text-violet-300" />
+                    <X size={18} class="text-agent-fg-strong" />
                 {:else}
                     <LayoutGrid size={18} />
                 {/if}
                 <!-- Subtle glow when open -->
                 {#if storeOpen}
-                    <div class="absolute inset-0 rounded-2xl ring-1 ring-violet-500/30"></div>
+                    <div class="absolute inset-0 rounded-2xl ring-1 ring-agent/30"></div>
                 {/if}
             </button>
 
             <div
-                class="no-drag flex items-center space-x-0.5 bg-white/5 rounded-xl p-1 ml-2"
+                class="no-drag flex items-center space-x-0.5 bg-surface-2 rounded-xl p-1 ml-2"
             >
                 <button
                     onclick={browserStore.goBack}
@@ -401,7 +402,7 @@
                     title="Back"
                     aria-label="Back"
                     class="w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:cursor-default
-                           {canGoBack ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-white/25'}"
+                           {canGoBack ? 'text-fg-muted hover:text-fg hover:bg-surface-4' : 'text-fg-faint'}"
                 >
                     <ArrowLeft size={16} />
                 </button>
@@ -411,7 +412,7 @@
                     title="Forward"
                     aria-label="Forward"
                     class="w-8 h-8 flex items-center justify-center rounded-lg transition-all active:scale-90 disabled:cursor-default
-                           {canGoForward ? 'text-white/70 hover:text-white hover:bg-white/10' : 'text-white/25'}"
+                           {canGoForward ? 'text-fg-muted hover:text-fg hover:bg-surface-4' : 'text-fg-faint'}"
                 >
                     <ArrowRight size={16} />
                 </button>
@@ -419,12 +420,12 @@
                     onclick={browserStore.refresh}
                     title="Reload"
                     aria-label="Reload"
-                    class="w-8 h-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-all active:scale-90"
                 >
                     <RotateCw
                         size={14}
                         class={$activeTab?.isLoading
-                            ? "animate-spin text-blue-400"
+                            ? "animate-spin text-accent-fg"
                             : ""}
                     />
                 </button>
@@ -433,31 +434,31 @@
 
         <!-- Middle: Edge-Lit Omnibox -->
         <!-- Compact at rest so tabs get room; widens while typing (as in Bucks Core) -->
-        <div class="no-drag min-w-[200px] mx-3 relative z-10 flex-shrink transition-[flex-basis] duration-300 ease-out {omniboxFocused ? 'basis-[460px]' : 'basis-[300px]'}">
+        <div class="no-drag min-w-[200px] mx-3 relative z-raised flex-shrink transition-[flex-basis] duration-moderate ease-out {omniboxFocused ? 'basis-[460px]' : 'basis-[300px]'}">
             <form onsubmit={handleUrlSubmit} class="relative group/form">
                 <!-- Edge-lit animated border pulsing -->
                 <div
-                    class="absolute -inset-[1.5px] bg-gradient-to-r from-blue-600/0 via-blue-400/50 to-blue-600/0 rounded-[18px] opacity-0 group-focus-within/form:opacity-100 transition-opacity duration-700 blur-[2px] animate-pulse"
+                    class="absolute -inset-[1.5px] bg-gradient-to-r from-accent/0 via-accent/50 to-accent/0 rounded-2xl opacity-0 group-focus-within/form:opacity-100 transition-opacity duration-slower blur-2xs animate-pulse"
                 ></div>
 
                 <div
-                    class="relative bg-black/40 border border-white/[0.03] rounded-[16px] flex items-center px-4 h-10 transition-all group-focus-within/form:bg-black/80 group-focus-within/form:border-blue-500/20 shadow-inner"
+                    class="relative bg-scrim/40 border border-line-subtle rounded-2xl flex items-center px-4 h-10 transition-all group-focus-within/form:bg-scrim/80 group-focus-within/form:border-accent/20 shadow-inner"
                 >
                     {#if omniboxFocused || security === "internal"}
-                        <Search size={14} class="text-white/20 mr-3 flex-shrink-0 group-focus-within/form:text-blue-400/70 transition-colors" />
+                        <Search size={14} class="text-fg-disabled mr-3 flex-shrink-0 group-focus-within/form:text-accent-fg/70 transition-colors" />
                     {:else if security === "secure"}
-                        <span title="Secure connection (HTTPS)" class="mr-3 flex-shrink-0 text-emerald-400/70"><Lock size={13} /></span>
+                        <span title="Secure connection (HTTPS)" class="mr-3 flex-shrink-0 text-success-fg/70"><Lock size={13} /></span>
                     {:else if security === "ipfs"}
-                        <span title="Content-addressed: loaded from IPFS by its hash" class="mr-3 flex-shrink-0 text-cyan-300/80"><Hexagon size={13} /></span>
+                        <span title="Content-addressed: loaded from IPFS by its hash" class="mr-3 flex-shrink-0 text-cat-cyan-fg/80"><Hexagon size={13} /></span>
                     {:else if security === "insecure"}
-                        <span title="Not secure: this page is not encrypted" class="mr-3 flex-shrink-0 text-amber-400/80"><TriangleAlert size={13} /></span>
+                        <span title="Not secure: this page is not encrypted" class="mr-3 flex-shrink-0 text-warning-fg/80"><TriangleAlert size={13} /></span>
                     {:else if security === "file"}
-                        <span title="File on this computer" class="mr-3 flex-shrink-0 text-white/40"><File size={13} /></span>
+                        <span title="File on this computer" class="mr-3 flex-shrink-0 text-fg-faint"><File size={13} /></span>
                     {:else}
-                        <Search size={14} class="text-white/20 mr-3 flex-shrink-0" />
+                        <Search size={14} class="text-fg-disabled mr-3 flex-shrink-0" />
                     {/if}
                     {#if $activeTab?.private}
-                        <span title="Private tab: nothing is saved after it closes" class="mr-2 flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-fuchsia-500/15 text-fuchsia-200 text-[9px] font-bold uppercase tracking-wider"><EyeOff size={10} /> Private</span>
+                        <span title="Private tab: nothing is saved after it closes" class="mr-2 flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-cat-fuchsia/15 text-cat-fuchsia-fg text-3xs font-bold uppercase tracking-wider"><EyeOff size={10} /> Private</span>
                     {/if}
                     <input
                         type="text"
@@ -471,32 +472,32 @@
                         aria-label="Address or search"
                         spellcheck="false"
                         autocomplete="off"
-                        class="flex-1 bg-transparent border-none text-[13px] text-white/80 placeholder-white/20 outline-none w-full font-medium tracking-wide"
+                        class="flex-1 bg-transparent border-none text-sm text-fg-muted placeholder-fg-faint outline-none w-full font-medium tracking-wide"
                     />
 
                     {#if $activeTab?.zoom && $activeTab.zoom !== 100}
                         <button type="button" onclick={() => browserStore.zoomActive("reset")} title="Zoom: click to reset to 100 %"
-                            class="mr-1 px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-mono text-white/60 hover:text-white">{$activeTab.zoom}%</button>
+                            class="mr-1 px-1.5 py-0.5 rounded-md bg-surface-4 text-3xs font-mono text-fg-subtle hover:text-fg">{$activeTab.zoom}%</button>
                     {/if}
                     {#if canBookmark && !omniboxFocused}
                         <button type="button" onclick={toggleBookmark} title={isBookmarked ? "Remove bookmark" : "Bookmark this page"} aria-pressed={isBookmarked}
-                            class="p-1 rounded-md transition-colors {isBookmarked ? 'text-amber-300' : 'text-white/25 hover:text-white/70'}">
+                            class="p-1 rounded-md transition-colors {isBookmarked ? 'text-warning-fg-strong' : 'text-fg-faint hover:text-fg-muted'}">
                             <Star size={13} fill={isBookmarked ? "currentColor" : "none"} />
                         </button>
                     {/if}
                     {#if !omniboxFocused}
                         <button type="button" onclick={() => goTo("bucks://settings")} title={`${blocked} ads and trackers blocked · ${upgrades} connections upgraded to HTTPS`}
-                            class="ml-0.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-emerald-300/70 hover:text-emerald-200 hover:bg-white/5">
-                            <ShieldCheck size={13} /><span class="text-[10px] font-mono">{blocked > 999 ? `${Math.floor(blocked / 1000)}k` : blocked}</span>
+                            class="ml-0.5 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-success-fg-strong/70 hover:text-success-fg-strong hover:bg-surface-2">
+                            <ShieldCheck size={13} /><span class="text-3xs font-mono">{blocked > 999 ? `${Math.floor(blocked / 1000)}k` : blocked}</span>
                         </button>
                     {/if}
                     {#if $activeTab?.isLoading}
                         <div class="flex items-center space-x-1.5 pr-1">
                             <div
-                                class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"
+                                class="w-1.5 h-1.5 bg-accent rounded-full animate-bounce"
                             ></div>
                             <div
-                                class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"
+                                class="w-1.5 h-1.5 bg-accent rounded-full animate-bounce"
                                 style="animation-delay: 0.2s"
                             ></div>
                         </div>
@@ -506,17 +507,17 @@
                 <!-- Suggestions Dropdown -->
                 {#if showSuggestions && suggestions.length > 0}
                     <div
-                        class="no-drag absolute top-full left-0 right-0 mt-2 bg-[#0a0a0c]/95 backdrop-blur-2xl border border-white/10 rounded-lg shadow-lg overflow-hidden z-50"
+                        class="no-drag absolute top-full left-0 right-0 mt-2 bg-surface-raised/95 backdrop-blur-2xl border border-line-strong rounded-lg shadow-lg overflow-hidden z-popover"
                     >
                         {#each suggestions as sg, i (sg.kind + sg.url)}
                             <button
                                 type="button"
                                 onmousedown={(e) => e.preventDefault()}
                                 onclick={() => openSuggestion(sg)}
-                                class="w-full flex items-center gap-3 px-4 py-2 text-left text-[12px] transition-all border-b border-white/5 last:border-b-0
-                                       {i === selectedSuggestion ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}"
+                                class="w-full flex items-center gap-3 px-4 py-2 text-left text-xs transition-all border-b border-line-subtle last:border-b-0
+                                       {i === selectedSuggestion ? 'bg-surface-4 text-fg' : 'text-fg-muted hover:text-fg hover:bg-surface-4'}"
                             >
-                                <span class="w-4 flex-shrink-0 text-white/35">
+                                <span class="w-4 flex-shrink-0 text-fg-faint">
                                     {#if sg.kind === "search"}<Search size={13} />
                                     {:else if sg.kind === "tab"}<Copy size={13} />
                                     {:else if sg.kind === "bookmark"}<Star size={13} />
@@ -524,7 +525,7 @@
                                     {:else}<Globe size={13} />{/if}
                                 </span>
                                 <span class="min-w-0 flex-1 truncate">{sg.label}</span>
-                                <span class="flex-shrink-0 max-w-[45%] truncate text-[10px] text-white/30">
+                                <span class="flex-shrink-0 max-w-[45%] truncate text-3xs text-fg-faint">
                                     {sg.kind === "tab" ? "Switch to tab" : sg.detail}
                                 </span>
                             </button>
@@ -536,7 +537,7 @@
 
         <!-- Right: Tab Cluster & Power Tools -->
         <div
-            class="flex items-center space-x-2 relative z-10 flex-1 min-w-0 justify-end h-full pr-2"
+            class="flex items-center space-x-2 relative z-raised flex-1 min-w-0 justify-end h-full pr-2"
         >
             <!-- Settings Icon (Static) -->
             <div bind:this={menuWrapEl} class="no-drag relative flex-shrink-0">
@@ -545,14 +546,14 @@
                     title="Menu"
                     aria-label="Menu"
                     aria-expanded={isSettingsOpen}
-                    class="w-10 h-10 flex items-center justify-center rounded-xl text-white/40 hover:text-white hover:bg-white/10 transition-all active:scale-90 relative overflow-hidden"
+                    class="w-10 h-10 flex items-center justify-center rounded-xl text-fg-faint hover:text-fg hover:bg-surface-4 transition-all active:scale-90 relative overflow-hidden"
                 >
                     {#if isSettingsOpen}
                         <X size={18} />
                     {:else}
                         <Settings
                             size={18}
-                            class="transition-transform duration-700 ease-out"
+                            class="transition-transform duration-slower ease-out"
                         />
                     {/if}
                 </button>
@@ -560,120 +561,120 @@
                 {#if isSettingsOpen}
                     <div
                         transition:scale={{
-                            duration: 300,
+                            duration: motion.moderate,
                             easing: cubicOut,
                             start: 0.95,
                         }}
-                        class="no-drag absolute top-14 right-0 w-56 bg-[#0a0a0c]/98 backdrop-blur-3xl rounded-[1.5rem] p-2 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.9)] border border-white/10 z-50"
+                        class="no-drag absolute top-14 right-0 w-56 bg-surface-raised/98 backdrop-blur-3xl rounded-3xl p-2 shadow-popover border border-line-strong z-popover"
                     >
                         <div class="flex flex-col space-y-1">
                             <button
                                 onclick={() => { isSettingsOpen = false; browserStore.createTab("bucks://newtab", { private: true }); focusOmnibox(); }}
-                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                             >
-                                <div class="w-8 h-8 rounded-lg bg-fuchsia-500/10 flex items-center justify-center">
-                                    <EyeOff size={16} class="text-fuchsia-300/80 group-hover:text-fuchsia-300" />
+                                <div class="w-8 h-8 rounded-lg bg-cat-fuchsia/10 flex items-center justify-center">
+                                    <EyeOff size={16} class="text-cat-fuchsia-fg/80 group-hover:text-cat-fuchsia-fg" />
                                 </div>
-                                <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">New private tab</span>
+                                <span class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg">New private tab</span>
                             </button>
                             {#if $browserStore.closedTabs.length}
                                 <button
                                     onclick={() => { isSettingsOpen = false; browserStore.reopenClosedTab(); }}
-                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                                 >
-                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                                        <Undo2 size={16} class="text-white/40 group-hover:text-white" />
+                                    <div class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center">
+                                        <Undo2 size={16} class="text-fg-faint group-hover:text-fg" />
                                     </div>
-                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Reopen closed tab</span>
+                                    <span class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg">Reopen closed tab</span>
                                 </button>
                             {/if}
                             {#if $activeTab?.type === "external"}
                                 <button
                                     onclick={() => { isSettingsOpen = false; void browserStore.printActive(); }}
-                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                                 >
-                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                                        <Printer size={16} class="text-white/40 group-hover:text-white" />
+                                    <div class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center">
+                                        <Printer size={16} class="text-fg-faint group-hover:text-fg" />
                                     </div>
-                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Print…</span>
+                                    <span class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg">Print…</span>
                                 </button>
                                 <button
                                     onclick={() => { isSettingsOpen = false; void browserStore.savePdfActive(); }}
-                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                    class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                                 >
-                                    <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
-                                        <FileDown size={16} class="text-white/40 group-hover:text-white" />
+                                    <div class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center">
+                                        <FileDown size={16} class="text-fg-faint group-hover:text-fg" />
                                     </div>
-                                    <span class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white">Save as PDF…</span>
+                                    <span class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg">Save as PDF…</span>
                                 </button>
                             {/if}
-                            <div class="h-[1px] bg-white/5 my-1 mx-3"></div>
+                            <div class="h-[1px] bg-surface-2 my-1 mx-3"></div>
                             <button
                                 onclick={() => goTo("bucks://downloads")}
-                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                             >
                                 <div
-                                    class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"
+                                    class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center"
                                 >
                                     <Download
                                         size={16}
-                                        class="text-blue-400/80 group-hover:text-blue-400"
+                                        class="text-accent-fg/80 group-hover:text-accent-fg"
                                     />
                                 </div>
                                 <span
-                                    class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white"
+                                    class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg"
                                     >Downloads</span
                                 >
                             </button>
                             <button
                                 onclick={() => goTo("bucks://history")}
-                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                             >
                                 <div
-                                    class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center"
+                                    class="w-8 h-8 rounded-lg bg-cat-purple/10 flex items-center justify-center"
                                 >
                                     <Clock
                                         size={16}
-                                        class="text-purple-400/80 group-hover:text-purple-400"
+                                        class="text-cat-purple-fg/80 group-hover:text-cat-purple-fg"
                                     />
                                 </div>
                                 <span
-                                    class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white"
+                                    class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg"
                                     >History</span
                                 >
                             </button>
                             <button
                                 onclick={() => goTo("bucks://bookmarks")}
-                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                             >
                                 <div
-                                    class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center"
+                                    class="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center"
                                 >
                                     <Bookmark
                                         size={16}
-                                        class="text-emerald-400/80 group-hover:text-emerald-400"
+                                        class="text-success-fg/80 group-hover:text-success-fg"
                                     />
                                 </div>
                                 <span
-                                    class="text-[11px] font-bold uppercase tracking-widest text-white/60 group-hover:text-white"
+                                    class="text-2xs font-bold uppercase tracking-widest text-fg-subtle group-hover:text-fg"
                                     >Bookmarks</span
                                 >
                             </button>
-                            <div class="h-[1px] bg-white/5 my-2 mx-3"></div>
+                            <div class="h-[1px] bg-surface-2 my-2 mx-3"></div>
                             <button
                                 onclick={() => goTo("bucks://settings")}
-                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-white/5 transition-all text-left group w-full"
+                                class="flex items-center space-x-3 p-3 rounded-xl hover:bg-surface-2 transition-all text-left group w-full"
                             >
                                 <div
-                                    class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center"
+                                    class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center"
                                 >
                                     <Settings
                                         size={16}
-                                        class="text-white/20 group-hover:text-white"
+                                        class="text-fg-disabled group-hover:text-fg"
                                     />
                                 </div>
                                 <span
-                                    class="text-[11px] font-bold uppercase tracking-widest text-white/40 group-hover:text-white"
+                                    class="text-2xs font-bold uppercase tracking-widest text-fg-faint group-hover:text-fg"
                                     >All Settings</span
                                 >
                             </button>
@@ -682,7 +683,7 @@
                 {/if}
             </div>
 
-            <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
+            <div class="h-8 w-[1px] bg-surface-4 mx-1 flex-shrink-0"></div>
 
             <SpaceSwitcher />
 
@@ -713,21 +714,21 @@
                 onclick={() => { browserStore.createTab(); focusOmnibox(); }}
                 title="New tab"
                 aria-label="New tab"
-                class="no-drag ml-2 w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl bg-white/[0.03] border border-dashed border-white/10 text-white/20 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all active:scale-90"
+                class="no-drag ml-2 w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-xl bg-surface-1 border border-dashed border-line-strong text-fg-disabled hover:text-fg hover:bg-surface-4 hover:border-line-emphasis transition-all active:scale-90"
             >
                 <span class="text-lg font-light">+</span>
             </button>
 
-            <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
+            <div class="h-8 w-[1px] bg-surface-4 mx-1 flex-shrink-0"></div>
 
             <button
                 onclick={() => browserStore.createOrFocusTab("bucks://wallet")}
                 title="Wallet"
                 aria-label="Wallet"
-                class="no-drag w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-90 group text-white/40 hover:text-blue-400 hover:bg-blue-400/5 relative overflow-hidden"
+                class="no-drag w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-90 group text-fg-faint hover:text-accent-fg hover:bg-accent/5 relative overflow-hidden"
             >
                 <div
-                    class="absolute inset-0 bg-blue-500/0 group-hover:bg-blue-500/5 transition-colors"
+                    class="absolute inset-0 bg-accent/0 group-hover:bg-accent/5 transition-colors"
                 ></div>
                 <Wallet size={18} />
             </button>
@@ -737,19 +738,19 @@
                 title={$profileStore.name ? `Profile: ${$profileStore.name}` : "Profile"}
                 aria-label="Profile"
                 aria-expanded={$profilePanelOpen}
-                class="no-drag w-8 h-8 ml-1 flex-shrink-0 flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/80 to-blue-600/80 text-[13px] font-medium text-white hover:brightness-110 transition-all active:scale-90"
+                class="no-drag w-8 h-8 ml-1 flex-shrink-0 flex items-center justify-center rounded-xl bg-gradient-to-br from-agent/80 to-accent/80 text-sm font-medium text-fg hover:brightness-110 transition-all active:scale-90"
             >
                 {initial($profileStore.name)}
             </button>
 
             {#if showWindowControls}
-                <div class="h-8 w-[1px] bg-white/10 mx-1 flex-shrink-0"></div>
+                <div class="h-8 w-[1px] bg-surface-4 mx-1 flex-shrink-0"></div>
                 <div class="no-drag flex items-center flex-shrink-0 -mr-1">
                     <button
                         onclick={() => bucks.window.minimize()}
                         title="Minimize"
                         aria-label="Minimize"
-                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-all"
                     >
                         <Minus size={14} />
                     </button>
@@ -757,7 +758,7 @@
                         onclick={() => bucks.window.maximize()}
                         title={isMaximized ? "Restore" : "Maximize"}
                         aria-label={isMaximized ? "Restore" : "Maximize"}
-                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-surface-4 transition-all"
                     >
                         {#if isMaximized}
                             <Copy size={12} />
@@ -769,7 +770,7 @@
                         onclick={() => bucks.window.close()}
                         title="Close"
                         aria-label="Close window"
-                        class="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white hover:bg-red-500/70 transition-all"
+                        class="w-8 h-8 flex items-center justify-center rounded-lg text-fg-faint hover:text-fg hover:bg-danger/70 transition-all"
                     >
                         <X size={14} />
                     </button>

@@ -1,15 +1,12 @@
 @import "tailwindcss";
-
-@theme {
-    --color-background: #000000;
-    --color-glass: rgba(255, 255, 255, 0.05);
-    --color-glass-border: rgba(255, 255, 255, 0.1);
-}
+/* The Bucks design system: CSS variables, then Tailwind's theme mapped onto them (docs/DESIGN-SYSTEM.md). */
+@import "../../design/dist/tokens.css";
+@import "../../design/dist/tailwind.css";
 
 body {
     background-color: transparent;
-    color: white;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: var(--bucks-color-fg);
+    font-family: var(--bucks-font-family-sans);
     margin: 0;
     overflow: hidden;
     /* Browser shell shouldn't scroll */
@@ -17,10 +14,10 @@ body {
 
 /* Utilities for the beautiful Ephemeral UI */
 .liquid-glass {
-    background: var(--color-glass);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid var(--color-glass-border);
+    background: var(--bucks-color-surface-2);
+    backdrop-filter: blur(var(--bucks-blur-xl));
+    -webkit-backdrop-filter: blur(var(--bucks-blur-xl));
+    border: var(--bucks-size-hairline) solid var(--bucks-color-line-strong);
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -40,23 +37,22 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
+    background: var(--bucks-color-surface-2);
+    border-radius: var(--bucks-radius-sm);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(59, 130, 246, 0.5);
-    /* Blue-500 semi-transparent */
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--bucks-color-accent) 50%, transparent);
+    border-radius: var(--bucks-radius-sm);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(59, 130, 246, 0.8);
+    background: color-mix(in srgb, var(--bucks-color-accent) 80%, transparent);
 }
 
 .mask-fade {
-    mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
-    -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent); /* tokens-ignore: a mask's alpha channel, not a colour */
+    -webkit-mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent); /* tokens-ignore: a mask's alpha channel, not a colour */
 }
 /* Frameless window: the header island is a drag region, interactive children opt out. */
 .no-drag {
@@ -73,10 +69,10 @@ body {
 }
 
 .thin-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
+    background: var(--bucks-color-surface-3);
+    border-radius: var(--bucks-radius-md);
 }
 
 .thin-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--bucks-color-surface-5);
 }

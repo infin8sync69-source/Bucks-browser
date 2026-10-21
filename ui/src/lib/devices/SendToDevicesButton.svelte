@@ -52,16 +52,16 @@
         aria-label={compact ? 'Send to my devices' : undefined}
         title={tooltip}
         class={(compact
-            ? 'p-1 rounded-md text-zinc-500 transition-colors shrink-0 '
-            : 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] text-xs text-zinc-200 transition-colors shrink-0 ') +
+            ? 'p-1 rounded-md text-fg-faint transition-colors shrink-0 '
+            : 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-3 text-xs text-fg transition-colors shrink-0 ') +
             (sending || disabledReason
                 ? 'opacity-40 cursor-not-allowed'
-                : compact ? 'hover:text-blue-300 hover:bg-blue-500/10' : 'hover:bg-white/10')}
+                : compact ? 'hover:text-accent-fg-strong hover:bg-accent/10' : 'hover:bg-surface-4')}
     >
         <Send size={12} class={sending ? 'animate-pulse' : ''} />
         {#if !compact}{sending ? 'Sending…' : 'Send to my devices'}{/if}
     </button>
     {#if message}
-        <span class="text-[11px] truncate {failed ? 'text-red-400' : 'text-emerald-400'}" role="status" title={message}>{message}</span>
+        <span class="text-2xs truncate {failed ? 'text-danger-fg' : 'text-success-fg'}" role="status" title={message}>{message}</span>
     {/if}
 </span>

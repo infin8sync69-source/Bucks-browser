@@ -57,51 +57,51 @@
 
 {#if !city || editing}
     <form onsubmit={(e) => { e.preventDefault(); setCity(); }} class="space-y-2">
-        <p class="text-[11px] text-white/45">Which city?</p>
+        <p class="text-2xs text-fg-faint">Which city?</p>
         <div class="flex gap-1.5">
             <input bind:value={cityInput} placeholder="e.g. Lisbon" aria-label="City"
-                class="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-[12px] text-white/80 placeholder-white/25 outline-none focus:border-white/20" />
-            <button type="submit" class="px-3 rounded-lg bg-white/[0.06] hover:bg-white/10 text-[11px] text-white/70">Show</button>
+                class="flex-1 min-w-0 bg-surface-2 border border-line rounded-lg px-2 py-1.5 text-xs text-fg-muted placeholder-fg-faint outline-none focus:border-line-emphasis" />
+            <button type="submit" class="px-3 rounded-lg bg-surface-3 hover:bg-surface-4 text-2xs text-fg-muted">Show</button>
         </div>
-        <p class="text-[10px] text-white/25">Forecasts by Open-Meteo. Only the city name is sent.</p>
+        <p class="text-3xs text-fg-faint">Forecasts by Open-Meteo. Only the city name is sent.</p>
     </form>
 {:else if report}
     {@const Icon = ICONS[report.icon as keyof typeof ICONS] ?? Cloud}
     <div class="space-y-2">
         <div class="flex items-center gap-3">
-            <Icon size={30} class="text-white/70" strokeWidth={1.5} />
+            <Icon size={30} class="text-fg-muted" strokeWidth={1.5} />
             <div>
-                <div class="text-[26px] font-light text-white/90 leading-none tabular-nums">{Math.round(report.temperature)}{report.units.temperature}</div>
-                <div class="text-[11px] text-white/45 mt-1">{report.label}</div>
+                <div class="text-3xl font-light text-fg leading-none tabular-nums">{Math.round(report.temperature)}{report.units.temperature}</div>
+                <div class="text-2xs text-fg-faint mt-1">{report.label}</div>
             </div>
             <button onclick={() => { cityInput = city; editing = true; }} title="Change city"
-                class="ml-auto self-start flex items-center gap-1 text-[11px] text-white/45 hover:text-white/80 transition-colors">
+                class="ml-auto self-start flex items-center gap-1 text-2xs text-fg-faint hover:text-fg-muted transition-colors">
                 <MapPin size={11} /> {report.place.name}
             </button>
         </div>
-        <div class="flex gap-3 text-[10px] text-white/35">
+        <div class="flex gap-3 text-3xs text-fg-faint">
             {#if report.wind !== null}<span class="flex items-center gap-1"><Wind size={10} />{Math.round(report.wind)} {report.units.wind}</span>{/if}
             {#if report.humidity !== null}<span class="flex items-center gap-1"><Droplets size={10} />{report.humidity} %</span>{/if}
         </div>
         <div class="grid grid-cols-3 gap-1 pt-1">
             {#each report.days as d (d.date)}
                 {@const DayIcon = ICONS[d.icon as keyof typeof ICONS] ?? Cloud}
-                <div class="flex flex-col items-center gap-0.5 rounded-lg bg-white/[0.03] py-1.5" title={d.label}>
-                    <span class="text-[10px] text-white/40">{dayName(d.date)}</span>
-                    <DayIcon size={14} class="text-white/55" />
-                    <span class="text-[10px] text-white/70 tabular-nums">{Math.round(d.max)}° <span class="text-white/30">{Math.round(d.min)}°</span></span>
+                <div class="flex flex-col items-center gap-0.5 rounded-lg bg-surface-1 py-1.5" title={d.label}>
+                    <span class="text-3xs text-fg-faint">{dayName(d.date)}</span>
+                    <DayIcon size={14} class="text-fg-subtle" />
+                    <span class="text-3xs text-fg-muted tabular-nums">{Math.round(d.max)}° <span class="text-fg-faint">{Math.round(d.min)}°</span></span>
                 </div>
             {/each}
         </div>
     </div>
 {:else if error}
     <div class="space-y-2">
-        <p class="text-[11px] text-amber-200/70">{error}</p>
-        <div class="flex gap-3 text-[11px]">
-            <button onclick={() => load(city)} class="text-white/50 hover:text-white">Try again</button>
-            <button onclick={() => { cityInput = city; editing = true; }} class="text-white/50 hover:text-white">Change city</button>
+        <p class="text-2xs text-warning-fg-strong/70">{error}</p>
+        <div class="flex gap-3 text-2xs">
+            <button onclick={() => load(city)} class="text-fg-faint hover:text-fg">Try again</button>
+            <button onclick={() => { cityInput = city; editing = true; }} class="text-fg-faint hover:text-fg">Change city</button>
         </div>
     </div>
 {:else}
-    <p class="text-[11px] text-white/35">{loading ? `Loading the weather for ${city}…` : ""}</p>
+    <p class="text-2xs text-fg-faint">{loading ? `Loading the weather for ${city}…` : ""}</p>
 {/if}

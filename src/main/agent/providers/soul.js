@@ -7,12 +7,20 @@
 // browser_action events; input.runTool runs them and the result goes back to /agent/tool_result.
 // Actions that change something wait for the user: input.requestApproval asks the chrome, and the
 // answer goes to /agent/approve or /agent/deny. Clicking, typing and navigating always ask, even
-// if the engine did not flag them.
+// if the engine did not flag them. The hosting tools (site_*) and app tools (app_*) also run here;
+// publishing, installing, updating and removing ask with a card the main process builds
+// (sites/agent-tools.js, apps/agent-tools.js), not with the engine's label.
 
 import { splitA2ui } from '../a2ui.js';
 import { normalizeComponents, splitFollowups } from '../genui.js';
 import { wantsPageText } from './ollama.js';
 import { REMOTE_TOOLS, STATE_CHANGING, describeAction } from '../browser-control.js';
+import { SITE_TOOLS, describeSiteAction } from '../../sites/agent-tools.js';
+import { APP_TOOLS, describeAppAction } from '../../apps/agent-tools.js';
+
+/** Tools whose approval card the main process builds itself (never the engine's label). */
+const OWN_CARD_TOOLS = new Set([...SITE_TOOLS, ...APP_TOOLS]);
+const ownStatus = (name) => (SITE_TOOLS.has(name) ? describeSiteAction(name) : describeAppAction(name));
 
 const QUERY_TIMEOUT_MS = 300_000; // a local model with tool calls can take minutes
 const PROBE_TIMEOUT_MS = 3_000;
@@ -183,8 +191,11 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
         let label = typeof ev.label === 'string' && ev.label ? ev.label.slice(0, 300) : describeAction(name, ev.args || {});
         const target = refs[String(ev.args?.ref)];
         if (target && (name === 'browser_click' || name === 'browser_type')) label = `${label}: ${target}`;
-        const remote = REMOTE_TOOLS.has(name) && ev.id && ev.id !== ev.action_id;
-        if (ev.needs_approval === true || STATE_CHANGING.has(name)) {
+        const remote = (REMOTE_TOOLS.has(name) || OWN_CARD_TOOLS.has(name)) && ev.id && ev.id !== ev.action_id;
+        if (OWN_CARD_TOOLS.has(name)) {
+          // Never ask with the engine's words: the site tool asks with the main process's own card.
+          if (ev.needs_approval === true) await postControl(conn, `/agent/approve/${encodeURIComponent(ev.session_id || sessionId || '')}`, { action_id: ev.action_id });
+        } else if (ev.needs_approval === true || STATE_CHANGING.has(name)) {
           const approved = typeof input.requestApproval === 'function' && !input.signal?.aborted
             ? await input.requestApproval({ name, label })
             : false;
@@ -198,7 +209,7 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
           }
         }
         if (!remote) return; // an engine-side tool the user just approved: the engine runs it
-        onEvent({ type: 'status', label });
+        onEvent({ type: 'status', label: OWN_CARD_TOOLS.has(name) ? ownStatus(name) : label });
         const result = typeof input.runTool === 'function'
           ? await input.runTool(name, ev.args && typeof ev.args === 'object' ? ev.args : {}, {
             tabTools: input.agentic === true,
@@ -225,7 +236,8 @@ export function createSoulProvider({ fetchImpl = (...a) => globalThis.fetch(...a
               if (typeof ev.name === 'string' && tools.length < 20 && !tools.includes(ev.name)) tools.push(ev.name);
               if (typeof ev.name === 'string') {
                 const own = REMOTE_TOOLS.has(ev.name) || !(typeof ev.label === 'string' && ev.label);
-                onEvent({ type: 'status', label: own ? describeAction(ev.name, ev.args || {}) : ev.label.slice(0, 200) });
+                const status = OWN_CARD_TOOLS.has(ev.name) ? ownStatus(ev.name) : own ? describeAction(ev.name, ev.args || {}) : ev.label.slice(0, 200);
+                onEvent({ type: 'status', label: status });
               }
               break;
             case 'ui_component':

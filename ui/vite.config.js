@@ -10,5 +10,7 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // The design system and the framework-free chrome live beside ui/ (docs/DESIGN-SYSTEM.md).
+    fs: { allow: [".", "../design", "../chrome"] },
   },
 });

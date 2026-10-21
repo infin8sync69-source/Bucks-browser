@@ -34,7 +34,7 @@
 </script>
 
 <section class="space-y-2" aria-labelledby="pair-manually-heading">
-    <h3 id="pair-manually-heading" class="text-xs font-medium text-zinc-400">Pair manually</h3>
+    <h3 id="pair-manually-heading" class="text-xs font-medium text-fg-subtle">Pair manually</h3>
     <form class="flex gap-2" onsubmit={(e) => { e.preventDefault(); void submit(); }}>
         <input
             bind:value={input}
@@ -45,14 +45,14 @@
             aria-describedby={error ? 'pair-manually-error' : undefined}
             spellcheck="false"
             autocomplete="off"
-            class="flex-1 min-w-0 bg-white/[0.03] border rounded-xl px-4 py-2 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none transition-colors font-mono
-                   {error ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/5 focus:border-blue-500/40'}"
+            class="flex-1 min-w-0 bg-surface-1 border rounded-xl px-4 py-2 text-xs text-fg placeholder-fg-faint focus:outline-none transition-colors font-mono
+                   {error ? 'border-danger/40 focus:border-danger/60' : 'border-line-subtle focus:border-accent/40'}"
         />
         <button type="submit" disabled={busy || !input.trim()}
-                class="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-sm transition-colors shrink-0">
+                class="px-4 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 disabled:cursor-not-allowed text-md transition-colors shrink-0">
             {busy ? 'Pairing…' : 'Pair'}
         </button>
     </form>
-    {#if error}<p id="pair-manually-error" class="text-xs text-red-400">{error}</p>{/if}
-    {#if success}<p class="text-xs text-emerald-400" role="status">{success}</p>{/if}
+    {#if error}<p id="pair-manually-error" class="text-xs text-danger-fg">{error}</p>{/if}
+    {#if success}<p class="text-xs text-success-fg" role="status">{success}</p>{/if}
 </section>

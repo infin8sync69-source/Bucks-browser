@@ -310,3 +310,38 @@ test('stop: the running query is aborted and its approvals denied, through IPC',
   assert.equal(await invoke('bucks:agent:cancel', { queryId: 'q-stop' }), false, 'finished queries cannot be stopped');
   assert.equal(await invoke('bucks:agent:approve', { requestId: 'nope', approve: true }), false);
 });
+
+test('site tools go to the site executor with an approval that carries the trusted card', async () => {
+  const sent = [];
+  const win = { isDestroyed: () => false, webContents: { send: (ch, e) => sent.push([ch, e]) } };
+  const ran = [];
+  const siteTools = {
+    execute: async (name, args, ctx) => {
+      ran.push(name);
+      const ok = await ctx.requestApproval({ name: 'site_publish', label: 'Publish the folder "client"…', site: { folder: 'client', files: 3 } }, { timeoutMs: 50 });
+      return ok ? 'published' : 'not approved';
+    },
+  };
+  const browserControl = { execute: async (name) => { ran.push(`browser:${name}`); return 'ok'; } };
+  let result;
+  const remote = {
+    name: 'remote',
+    isAvailable: async () => true,
+    query: async (input) => {
+      result = [await input.runTool('site_publish', { token: 't' }, {}), await input.runTool('browser_read_page', {}, { tabTools: false })];
+      return { status: 'ok', evaluation: 'done', a2ui: null };
+    },
+  };
+  createAgent({ settings, tabs, providers: { remote }, now: () => clock, siteTools, browserControl, getMainWindow: () => win });
+  current.agent.provider = 'remote';
+  await invoke('bucks:agent:query', { prompt: 'publish my site', queryId: 'q-site' });
+  assert.deepEqual(ran, ['site_publish', 'browser:browser_read_page']);
+  const approval = sent.map((s) => s[1]).find((e) => e.type === 'approval');
+  assert.deepEqual(approval.site, { folder: 'client', files: 3 });
+  assert.equal(approval.expiresAt - clock, 50, 'the site card gets its own timeout');
+  assert.deepEqual(result, ['not approved', 'ok']);
+
+  createAgent({ settings, tabs, providers: { remote }, now: () => clock });
+  await invoke('bucks:agent:query', { prompt: 'publish my site' });
+  assert.equal(result[0], 'Hosting sites is not available.');
+});

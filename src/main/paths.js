@@ -12,6 +12,9 @@ export const uiDist = path.join(appRoot, 'ui', 'build');
 
 export const preloadPath = path.join(appRoot, 'src', 'preload', 'preload.cjs');
 
+/** The preload of apps running in a Bucks container (window.bucks.app only). */
+export const appPreloadPath = path.join(appRoot, 'src', 'preload', 'app-preload.cjs');
+
 /** Directory where electron-builder's extraResources land (packaged) or ./resources (dev). */
 export function resourcesDir() {
   return app.isPackaged ? process.resourcesPath : path.join(appRoot, 'resources');

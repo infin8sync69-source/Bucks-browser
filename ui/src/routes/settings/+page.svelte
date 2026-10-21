@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     import { onMount } from "svelte";
     import { fade } from "svelte/transition";
     import { RefreshCw, MonitorSmartphone } from "lucide-svelte";
@@ -97,19 +98,19 @@
     }
 </script>
 
-<div class="min-h-full bg-[#07070a] text-white px-8 py-10 max-w-2xl mx-auto space-y-10" in:fade={{ duration: 300 }}>
+<div class="min-h-full bg-canvas text-fg px-8 py-10 max-w-2xl mx-auto space-y-10" in:fade={{ duration: motion.moderate }}>
 
     <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-base">⚙️</div>
+        <div class="w-9 h-9 rounded-2xl bg-surface-2 border border-line-strong flex items-center justify-center text-base">⚙️</div>
         <h1 class="text-lg font-semibold tracking-tight">Settings</h1>
     </div>
 
     {#if saveError}
-        <p class="text-[12px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{saveError}</p>
+        <p class="text-xs text-danger-fg bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{saveError}</p>
     {/if}
 
     {#if !s}
-        <p class="text-[13px] text-white/40">Loading settings…</p>
+        <p class="text-sm text-fg-faint">Loading settings…</p>
     {:else}
         <!-- Search engine -->
         <Section title="Default Search Engine">
@@ -174,17 +175,17 @@
                 checked={s.devices?.autoPin ?? false}
                 onchange={(v) => save({ devices: { autoPin: v } })}
             />
-            <div class="flex items-center justify-between gap-4 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
+            <div class="flex items-center justify-between gap-4 p-3 rounded-2xl border border-line bg-surface-1">
                 <div class="min-w-0">
-                    <p class="text-[13px] text-white/70">Paired devices</p>
-                    <p class="text-[11px] text-white/30 mt-0.5">
+                    <p class="text-sm text-fg-muted">Paired devices</p>
+                    <p class="text-2xs text-fg-faint mt-0.5">
                         {(s.ipfs.peers?.length ?? 0) === 0 ? "None yet" : `${s.ipfs.peers.length} paired`}{s.devices?.name ? ` · this device is "${s.devices.name}"` : ""}
                     </p>
                 </div>
                 <a
                     href="bucks://ipfs"
                     onclick={(e) => { e.preventDefault(); browserStore.createOrFocusTab("bucks://ipfs"); }}
-                    class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 text-[12px] text-white/70 transition-colors shrink-0"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 text-xs text-fg-muted transition-colors shrink-0"
                 >
                     <MonitorSmartphone size={12} /> Manage devices
                 </a>
@@ -211,22 +212,22 @@
                 onchange={(v) => save({ security: { blockThirdPartyCookies: v } })}
             />
             <div class="grid grid-cols-3 gap-2">
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p class="text-[10px] uppercase tracking-widest text-white/30">Blocked</p>
-                    <p class="text-lg text-white/80 mt-1">{securityStats ? securityStats.blockedRequests.toLocaleString() : "—"}</p>
-                    <p class="text-[10px] text-white/25">requests</p>
+                <div class="rounded-2xl border border-line bg-surface-1 p-3">
+                    <p class="text-3xs uppercase tracking-widest text-fg-faint">Blocked</p>
+                    <p class="text-lg text-fg-muted mt-1">{securityStats ? securityStats.blockedRequests.toLocaleString() : "—"}</p>
+                    <p class="text-3xs text-fg-faint">requests</p>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p class="text-[10px] uppercase tracking-widest text-white/30">Upgraded</p>
-                    <p class="text-lg text-white/80 mt-1">{securityStats ? securityStats.httpsUpgrades.toLocaleString() : "—"}</p>
-                    <p class="text-[10px] text-white/25">to HTTPS</p>
+                <div class="rounded-2xl border border-line bg-surface-1 p-3">
+                    <p class="text-3xs uppercase tracking-widest text-fg-faint">Upgraded</p>
+                    <p class="text-lg text-fg-muted mt-1">{securityStats ? securityStats.httpsUpgrades.toLocaleString() : "—"}</p>
+                    <p class="text-3xs text-fg-faint">to HTTPS</p>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    <p class="text-[10px] uppercase tracking-widest text-white/30">Ad filter</p>
-                    <p class="text-lg mt-1 {securityStats?.adBlockReady ? 'text-emerald-400' : 'text-white/40'}">
+                <div class="rounded-2xl border border-line bg-surface-1 p-3">
+                    <p class="text-3xs uppercase tracking-widest text-fg-faint">Ad filter</p>
+                    <p class="text-lg mt-1 {securityStats?.adBlockReady ? 'text-success-fg' : 'text-fg-faint'}">
                         {securityStats ? (securityStats.adBlockReady ? "Ready" : "Loading") : "—"}
                     </p>
-                    <p class="text-[10px] text-white/25">filter lists</p>
+                    <p class="text-3xs text-fg-faint">filter lists</p>
                 </div>
             </div>
             <BrowsingDataSettings />
@@ -275,19 +276,19 @@
                     <button
                         onclick={detectModels}
                         disabled={detecting}
-                        class="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/10 disabled:opacity-40 text-[12px] text-white/70 transition-colors"
+                        class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-3 hover:bg-surface-4 disabled:opacity-40 text-xs text-fg-muted transition-colors"
                     >
                         <RefreshCw size={12} class={detecting ? "animate-spin" : ""} /> Detect models
                     </button>
-                    {#if detectMessage}<span class="text-[11px] text-white/40">{detectMessage}</span>{/if}
+                    {#if detectMessage}<span class="text-2xs text-fg-faint">{detectMessage}</span>{/if}
                 </div>
                 {#if models.length > 0}
                     <div class="flex flex-wrap gap-1.5">
                         {#each models as m (m)}
                             <button
                                 onclick={() => save({ agent: { ollamaModel: m } })}
-                                class="px-3 py-1 rounded-full text-[11px] border transition-colors
-                                       {s.agent.ollamaModel === m ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-white/10 bg-white/[0.03] text-white/50 hover:text-white'}"
+                                class="px-3 py-1 rounded-full text-2xs border transition-colors
+                                       {s.agent.ollamaModel === m ? 'border-agent/50 bg-agent/15 text-agent-fg-strong' : 'border-line-strong bg-surface-1 text-fg-faint hover:text-fg'}"
                             >{m}</button>
                         {/each}
                     </div>
@@ -296,7 +297,7 @@
                 <SoulEngineSettings {s} {save} />
             {/if}
             {#if agentStatus}
-                <p class="text-[11px] text-white/30">
+                <p class="text-2xs text-fg-faint">
                     Status: {agentStatus.online ? "online" : "offline"} · provider {agentStatus.provider}{agentStatus.model ? ` · ${agentStatus.model}` : ""}
                 </p>
             {/if}
@@ -325,34 +326,34 @@
 
     <!-- About -->
     <Section title="About">
-        <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 grid grid-cols-[7rem_1fr] gap-y-1.5 text-[12px]">
-            <span class="text-white/30">Application</span>
-            <span class="text-white/70">{appInfo?.name ?? "Bucks Browser"} {appInfo?.version ?? ""}</span>
-            <span class="text-white/30">Electron</span>
-            <span class="text-white/70">{bucks.versions.electron}</span>
-            <span class="text-white/30">Chromium</span>
-            <span class="text-white/70">{bucks.versions.chrome}</span>
-            <span class="text-white/30">Node.js</span>
-            <span class="text-white/70">{bucks.versions.node}</span>
-            <span class="text-white/30">Platform</span>
-            <span class="text-white/70">{bucks.platform}</span>
+        <div class="rounded-2xl border border-line bg-surface-1 p-4 grid grid-cols-[7rem_1fr] gap-y-1.5 text-xs">
+            <span class="text-fg-faint">Application</span>
+            <span class="text-fg-muted">{appInfo?.name ?? "Bucks Browser"} {appInfo?.version ?? ""}</span>
+            <span class="text-fg-faint">Electron</span>
+            <span class="text-fg-muted">{bucks.versions.electron}</span>
+            <span class="text-fg-faint">Chromium</span>
+            <span class="text-fg-muted">{bucks.versions.chrome}</span>
+            <span class="text-fg-faint">Node.js</span>
+            <span class="text-fg-muted">{bucks.versions.node}</span>
+            <span class="text-fg-faint">Platform</span>
+            <span class="text-fg-muted">{bucks.platform}</span>
             {#if appInfo?.userData}
-                <span class="text-white/30">Profile</span>
-                <span class="text-white/70 font-mono break-all">{appInfo.userData}</span>
+                <span class="text-fg-faint">Profile</span>
+                <span class="text-fg-muted font-mono break-all">{appInfo.userData}</span>
             {/if}
         </div>
     </Section>
 
     <!-- Danger zone -->
-    <section class="space-y-3 pt-4 border-t border-white/[0.06]">
-        <p class="text-[10px] uppercase tracking-[0.3em] text-red-400/50 font-bold">Danger Zone</p>
-        <div class="rounded-2xl border border-red-500/15 bg-red-500/5 p-4 flex items-center justify-between gap-4">
+    <section class="space-y-3 pt-4 border-t border-line">
+        <p class="text-3xs uppercase tracking-caps-wide text-danger-fg/50 font-bold">Danger Zone</p>
+        <div class="rounded-2xl border border-danger/15 bg-danger/5 p-4 flex items-center justify-between gap-4">
             <div>
-                <p class="text-[13px] text-white/60 font-medium">Reset the browser</p>
-                <p class="text-[11px] text-white/30 mt-0.5">Removes all tabs, spaces, bookmarks and history</p>
+                <p class="text-sm text-fg-subtle font-medium">Reset the browser</p>
+                <p class="text-2xs text-fg-faint mt-0.5">Removes all tabs, spaces, bookmarks and history</p>
             </div>
             <button onclick={clearData}
-                class="px-4 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/25 text-red-400 text-[12px] font-medium transition-all">
+                class="px-4 py-2 rounded-xl bg-danger/15 hover:bg-danger/25 border border-danger/25 text-danger-fg text-xs font-medium transition-all">
                 Clear Data
             </button>
         </div>

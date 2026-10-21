@@ -41,6 +41,11 @@ Four kinds of code run, and they trust each other as little as possible.
   `WebContentsView` owned by the main process. They use the session partition `persist:bucks-web`,
   separate from the interface's session, with `sandbox: true`, `contextIsolation: true`,
   `nodeIntegration: false`, `webSecurity: true` and no preload.
+- **App containers.** Each installed app runs in its own window on its own session partition
+  (`persist:bucks-app-<id>`), served from `bucks-app://<id>/` (its pinned version, local node
+  only), sandboxed, with a network allowlist of the origins its user granted, Chromium permissions
+  only as granted, and one preload (`src/preload/app-preload.cjs`) exposing `window.bucks.app`.
+  See [APP-ENVIRONMENT.md](APP-ENVIRONMENT.md).
 
 ### Why WebContentsView
 
@@ -83,11 +88,14 @@ chrome as `bucks:tabs:open-request`, and the chrome decides what to open.
                                     2. pick upstream:
                                          node ready      -> local gateway
                                          node starting   -> "starting" page (auto-refresh)
-                                         stopped/failed  -> public gateway
+                                         stopped/failed  -> consent page (start node, or
+                                                            public gateway once, per site)
                                     3. fetch GET/HEAD, redirect: manual ---> GET /ipfs/bafy.../a.png
-                                    4. copy a short list of headers,
-                                       rewrite Location back to ipfs://
- <---- streamed Response ---------  5. new Response(upstream.body) <------- bytes (not buffered)
+                                       (site descriptor read once per root: bucks-site.json/_redirects)
+                                    4. copy a short list of headers, add the site's,
+                                       rewrite Location back to ipfs://; a 404 may become
+                                       the SPA entry, a rewrite or the site's 404 page
+ <---- streamed Response ---------  5. new Response(guarded body) <-------- bytes (not buffered)
 ```
 
 1. **Scheme privileges.** Before the app is ready, `registerSchemePrivileges()` registers `bucks`,
@@ -103,11 +111,20 @@ chrome as `bucks:tabs:open-request`, and the chrome decides what to open.
 4. **Upstream choice.** If the local node is ready and the user has not set `preferredGateway` to
    `public`, requests go to `http://127.0.0.1:<gateway port>/ipfs/<cid>/<path>`. While the node is
    initialising the user sees a "starting" page that refreshes itself. If the node is stopped or has
-   failed, or the user prefers the public gateway, requests go to `settings.ipfs.publicGateway`.
+   failed, the page asks first (`protocols/gateway-consent.js`): Start node, or use
+   `settings.ipfs.publicGateway` once for that site; consent links carry a one-time nonce bound to
+   the origin and the page cannot be framed. With `preferredGateway = public` the public gateway is
+   used directly. A public gateway's `Content-Security-Policy` is never forwarded.
+4a. **Site rules.** `protocols/site-serving.js` reads a site's `bucks-site.json` (else `_redirects`)
+   once per root CID and applies it: single-page-app fallback for page navigations, rewrites,
+   redirects, custom 404 pages and extra headers; it also turns an extensionless HTML file served as
+   `application/octet-stream` into `text/html`. See [HOSTING.md](HOSTING.md).
 5. **Streaming.** The response body of the upstream `fetch` is handed to `new Response(...)`
    unchanged, so large files and media stream with `Range` support (`Range`, `If-None-Match` and
    friends are forwarded). The 60 s timeout only covers waiting for response headers. When
-   Kubo cannot find content in time (HTTP 502 or 504), the user gets a "content not found" page.
+   Kubo cannot find content in time (HTTP 502 or 504), the user gets a "no online node has this
+   content" page. A body that ends before its `Content-Length` (Kubo cuts the stream when a block
+   is missing) errors instead of ending quietly.
 6. **Redirects.** Gateways redirect directories to a trailing slash and public gateways redirect to
    subdomain origins. The handler fetches with `redirect: 'manual'` and rewrites `Location`
    back to `ipfs://` or `ipns://` form, and follows by itself when the rewritten address is the
@@ -143,16 +160,19 @@ tested without Electron. The state machine reported to the interface is
 1. **Locate.** First existing file wins: `$BUCKS_KUBO_BIN`; `<resources>/kubo/ipfs[.exe]` (packaged
    app, from `extraResources`); `<resources>/kubo/<os>-<arch>/ipfs[.exe]` (development, written by
    `scripts/fetch-kubo.mjs`); `<userData>/kubo/bin/ipfs[.exe]` (earlier runtime download).
-2. **Download.** If nothing is found, fetch the latest stable version from `https://dist.ipfs.tech/kubo`
-   (override with `KUBO_DIST_URL`; falls back to v0.43.1 when the version list is unreachable).
-   The archive's SHA-512 is checked against the published `.sha512` file and the install is
-   refused when it is missing or does not match. Progress is reported as status messages.
-3. **Init.** If `<userData>/kubo/repo/config` does not exist: `ipfs init --profile=lowpower --empty-repo=true`
-   with `IPFS_PATH` set to that repo.
+2. **Download.** If nothing is found, download the pinned version (`PINNED_KUBO_VERSION` in
+   `src/main/ipfs/dist.js`, v0.43.1) from `https://dist.ipfs.tech/kubo` or GitHub (override with
+   `KUBO_DIST_URL`). The archive must match the SHA-512 stored in the repository; a mirror that lists
+   another digest is skipped. Progress is reported as status messages.
+3. **Init.** If `<userData>/kubo/repo/config` does not exist: `ipfs init --empty-repo=true` with
+   `IPFS_PATH` set to that repo. (Repos created before hosting used `--profile=lowpower`; they keep
+   it.) `BUCKS_KUBO_OFFLINE=1` starts the daemon with `--offline` (tests, air-gapped machines).
 4. **Configure.** Ports are reserved once and kept in `<userData>/kubo/runtime.json`; a port that
    is busy later is replaced. Before every start the repo config is patched: the API and the gateway
    listen on `127.0.0.1` only, and the swarm addresses move to the reserved swarm port so that a Kubo you
-   run yourself on 4001 is never disturbed. Everything else in the config is left alone.
+   run yourself on 4001 is never disturbed. Pubsub, mDNS and paired devices' peering are set, and
+   the hosting keys (`Provide.Strategy = pinned`, connection limits, `Datastore.StorageMax`, see
+   [HOSTING.md](HOSTING.md#node-settings-for-hosting)). Everything else in the config is left alone.
 5. **Adopt or spawn.** If the repo's `api` file points to a daemon that answers, that daemon is reused
    (for example after a crash of the app). Otherwise `ipfs daemon --migrate=true --enable-gc` is
    spawned with output going to `<userData>/logs/kubo.log` (rotated at 5 MB). A stale `repo.lock` is
@@ -386,6 +406,7 @@ src/
       index.js                scheme privileges
       bucks.js                bucks://app/* from ui/build
       ipfs.js                 ipfs:// and ipns:// handler
+      site-serving.js, gateway-consent.js  site descriptors, SPA fallback, consent interstitial
     ipfs/
       kubo.js                 sidecar supervisor
       dist.js                 Kubo download + checksum (shared with scripts/fetch-kubo.mjs)
@@ -397,10 +418,19 @@ src/
     agent/                    bridge.js, a2ui.js, genui.js (cards), soul-engine.js (sidecar supervisor),
                               providers/{offline,remote,ollama,soul}.js
     wallet/proxy.js           bucks:wallet:rpc
+    sites/                    hosting sites (HOSTING.md): service, store, folder checks, keys, health, agent tools
+    apps/                     apps in Bucks containers (APP-ENVIRONMENT.md): service, store, manifest,
+                              policy (pure rules), protocol (bucks-app://), container (sessions, windows,
+                              the app bridge), ipc, agent tools
+    lib/record-store.js       atomic, versioned JSON collections (sites.json, apps.json)
+    design/                   tokens.generated.js (the design tokens' CSS and hex colours), page.js
     chat/                     end-to-end encrypted chat engine from Bucks-App v1.1.0; reference
                               code, not loaded by index.js yet (see chat/README.md, ROADMAP.md)
-  preload/preload.cjs         window.bucks
-ui/                           SvelteKit chrome (src/routes: ipfs, settings, wallet, downloads, ...)
+  preload/preload.cjs         window.bucks (the chrome)
+  preload/app-preload.cjs     window.bucks.app (apps in containers)
+ui/                           SvelteKit chrome (src/routes: ipfs, settings, wallet, downloads, apps, ...)
+design/                       the design system (DESIGN-SYSTEM.md): tokens/, dist/ (generated), components/, build/
+chrome/src/                   framework-free chrome features (CONSOLIDATION-PLAN.md); apps/ is mounted at bucks://apps
 agent/                        Soul Engine (Python): soul_engine.py, local_auth.py (token gate), tools/,
                               requirements-engine.txt / requirements-edge.txt, tests/
 scripts/                      dev.mjs, fetch-kubo.mjs, check-main.mjs

@@ -5,13 +5,14 @@ import path from 'node:path';
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { MIN_WINDOW_SIZE, readWindowState, sanitizeWindowState, writeWindowState } from './window-state.js';
 import { createLogger } from './log.js';
+import { THEME_HEX } from './design/page.js';
 
 const log = createLogger('window');
 
 /** Production chrome URL (served by protocols/bucks.js). */
 export const CHROME_URL = 'bucks://app/';
-export const CHROME_BACKGROUND_DARK = '#07070a';
-export const CHROME_BACKGROUND_LIGHT = '#f5f5f8';
+export const CHROME_BACKGROUND_DARK = THEME_HEX.dark.canvas;
+export const CHROME_BACKGROUND_LIGHT = THEME_HEX.light.canvas;
 
 const DEV_RETRY_INTERVAL_MS = 500;
 const DEV_RETRY_TOTAL_MS = 20_000;

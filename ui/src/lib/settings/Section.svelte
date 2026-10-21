@@ -6,8 +6,8 @@
 
 <section class="space-y-3">
     <div>
-        <p class="text-[10px] uppercase tracking-[0.3em] text-white/30 font-bold">{title}</p>
-        {#if hint}<p class="text-[11px] text-white/25 mt-1">{hint}</p>{/if}
+        <p class="text-3xs uppercase tracking-caps-wide text-fg-faint font-bold">{title}</p>
+        {#if hint}<p class="text-2xs text-fg-faint mt-1">{hint}</p>{/if}
     </div>
     <div class="space-y-2">
         {@render children()}

@@ -18,7 +18,22 @@ with privacy-protective defaults turned on.
 - **Your devices, connected.** Pair your own computers (Linux and macOS) and send files between them
   over IPFS peering and pubsub, see [docs/DEVICES.md](docs/DEVICES.md).
 - **Local-first.** Your settings, bookmarks, history, pins and node repository live on your machine.
-  The public gateway is only a fallback when the local node is not running.
+  When the local node is not running, a page asks before anything is loaded through a public gateway.
+- **Host sites from your browser.** Publish a folder (a website or a client-side web app) as an
+  `ipfs://` version and an updatable `ipns://` address, with checks for secrets and server-only
+  features, single-page-app deep links, updates with a diff, rollback and key backup. See
+  [docs/HOSTING.md](docs/HOSTING.md) (the screens are not built yet: publish with
+  `scripts/site.mjs` or the agent).
+- **Apps in their own containers.** Install a web app from an `ipns://` or `ipfs://` address, a
+  folder on your computer, or a site you host, at `bucks://apps`. Each runs in its own window and
+  session with its own storage, reaches only the network origins you allowed, never your node's
+  API, and can offer tools to your agent. You see every permission and its risk before anything is
+  installed; updates that ask for more ask again. A folder app can be hosted from your browser in
+  one step. See [docs/APP-ENVIRONMENT.md](docs/APP-ENVIRONMENT.md).
+- **One design system.** Every colour, size, radius, shadow, layer and duration in the interface
+  comes from design tokens (dark and light themes, WCAG contrast checked at build time) and a set
+  of framework-free components; CI fails on anything outside it. See
+  [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md).
 - **Privacy defaults.** HTTPS-only mode, ad and tracker blocking, third-party cookie blocking,
   and a deny-by-default permission policy (camera, microphone, location, notifications and
   device access are refused). Every tab is a sandboxed Chromium renderer, with Chromium's
@@ -118,7 +133,8 @@ unsigned-build caveats and the CI pipeline are in [docs/BUILDING.md](docs/BUILDI
   see [the architecture notes](docs/ARCHITECTURE.md#cidv0-and-cidv1).
 - **Node dashboard.** Open `bucks://ipfs` for node status, peers and storage numbers, adding
   files or text to your node, browsing a path, and your pin list.
-- **Publish.** Adding a file returns its CID, an `ipfs://` address and a gateway URL.
+- **Publish.** Adding a file returns its CID, an `ipfs://` address and a gateway URL. To host a
+  whole site, see [docs/HOSTING.md](docs/HOSTING.md).
 - **Pin.** Pinning keeps content on your node so it stays available and survives garbage collection.
 - **Devices.** Pair your Bucks installs (for example an Ubuntu laptop and a MacBook) in the
   Devices section of `bucks://ipfs`, then use **Send to my devices** to offer a file to all of
@@ -128,7 +144,8 @@ unsigned-build caveats and the CI pipeline are in [docs/BUILDING.md](docs/BUILDI
 - **External node.** In Settings, switch the IPFS mode from `embedded` to `external` and enter the
   API address of a Kubo node you already run (for example `http://127.0.0.1:5001`). Bucks then
   uses that node and leaves its lifecycle alone. You can also prefer the public gateway
-  (`ipfs.preferredGateway = public`) or change which one is used as the fallback.
+  (`ipfs.preferredGateway = public`) or change which one is offered when the node is off
+  (`ipfs.publicGateway`, which must be `https://` on a public host).
 
 ## Agent providers
 
@@ -160,9 +177,14 @@ system's keychain is the first roadmap item, so treat this wallet as experimenta
 ## Project layout
 
 ```
-src/main/        Electron main process (ES modules): window, tabs, protocols, Kubo, security, agent, wallet
-src/preload/     The sandboxed preload script that exposes window.bucks to the interface
+src/main/        Electron main process (ES modules): window, tabs, protocols, Kubo, security, agent, wallet,
+                 sites (hosting), apps (installing and running apps in containers)
+src/preload/     The sandboxed preload scripts: window.bucks for the interface, window.bucks.app for apps
 ui/              The browser interface (SvelteKit single-page app), served to the window as bucks://app/
+design/          The design system: tokens (design/tokens), generated CSS/Tailwind/JS (design/dist),
+                 web components (design/components), build and lint tooling (design/build)
+chrome/          The framework-free chrome that replaces ui/ (docs/CONSOLIDATION-PLAN.md); today the
+                 Apps screens (chrome/src/apps), mounted in ui/ at bucks://apps
 agent/           The Soul Engine (Python, FastAPI): the agent behind the "soul" provider
 scripts/         install-linux.sh and install-macos.sh (source installers), dev.mjs (developer runner),
                  fetch-kubo.mjs (download Kubo), check-main.mjs (syntax check)
@@ -179,6 +201,9 @@ electron-builder.yml    packaging configuration
   and the main process.
 - [docs/BUILDING.md](docs/BUILDING.md) covers building and releasing.
 - [docs/DEVICES.md](docs/DEVICES.md) explains pairing computers and sending files between them.
+- [docs/HOSTING.md](docs/HOSTING.md) and [docs/APP-ENVIRONMENT.md](docs/APP-ENVIRONMENT.md) cover
+  hosting sites and installing and running apps.
+- [docs/DESIGN-SYSTEM.md](docs/DESIGN-SYSTEM.md) is the token and component reference.
 - [docs/ALIGNMENT.md](docs/ALIGNMENT.md) maps the older "Bucks Core" app (buckscore `Bucks-App/`) onto
   this repository: what has moved here, what is planned, and what was left behind on purpose.
 

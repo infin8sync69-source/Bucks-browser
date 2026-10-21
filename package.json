@@ -2,7 +2,7 @@
   "name": "bucks-browser",
   "productName": "Bucks Browser",
   "version": "2.0.0",
-  "description": "Bucks Browser \u2014 a decentralised, IPFS-native web browser",
+  "description": "Bucks Browser — a decentralised, IPFS-native web browser",
   "main": "src/main/index.js",
   "type": "module",
   "private": true,
@@ -18,7 +18,9 @@
     "dev": "node scripts/dev.mjs",
     "start": "npm run build:ui && electron .",
     "build:ui": "npm --prefix ui run build",
-    "check": "npm --prefix ui run check && node scripts/check-main.mjs",
+    "check": "npm --prefix ui run check && node scripts/check-main.mjs && npm run lint:design",
+    "tokens": "node scripts/build-tokens.mjs",
+    "lint:design": "node scripts/build-tokens.mjs --check && node scripts/lint-tokens.mjs && ui/node_modules/.bin/tsc -p design/jsconfig.json",
     "test": "node --test \"test/unit/**/*.test.js\"",
     "test:e2e": "node --test \"test/e2e/**/*.test.mjs\"",
     "fetch:kubo": "node scripts/fetch-kubo.mjs",
@@ -34,8 +36,10 @@
     "tar": "^7.5.22"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.0.11",
     "electron": "^44.9.0",
     "electron-builder": "^26.15.3",
+    "happy-dom": "^20.0.11",
     "playwright": "^1.64.1"
   }
 }

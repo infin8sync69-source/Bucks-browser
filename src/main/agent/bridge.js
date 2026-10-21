@@ -10,6 +10,8 @@ import { remoteProvider } from './providers/remote.js';
 import { ollamaProvider } from './providers/ollama.js';
 import { soulProvider } from './providers/soul.js';
 import { validateAttachments, attachmentText } from './attachments.js';
+import { SITE_TOOLS } from '../sites/agent-tools.js';
+import { APP_TOOLS } from '../apps/agent-tools.js';
 
 const log = createLogger('agent');
 
@@ -41,7 +43,13 @@ export function createApprovals({ send, timeoutMs = APPROVAL_TIMEOUT_MS, now = D
   const pending = new Map(); // requestId -> { queryId, finish }
   let counter = 0;
   return {
-    request(queryId, { name, label }) {
+    /**
+     * @param {string} queryId
+     * @param {{ name: string, label: string, site?: object, app?: object }} action  site / app: the
+     *   hosting or app card, built in main
+     * @param {{ timeoutMs?: number }} [opts]
+     */
+    request(queryId, { name, label, site, app }, { timeoutMs: wait = timeoutMs } = {}) {
       const requestId = `ap-${now().toString(36)}-${(counter += 1)}`;
       return new Promise((resolve) => {
         const finish = (approved) => {
@@ -51,9 +59,9 @@ export function createApprovals({ send, timeoutMs = APPROVAL_TIMEOUT_MS, now = D
           send({ queryId, type: 'approval-done', requestId, approved });
           resolve(approved);
         };
-        const timer = setTimeout(() => finish(false), timeoutMs);
+        const timer = setTimeout(() => finish(false), wait);
         pending.set(requestId, { queryId, finish });
-        send({ queryId, type: 'approval', requestId, name, label, expiresAt: now() + timeoutMs });
+        send({ queryId, type: 'approval', requestId, name, label, ...(site ? { site } : {}), ...(app ? { app } : {}), expiresAt: now() + wait });
       });
     },
     /** @returns {boolean} false when the request is unknown or already answered */
@@ -97,12 +105,16 @@ const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
  *        the Soul Engine supervisor (soul-engine.js); without it the soul provider is never available
  * @param {{ execute(name: string, args: object, ctx: { tabId: string|null, tabTools: boolean }): Promise<unknown> }} [deps.browserControl]
  *        runs the Soul Engine's browser and document tools (browser-control.js)
+ * @param {{ execute(name: string, args: object, ctx: { requestApproval: Function }): Promise<string> }} [deps.siteTools]
+ *        runs the Soul Engine's hosting tools with trusted approval cards (sites/agent-tools.js)
+ * @param {{ execute(name: string, args: object, ctx: { requestApproval: Function }): Promise<string> }} [deps.appTools]
+ *        runs the Soul Engine's app tools with trusted approval cards (apps/agent-tools.js)
  * @param {() => import('electron').BrowserWindow | null} [deps.getMainWindow] receives bucks:agent:event
  * @param {Record<string, object>} [deps.providers] override providers (tests)
  * @param {() => number} [deps.now] clock (tests)
  * @returns {{ status(): Promise<object>, query(p: object): Promise<object>, feedback(p: object): Promise<object>, listModels(): Promise<string[]> }}
  */
-export function createAgent({ settings, tabs, kubo = null, soul = null, providers, now = Date.now, browserControl = null, getMainWindow = () => null }) {
+export function createAgent({ settings, tabs, kubo = null, soul = null, providers, now = Date.now, browserControl = null, siteTools = null, appTools = null, getMainWindow = () => null }) {
   const registry = { offline: offlineProvider, remote: remoteProvider, ollama: ollamaProvider, soul: soulProvider, ...(providers || {}) };
   const availability = new Map(); // `${name}|${endpoint}` -> { at, value }
   const running = new Map(); // queryId -> AbortController
@@ -230,9 +242,21 @@ export function createAgent({ settings, tabs, kubo = null, soul = null, provider
         signal: controller.signal,
         onEvent: (ev) => sendEvent({ queryId, ...ev }),
         requestApproval: (action) => approvals.request(queryId, action),
-        runTool: (tool, args, ctx) => (browserControl
-          ? browserControl.execute(tool, args, { ...ctx, tabId })
-          : Promise.resolve('Browser tools are not available.')),
+        runTool: (tool, args, ctx) => {
+          if (SITE_TOOLS.has(tool)) {
+            return siteTools
+              ? siteTools.execute(tool, args, { requestApproval: (card, opts) => approvals.request(queryId, card, opts) })
+              : Promise.resolve('Hosting sites is not available.');
+          }
+          if (APP_TOOLS.has(tool)) {
+            return appTools
+              ? appTools.execute(tool, args, { requestApproval: (card, opts) => approvals.request(queryId, card, opts) })
+              : Promise.resolve('Apps are not available.');
+          }
+          return browserControl
+            ? browserControl.execute(tool, args, { ...ctx, tabId })
+            : Promise.resolve('Browser tools are not available.');
+        },
       };
       try {
         return await runQuery(name, provider, cfg, input, tabId);

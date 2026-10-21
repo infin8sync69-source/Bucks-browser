@@ -461,37 +461,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         }, "required": ["query"]},
     }},
     {"type": "function", "function": {
-        "name": "ipfs_upload_text",
-        "description": ("Publish a piece of text (a note, document, page, or snippet) to "
-                        "IPFS — the Bucks decentralized store — and get back a permanent "
-                        "content address (CID) the user can share or pin. Use when the user "
-                        "asks to save, publish, back up, or share content on IPFS/the dweb."),
-        "parameters": {"type": "object", "properties": {
-            "text": {"type": "string", "description": "The text content to store on IPFS"},
-        }, "required": ["text"]},
-    }},
-    {"type": "function", "function": {
         "name": "ipfs_cat_text",
         "description": ("Fetch and read text content from IPFS by its CID. Use when the user "
                         "gives you an ipfs:// link or a bare CID and wants its contents."),
         "parameters": {"type": "object", "properties": {
             "cid": {"type": "string", "description": "IPFS content id (Qm… or bafy…)"},
         }, "required": ["cid"]},
-    }},
-    {"type": "function", "function": {
-        "name": "dweb_publish",
-        "description": ("Publish a PAGE (HTML or text) to the Bucks dWeb: stores it on the "
-                        "browser's IPFS node AND announces it on the swarm's discovery index "
-                        "so other Bucks browsers can find it. Use when the user wants to "
-                        "publish a page/site to the dweb, share something discoverably, or "
-                        "put content 'on the Bucks network'. For a plain note that only needs "
-                        "a CID, prefer ipfs_upload_text."),
-        "parameters": {"type": "object", "properties": {
-            "name": {"type": "string", "description": "Short page name (shown in the dWeb index)"},
-            "content": {"type": "string", "description": "The page content (HTML or plain text)"},
-            "title": {"type": "string", "description": "Human-readable title"},
-            "desc": {"type": "string", "description": "One-line description for the index"},
-        }, "required": ["name", "content"]},
     }},
     {"type": "function", "function": {
         "name": "dweb_search",
@@ -715,6 +690,93 @@ BROWSER_TOOL_SCHEMAS += [
 BROWSER_TOOL_NAMES = {s["function"]["name"] for s in BROWSER_TOOL_SCHEMAS}
 
 # ---------------------------------------------------------------------------
+# Hosting tools — executed by the browser's main process (src/main/sites/agent-tools.js),
+# which shows the user an approval card built from its OWN inspection of the folder before
+# anything is published. The engine only proposes: it never uploads or publishes itself, and
+# it never sees a file system path (folders are chosen in a native dialog and come back as a
+# token). The old engine-side ipfs_upload_text / dweb_publish ran without approval and were
+# removed.
+# ---------------------------------------------------------------------------
+SITE_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    _fn("site_inspect",
+        "Ask the user to choose the folder of a built website or web app in a folder dialog, and "
+        "check whether it can be hosted from their browser over IPFS (no server, no secrets). "
+        "Returns a folder token and the problems found. Use when the user wants to publish, "
+        "host or share a site or web app.",
+        {"enableSpa": {"type": "boolean", "description": "Check it as a single-page app (deep links serve index.html)"},
+         "useShellAsIndex": {"type": "boolean", "description": "Use _shell.html as index.html (TanStack Start SPA builds)"}},
+        []),
+    _fn("site_publish",
+        "Publish a folder checked with site_inspect as a site the user hosts from this browser. "
+        "The user sees and approves the details first. Returns its ipfs:// and ipns:// links.",
+        {"token": {"type": "string", "description": "The folder token from site_inspect"},
+         "name": {"type": "string", "description": "A short name for the site"},
+         "ipns": {"type": "boolean", "description": "Create an updatable ipns:// address (default true)"},
+         "enableSpa": {"type": "boolean"},
+         "useShellAsIndex": {"type": "boolean"}},
+        ["token"]),
+    _fn("site_update",
+        "Publish a new version of a site the user already hosts, from the folder it was published "
+        "from. The user sees the changed files and approves first.",
+        {"id": {"type": "string", "description": "The site id (from site_status)"},
+         "enableSpa": {"type": "boolean"},
+         "useShellAsIndex": {"type": "boolean"}},
+        ["id"]),
+    _fn("site_status",
+        "List the sites the user hosts from this browser, or, with an id, check whether other "
+        "people can find and open one.",
+        {"id": {"type": "string", "description": "A site id; omit to list the sites"}},
+        []),
+]
+SITE_TOOL_NAMES = {s["function"]["name"] for s in SITE_TOOL_SCHEMAS}
+# Publishing a large site (add, self-test, IPNS) can take minutes; the approval alone up to two.
+SITE_TOOL_TIMEOUT = float(os.getenv("BUCKS_SITE_TOOL_TIMEOUT", "900"))
+
+# ---------------------------------------------------------------------------
+# App tools — executed by the browser's main process (src/main/apps/agent-tools.js). Installed
+# apps run in their own Bucks container; installing, updating and removing one always show the
+# user a card built from the browser's own review (permissions and their risk). An app's tools
+# run inside the app; their answers are the app's own text and must be treated as untrusted.
+# ---------------------------------------------------------------------------
+APP_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    _fn("app_list",
+        "List the apps installed in the user's browser: ids, versions, what each is allowed to "
+        "do, and the tools each offers to the agent (with their input schemas).",
+        {}, []),
+    _fn("app_install",
+        "Install a web app from an ipfs:// or ipns:// address into its own container in the "
+        "user's browser. The user sees what it asks for and approves first.",
+        {"address": {"type": "string", "description": "ipns://… (follows updates) or ipfs://… (one exact version)"}},
+        ["address"]),
+    _fn("app_open",
+        "Open an installed app in its own window.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+    _fn("app_call",
+        "Call one of the tools an installed app offers (see app_list). The app runs it; the user "
+        "approves the first use of each app's tools in a session. The answer is the app's own, "
+        "untrusted output.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"},
+         "tool": {"type": "string", "description": "The tool name, as listed by app_list"},
+         "input": {"type": "object", "description": "The tool's input, matching its input schema"}},
+        ["id", "tool"]),
+    _fn("app_update",
+        "Check an installed app for a new version and, after the user approves (they see any new "
+        "permissions), update it.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+    _fn("app_uninstall",
+        "Remove an installed app and everything it stored. The user approves first.",
+        {"id": {"type": "string", "description": "The app id (from app_list) or its name"}},
+        ["id"]),
+]
+APP_TOOL_NAMES = {s["function"]["name"] for s in APP_TOOL_SCHEMAS}
+# Installing pins the whole app; the approval alone can take two minutes.
+APP_TOOL_TIMEOUT = float(os.getenv("BUCKS_APP_TOOL_TIMEOUT", "600"))
+# Tools the browser runs and answers through /agent/tool_result.
+REMOTE_TOOL_NAMES = BROWSER_TOOL_NAMES | SITE_TOOL_NAMES | APP_TOOL_NAMES
+
+# ---------------------------------------------------------------------------
 # Generative-UI: a tool the model calls to RENDER a component it synthesized
 # (a chart from numbers it gathered, a comparison table, KPI stat cards, or a
 # row of CTA buttons). This is the generative path — validated + fallback so a
@@ -861,8 +923,15 @@ _TOOL_CATEGORIES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
                   # phrase with no explicit commerce verb ("top 5 X under ₹10k")
                   "under ₹", "under $", "under rs", "budget", "best ", "top ",
                   "cheapest", "review", " vs ", "₹", "$")),
-    "ipfs":     (("ipfs_upload_text", "ipfs_cat_text", "dweb_publish", "dweb_search"),
-                 ("ipfs", "cid", "dweb", "pin ", "publish", "upload", "decentral")),
+    "ipfs":     (("ipfs_cat_text", "dweb_search"),
+                 ("ipfs", "cid", "dweb", "pin ", "decentral")),
+    # Apps run in the browser's containers; installing asks the user (see APP_TOOL_SCHEMAS).
+    "apps":     (("app_list", "app_install", "app_open", "app_call", "app_update", "app_uninstall"),
+                 ("my apps", "an app", "the app", "this app", "app store", "apps ", "install", "uninstall")),
+    # Publishing goes through the browser, which asks the user (see SITE_TOOL_SCHEMAS).
+    "sites":    (("site_inspect", "site_publish", "site_update", "site_status"),
+                 ("publish", "host my", "host a", "host this", "hosting", "website", "web site",
+                  "web app", "my site", "deploy", "ipns", "upload my", "put my", "online")),
     # Keywords here are deliberately narrow. Generic words ("node", "identity",
     # "recommend") false-positive constantly — e.g. the filename
     # "bucks-node.js" pulled the whole 8-tool cluster block into a file-reading
@@ -898,6 +967,8 @@ def select_tool_schemas(message: str, agentic: bool) -> list[dict[str, Any]]:
     """Choose a bounded, relevant slice of the tool catalogue for one request."""
     q = (message or "").lower()
     by_name = {s["function"]["name"]: s for s in TOOL_SCHEMAS}
+    by_name.update({s["function"]["name"]: s for s in SITE_TOOL_SCHEMAS})
+    by_name.update({s["function"]["name"]: s for s in APP_TOOL_SCHEMAS})
     by_name[RENDER_TOOL_NAME] = RENDER_TOOL_SCHEMA
 
     chosen: list[str] = [n for n in _CORE_TOOL_NAMES if n in by_name]
@@ -2272,7 +2343,7 @@ async def agent(req: Request) -> StreamingResponse:
                             messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                             continue
 
-                        if name in BROWSER_TOOL_NAMES:
+                        if name in REMOTE_TOOL_NAMES:
                             rid = uuid.uuid4().hex
                             action_id = uuid.uuid4().hex
                             needs_approval = name in STATE_CHANGING_TOOLS
@@ -2303,7 +2374,10 @@ async def agent(req: Request) -> StreamingResponse:
                                     messages.append({"role": "tool", "content": result, "name": name, "tool_call_id": call_id})
                                     continue
 
-                            raw = await _await_remote_tool(rid)
+                            raw = await _await_remote_tool(
+                                rid,
+                                timeout=SITE_TOOL_TIMEOUT if name in SITE_TOOL_NAMES
+                                else APP_TOOL_TIMEOUT if name in APP_TOOL_NAMES else 90.0)
 
                             if isinstance(raw, dict) and raw.get("screenshot_b64"):
                                 result = await describe_image_local(raw["screenshot_b64"], c)
@@ -2476,6 +2550,16 @@ def _action_label(name: str, args: dict) -> str:
         "cluster_unrecommend": f"Un-recommend content {str(args.get('cid', '?'))[:12]}… (vote)",
         "cluster_pin":         f"Pin/host content {str(args.get('cid', '?'))[:12]}…",
         "cluster_unpin":       f"Unpin content {str(args.get('cid', '?'))[:12]}…",
+        "site_inspect":        "Choose a site folder to check",
+        "site_publish":        "Publish a site (the browser asks you first)",
+        "site_update":         "Update a site (the browser asks you first)",
+        "site_status":         "Check a hosted site",
+        "app_list":            "Look at your apps",
+        "app_install":         "Install an app (the browser asks you first)",
+        "app_open":            f"Open the app {args.get('id', '')}".strip(),
+        "app_call":            f"Use {args.get('tool', 'a tool')} in the app {args.get('id', '')}".strip(),
+        "app_update":          "Update an app (the browser asks you first)",
+        "app_uninstall":       "Remove an app (the browser asks you first)",
     }
     return labels.get(name, name)
 

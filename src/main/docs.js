@@ -10,6 +10,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { ipcMain, shell } from 'electron';
 import { createLogger } from './log.js';
+import { pageStyle, DOCUMENT_CSS } from './design/page.js';
 
 const log = createLogger('docs');
 
@@ -91,15 +92,9 @@ export function markdownToHtml(md) {
 
 /** A complete, script-free HTML document for a title and Markdown body. */
 export function htmlDocument(title, markdown) {
-  return `<!doctype html><html><head><meta charset="utf-8">
+  return `<!doctype html><html data-theme="light"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:">
-<title>${esc(title)}</title><style>
-body{font:15px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;max-width:760px;margin:40px auto;padding:0 24px}
-h1{font-size:28px;margin:0 0 16px}h2{font-size:21px;margin:28px 0 10px}h3{font-size:17px;margin:22px 0 8px}
-pre{background:#f4f4f6;padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:13px}code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
-table{border-collapse:collapse;margin:14px 0;width:100%}th,td{border:1px solid #d9d9de;padding:6px 10px;text-align:left}th{background:#f4f4f6}
-blockquote{margin:12px 0;padding:4px 14px;border-left:3px solid #c7c7cf;color:#555}a{color:#2b59c3}hr{border:0;border-top:1px solid #ddd;margin:24px 0}
-</style></head><body>
+<title>${esc(title)}</title>${pageStyle(DOCUMENT_CSS)}</head><body>
 ${/^\s*#\s/.test(markdown) ? '' : `<h1>${esc(title)}</h1>\n`}${markdownToHtml(markdown)}
 </body></html>`;
 }

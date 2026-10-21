@@ -116,7 +116,9 @@ Terminal=false
 Categories=Network;WebBrowser;
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/ipfs;x-scheme-handler/ipns;
 ENTRY
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+fi
 
 say "Bucks Browser is installed. Start it from your application menu, or run: bucks-browser"
 case ":$PATH:" in

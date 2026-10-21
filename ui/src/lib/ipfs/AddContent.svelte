@@ -68,19 +68,19 @@
 </script>
 
 {#snippet resultBox(title: string, r: IpfsAddResult, name?: string)}
-    <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-1 text-xs">
-        <div class="text-emerald-400 font-medium">✓ {title}</div>
+    <div class="rounded-xl border border-success/20 bg-success/5 p-3 space-y-1 text-xs">
+        <div class="text-success-fg font-medium">✓ {title}</div>
         <div class="flex gap-2">
-            <span class="text-zinc-500 w-20 shrink-0">CID</span>
-            <span class="font-mono text-zinc-300 break-all">{r.cid}</span>
+            <span class="text-fg-faint w-20 shrink-0">CID</span>
+            <span class="font-mono text-fg-muted break-all">{r.cid}</span>
         </div>
         <div class="flex gap-2">
-            <span class="text-zinc-500 w-20 shrink-0">Size</span>
-            <span class="text-zinc-400">{formatBytes(r.size)}</span>
+            <span class="text-fg-faint w-20 shrink-0">Size</span>
+            <span class="text-fg-subtle">{formatBytes(r.size)}</span>
         </div>
         <div class="flex gap-2">
-            <span class="text-zinc-500 w-20 shrink-0">Link</span>
-            <button onclick={() => openCid(r.cid)} class="font-mono text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline break-all text-left transition-colors">
+            <span class="text-fg-faint w-20 shrink-0">Link</span>
+            <button onclick={() => openCid(r.cid)} class="font-mono text-accent-fg hover:text-accent-fg-strong underline-offset-2 hover:underline break-all text-left transition-colors">
                 {r.ipfs_uri}
             </button>
         </div>
@@ -91,7 +91,7 @@
 {/snippet}
 
 <section class="space-y-3">
-    <h2 class="text-sm font-medium text-zinc-300">Add file</h2>
+    <h2 class="text-md font-medium text-fg-muted">Add file</h2>
     <div
         role="button"
         tabindex="0"
@@ -102,10 +102,10 @@
         onclick={() => fileInput.click()}
         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.click()}
         class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors
-               {isDragging ? 'border-blue-500/60 bg-blue-500/5' : 'border-white/10 hover:border-white/20'}"
+               {isDragging ? 'border-accent/60 bg-accent/5' : 'border-line-strong hover:border-line-emphasis'}"
     >
-        <p class="text-sm text-zinc-400">{isUploading ? 'Adding…' : 'Drop a file or click to select'}</p>
-        <p class="text-xs text-zinc-600 mt-1">Pinned automatically after adding</p>
+        <p class="text-md text-fg-subtle">{isUploading ? 'Adding…' : 'Drop a file or click to select'}</p>
+        <p class="text-xs text-fg-faint mt-1">Pinned automatically after adding</p>
     </div>
     <input
         bind:this={fileInput}
@@ -118,28 +118,28 @@
             input.value = '';
         }}
     />
-    {#if uploadError}<p class="text-xs text-red-400">{uploadError}</p>{/if}
+    {#if uploadError}<p class="text-xs text-danger-fg">{uploadError}</p>{/if}
     {#if uploadResult}{@render resultBox('Added', uploadResult, uploadName)}{/if}
 </section>
 
 <section class="space-y-3">
-    <h2 class="text-sm font-medium text-zinc-300">Publish text</h2>
+    <h2 class="text-md font-medium text-fg-muted">Publish text</h2>
     <textarea
         bind:value={textContent}
         placeholder="Enter text or JSON to publish to IPFS…"
         rows="4"
         aria-label="Text to publish"
-        class="w-full bg-white/[0.03] border border-white/5 rounded-xl px-4 py-3 text-sm text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:border-blue-500/40 transition-colors"
+        class="w-full bg-surface-1 border border-line-subtle rounded-xl px-4 py-3 text-md text-fg placeholder-fg-faint resize-none focus:outline-none focus:border-accent/40 transition-colors"
     ></textarea>
     <div class="flex items-center gap-3">
         <button
             onclick={handlePublish}
             disabled={isPublishing || !textContent.trim()}
-            class="px-4 py-2 rounded-xl bg-blue-600/80 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+            class="px-4 py-2 rounded-xl bg-accent/80 hover:bg-accent-emphasis-hover disabled:opacity-40 disabled:cursor-not-allowed text-md font-medium transition-colors"
         >
             {isPublishing ? 'Publishing…' : 'Publish to IPFS'}
         </button>
-        {#if publishError}<span class="text-xs text-red-400">{publishError}</span>{/if}
+        {#if publishError}<span class="text-xs text-danger-fg">{publishError}</span>{/if}
     </div>
     {#if publishResult}{@render resultBox('Published', publishResult, publishName)}{/if}
 </section>

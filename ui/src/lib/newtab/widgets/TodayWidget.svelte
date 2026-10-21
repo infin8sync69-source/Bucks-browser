@@ -27,20 +27,20 @@
 
 <div class="space-y-1.5">
     {#if items.length === 0}
-        <p class="text-[11px] text-white/30">Nothing planned. Add something below.</p>
+        <p class="text-2xs text-fg-faint">Nothing planned. Add something below.</p>
     {/if}
     {#each items as i (i.id)}
-        <div class="group flex items-center gap-2 text-[12px]">
+        <div class="group flex items-center gap-2 text-xs">
             <input type="checkbox" checked={i.done} onchange={() => boardStore.configure(widget.uid, withAgendaToggled(widget.config, i.id, today))}
-                aria-label="Done: {i.text}" class="accent-emerald-400 flex-shrink-0" />
-            {#if i.time}<span class="text-white/40 tabular-nums text-[11px] w-9 flex-shrink-0">{i.time}</span>{/if}
-            <span class="truncate {i.done ? 'line-through text-white/25' : 'text-white/75'}">{i.text}</span>
+                aria-label="Done: {i.text}" class="accent-success flex-shrink-0" />
+            {#if i.time}<span class="text-fg-faint tabular-nums text-2xs w-9 flex-shrink-0">{i.time}</span>{/if}
+            <span class="truncate {i.done ? 'line-through text-fg-faint' : 'text-fg-muted'}">{i.text}</span>
             <button onclick={() => boardStore.configure(widget.uid, withoutAgendaItem(widget.config, i.id, today))} title="Remove" aria-label="Remove {i.text}"
-                class="ml-auto opacity-0 group-hover:opacity-100 text-white/30 hover:text-white transition-opacity"><X size={11} /></button>
+                class="ml-auto opacity-0 group-hover:opacity-100 text-fg-faint hover:text-fg transition-opacity"><X size={11} /></button>
         </div>
     {/each}
     <form onsubmit={(e) => { e.preventDefault(); add(); }}>
         <input bind:value={entry} placeholder="9:30 Standup, or just a task" aria-label="Add to today"
-            class="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-[11px] text-white/80 placeholder-white/25 outline-none focus:border-white/20" />
+            class="w-full mt-1 bg-surface-2 border border-line rounded-lg px-2 py-1.5 text-2xs text-fg-muted placeholder-fg-faint outline-none focus:border-line-emphasis" />
     </form>
 </div>

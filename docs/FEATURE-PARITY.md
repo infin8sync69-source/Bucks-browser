@@ -69,7 +69,7 @@ carried over** (reason given).
 | `ipfs://` / `ipns://` browsing, add, pin, node dashboard | ✅ (Helia) | ✅ (Kubo) |
 | Devices: pair your computers, send files | ✅ | ✅ e2e |
 | Feed: follow peers, publish posts, upvote | ✅ | ⏳ batch D |
-| dWeb: publish a site, search the index | ✅ | ⏳ batch D |
+| dWeb: publish a site, search the index | ✅ | 🟡 hosting a site (publish, `ipns://` updates, rollback, key backup, health, SPA deep links) is done in the main process, e2e; screens not built yet, publish with `scripts/site.mjs` or the agent ([HOSTING.md](HOSTING.md)). The dWeb search index is ⏳ batch D |
 | Storage dashboard | ✅ | 🟡 node stats on `bucks://ipfs` |
 | Cluster: members, invites, votes, shared pins | ✅ | ⏳ batch D |
 | Messages: end-to-end encrypted chat with peers | ✅ | ⏳ batch D (engine code in `src/main/chat/`) |
@@ -78,7 +78,7 @@ carried over** (reason given).
 
 | Feature | Bucks Core | Bucks Browser |
 |---|---|---|
-| App store with a catalogue of open-source web apps (install, preview, launch) | ✅ | ⏳ batch D |
+| App store with a catalogue of open-source web apps (install, preview, launch) | ✅ | 🟡 install from `ipns://`/`ipfs://`, a folder or a hosted site, review permissions, run each app in its own container, update, roll back, uninstall, agent tools ([APP-ENVIRONMENT.md](APP-ENVIRONMENT.md)); the catalogue is still the mock list |
 | Built-in mini apps (calculator, clock, converter, notes, QR) | ✅ | ⏳ batch D |
 | dWeb studio (site builder from templates) | ✅ | ⏳ |
 | Wallet: create, restore, send | ✅ (keys on the node) | ✅ keys stay in the browser, signing client-side |

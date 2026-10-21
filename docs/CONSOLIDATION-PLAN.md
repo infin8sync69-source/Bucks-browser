@@ -79,6 +79,14 @@ Base class, store, build config, the strict CSP header, bridge and the 13 reusab
 Port three components (find bar, tab context menu, space switcher) to test the approach.
 Gate: keep going without a framework, or adopt Lit.
 
+*Started (2026-10-20):* the design system ([DESIGN-SYSTEM.md](DESIGN-SYSTEM.md)) is the shared
+styling layer for both chromes: tokens, a Tailwind theme that admits nothing else, a linter, and
+twelve framework-free components on a ~100-line base class (`design/components/base.js`). The Svelte
+chrome is migrated onto the tokens, so screens look the same in both. `chrome/src/apps/` (the Apps
+screens) is the first framework-free feature, mounted in the Svelte chrome at `bucks://apps`; it
+answers the gate for now: no framework needed so far. Still to do in this phase: the store, the
+Vite multi-page build of `chrome/` on its own, the CSP header, and the three spike components.
+
 **Phase 2: Shell (about 2 weeks)**
 Header (793 lines, the biggest), content area, tabs, spaces, window frame. Exit: `smoke` and
 `browser-features` e2e pass on `next`.

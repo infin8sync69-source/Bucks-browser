@@ -115,11 +115,13 @@ export function pdfFileName(title) {
 
 /**
  * Build a TabState from a WebContents-like object. Exported for tests.
- * @param {{ id: string, wc: object, favicon: string | null, error: object | null, requestedUrl?: string, isPrivate?: boolean }} tab
+ * @param {{ id: string, wc: object, favicon: string | null, error: object | null, requestedUrl?: string, isPrivate?: boolean, badgeFor?: ((url: string) => object | null) | null }} tab
+ *   badgeFor: the ipfs:// handler's address bar badge (content-addressed, signed name, preview, unverified)
  */
-export function buildTabState({ id, wc, favicon, error, requestedUrl, isPrivate = false }) {
+export function buildTabState({ id, wc, favicon, error, requestedUrl, isPrivate = false, badgeFor = null }) {
   const nav = wc.navigationHistory;
   const rawUrl = wc.getURL() || requestedUrl || '';
+  const badge = typeof badgeFor === 'function' ? badgeFor(rawUrl) : null;
   return {
     id,
     url: canonicalUrl(rawUrl),
@@ -133,6 +135,7 @@ export function buildTabState({ id, wc, favicon, error, requestedUrl, isPrivate 
     muted: typeof wc.isAudioMuted === 'function' ? !!wc.isAudioMuted() : false,
     zoom: typeof wc.getZoomFactor === 'function' ? zoomPercent(wc.getZoomFactor()) : 100,
     private: !!isPrivate,
+    ...(badge ? { badge } : {}),
   };
 }
 
@@ -172,12 +175,14 @@ const EXTRACT_TEXT_SCRIPT = `(() => {
  *   privateSession?: import('electron').Session,
  *   settings: { get(): any },
  *   security?: { allowHttpHost?: (host: string) => void },
+ *   badgeFor?: (url: string) => object | null,
  * }} opts
  *   privateSession: in-memory session for private tabs; its data is cleared when the last private
  *   tab closes. Without it, private tabs are refused.
  */
-export function createTabManager({ getMainWindow, webSession, privateSession = null, settings, security }) {
+export function createTabManager({ getMainWindow, webSession, privateSession = null, settings, security, badgeFor = null }) {
   if (!webSession) throw new Error('createTabManager: webSession is required');
+  const stateOf = (tab) => buildTabState({ ...tab, badgeFor });
 
   /** @type {Map<string, Tab>} */
   const tabs = new Map();
@@ -211,7 +216,7 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
 
   function emitUpdated(tab) {
     if (!tabs.has(tab.id) || tab.wc.isDestroyed()) return;
-    send('bucks:tabs:updated', buildTabState(tab));
+    send('bucks:tabs:updated', stateOf(tab));
   }
 
   function emitOpenRequest(openerId, url, disposition) {
@@ -430,10 +435,10 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
         nodeIntegration: false,
         webSecurity: true,
         spellcheck: true,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff', // tokens-ignore: web pages paint on white unless they set a background (the platform default)
       },
     });
-    if (typeof view.setBackgroundColor === 'function') view.setBackgroundColor('#ffffff');
+    if (typeof view.setBackgroundColor === 'function') view.setBackgroundColor('#ffffff'); // tokens-ignore: as above
     /** @type {Tab} */
     const tab = {
       id,
@@ -490,7 +495,7 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
       const tab = createView(id, target, isPrivate);
       bindWindow();
       load(tab, target);
-      return buildTabState(tab);
+      return stateOf(tab);
     },
 
     /** Navigate an existing tab (creates the view when missing). */
@@ -498,12 +503,12 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
       const tab = tabs.get(id);
       if (!tab || tab.wc.isDestroyed()) return manager.create(id, url);
       const target = prepareChromeUrl(id, url);
-      if (target === null) return buildTabState(tab);
+      if (target === null) return stateOf(tab);
       if (schemeOf(target) === 'file:') tab.allowFile = true;
       tab.httpFallbackHost = null;
       load(tab, target);
       if (id === activeId && contentVisible) tab.wc.focus();
-      return buildTabState(tab);
+      return stateOf(tab);
     },
 
     /** Remove the view and destroy its web contents. Unknown ids are ignored. */
@@ -550,7 +555,7 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
     /** @returns {object | null} TabState, or null when the id has no live view */
     getState(id) {
       const tab = tabs.get(id);
-      return tab && !tab.wc.isDestroyed() ? buildTabState(tab) : null;
+      return tab && !tab.wc.isDestroyed() ? stateOf(tab) : null;
     },
 
     /** Rectangle (CSS px, chrome viewport) where the active view is drawn. */
@@ -580,7 +585,7 @@ export function createTabManager({ getMainWindow, webSession, privateSession = n
     /** @returns {Promise<{ title: string, text: string, url: string }>} */
     async extractText(id) {
       const tab = requireTab(id);
-      const state = buildTabState(tab);
+      const state = stateOf(tab);
       let result = null;
       try {
         result = await tab.wc.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD_ID, [{ code: EXTRACT_TEXT_SCRIPT }]);

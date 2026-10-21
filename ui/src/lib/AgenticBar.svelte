@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { duration as motion } from '$design/dist/tokens.js';
     import { onMount } from "svelte";
     import { fade, fly, scale } from "svelte/transition";
     import { isSwarmThinking, activeTab } from "./stores";
@@ -103,17 +104,17 @@
     bind:this={containerEl}
     onmousemove={handleMouseMove}
     role="presentation"
-    class="agentic-bar-fixed relative w-full transition-all duration-500
+    class="agentic-bar-fixed relative w-full transition-all duration-slow
            {isNewTab
         ? 'pb-10'
         : 'pb-0 opacity-50 hover:opacity-100 hover:translate-y-[-2px]'}"
-    in:fly={{ y: 50, duration: 800, easing: cubicOut }}
+    in:fly={{ y: 50, duration: motion.slower, easing: cubicOut }}
 >
     <!-- Aurora glow — only on newtab or while thinking -->
     {#if isNewTab || $isSwarmThinking}
         <div
-            class="absolute -inset-4 rounded-[40px] blur-3xl pointer-events-none opacity-20 transition-opacity duration-1000"
-            style="background: radial-gradient(circle at {mouseX}% {mouseY}%, #8b5cf6, #3b82f6, transparent);"
+            class="absolute -inset-4 rounded-4xl blur-3xl pointer-events-none opacity-20 transition-opacity duration-slowest"
+            style="background: radial-gradient(circle at {mouseX}% {mouseY}%, var(--bucks-color-agent), var(--bucks-color-accent), transparent);"
         ></div>
     {/if}
 
@@ -123,10 +124,10 @@
 
     <form
         onsubmit={handleSubmit}
-        class="relative flex items-center bg-black/40 backdrop-blur-2xl border border-white/10 rounded-full p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.6)] group transition-all duration-1000 hover:border-white/20
+        class="relative flex items-center bg-scrim/40 backdrop-blur-2xl border border-line-strong rounded-full p-1.5 shadow-float group transition-all duration-slowest hover:border-line-emphasis
                {isNewTab
-            ? 'scale-110 shadow-[0_30px_80px_rgba(139,92,246,0.15)] bg-black/60'
-            : 'bg-black/20 backdrop-blur-lg'}"
+            ? 'scale-110 shadow-glow-agent bg-scrim/60'
+            : 'bg-scrim/20 backdrop-blur-lg'}"
         class:thinking={$isSwarmThinking}
     >
         <!-- Status Indicators -->
@@ -134,20 +135,20 @@
             <!-- Swarm / agent server dot -->
             <div class="relative" title={isOnline ? "Agent server online" : "Agent server offline"}>
                 {#if $isSwarmThinking}
-                    <div class="w-2 h-2 rounded-full bg-violet-400 animate-ping absolute inset-0"></div>
+                    <div class="w-2 h-2 rounded-full bg-agent animate-ping absolute inset-0"></div>
                 {/if}
                 <div
-                    class="w-2 h-2 rounded-full shadow-lg transition-colors duration-500
+                    class="w-2 h-2 rounded-full shadow-lg transition-colors duration-slow
                            {isOnline
-                        ? 'bg-emerald-400/60 shadow-emerald-400/10'
+                        ? 'bg-success/60 shadow-success/10'
                         : isOnline === false
-                          ? 'bg-amber-400/60 shadow-amber-400/10'
-                          : 'bg-white/10'}"
+                          ? 'bg-warning/60 shadow-warning/10'
+                          : 'bg-surface-4'}"
                 ></div>
             </div>
             <!-- Local model (Ollama) dot -->
             <div
-                class="w-1.5 h-1.5 rounded-full transition-colors duration-500 {slmReady ? 'bg-sky-400/70' : 'bg-white/10'}"
+                class="w-1.5 h-1.5 rounded-full transition-colors duration-slow {slmReady ? 'bg-info/70' : 'bg-surface-4'}"
                 title={slmReady ? `${model ?? "Local model"} on-device ready` : "No on-device model connected"}
             ></div>
         </div>
@@ -164,7 +165,7 @@
                   ? slmReady ? "Command the swarm (on-device model)..." : "Command the swarm..."
                   : slmReady ? "Ask Bucks (on-device model)..." : "Command the swarm..."}
             disabled={$isSwarmThinking}
-            class="flex-1 bg-transparent border-none outline-none text-white text-sm font-light tracking-wide py-2.5 px-2 placeholder-white/20 disabled:opacity-50"
+            class="flex-1 bg-transparent border-none outline-none text-fg text-md font-light tracking-wide py-2.5 px-2 placeholder-fg-faint disabled:opacity-50"
         />
 
         <!-- Chat history button -->
@@ -172,11 +173,11 @@
             type="button"
             onclick={onopenchat}
             title="Open chat"
-            class="relative flex items-center justify-center w-8 h-8 rounded-full text-white/40 hover:text-white/80 hover:bg-white/10 transition-all duration-300 mr-1"
+            class="relative flex items-center justify-center w-8 h-8 rounded-full text-fg-faint hover:text-fg-muted hover:bg-surface-4 transition-all duration-moderate mr-1"
         >
             <MessageSquare size={14} />
             {#if chatOpen}
-                <span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                <span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-agent"></span>
             {/if}
         </button>
 
@@ -184,7 +185,7 @@
         <button
             type="submit"
             disabled={!query.trim() || $isSwarmThinking}
-            class="ml-1 bg-white/5 hover:bg-white/10 text-white/80 rounded-full px-5 py-2 text-[10px] font-medium tracking-widest uppercase transition-all duration-300 disabled:opacity-0 disabled:translate-x-4 active:scale-95 border border-white/5"
+            class="ml-1 bg-surface-2 hover:bg-surface-4 text-fg-muted rounded-full px-5 py-2 text-3xs font-medium tracking-widest uppercase transition-all duration-moderate disabled:opacity-0 disabled:translate-x-4 active:scale-95 border border-line-subtle"
         >
             {$isSwarmThinking ? "Wait" : "Send"}
         </button>
@@ -194,12 +195,12 @@
     {#if isNewTab && query === "" && !$isSwarmThinking}
         <div
             class="mt-4 flex flex-wrap justify-center gap-2"
-            transition:fade={{ duration: 400 }}
+            transition:fade={{ duration: motion.moderate }}
         >
             {#each SUGGESTIONS as s}
                 <button
                     onclick={() => selectSuggestion(s)}
-                    class="text-[9px] text-white/30 hover:text-white/70 bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 rounded-full px-3 py-1.5 transition-all duration-300 backdrop-blur-md"
+                    class="text-3xs text-fg-faint hover:text-fg-muted bg-surface-1 hover:bg-surface-2 border border-line-subtle rounded-full px-3 py-1.5 transition-all duration-moderate backdrop-blur-md"
                 >
                     {s}
                 </button>
@@ -210,24 +211,22 @@
 
 <style>
     .agentic-bar-fixed {
-        filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.3));
+        filter: drop-shadow(0 0 20px color-mix(in srgb, var(--bucks-color-scrim) 30%, transparent));
     }
 
     form.thinking {
-        border-color: rgba(139, 92, 246, 0.3);
-        box-shadow:
-            0 0 30px rgba(139, 92, 246, 0.1),
-            0 20px 50px rgba(0, 0, 0, 0.5);
+        border-color: color-mix(in srgb, var(--bucks-color-agent) 30%, transparent);
+        box-shadow: var(--bucks-shadow-thinking);
     }
 
     input::placeholder {
-        transition: opacity 0.3s;
+        transition: opacity var(--bucks-duration-moderate);
     }
 
     form:focus-within {
-        border-color: rgba(255, 255, 255, 0.3);
+        border-color: var(--bucks-color-surface-6);
         transform: translateY(-2px);
-        background: rgba(0, 0, 0, 0.8) !important;
+        background: color-mix(in srgb, var(--bucks-color-scrim) 80%, transparent) !important;
         opacity: 1 !important;
         scale: 1 !important;
     }
