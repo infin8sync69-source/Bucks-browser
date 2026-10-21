@@ -372,8 +372,24 @@ const bucksSites = {
   },
 };
 
+/* ─── Devices: pair your other Bucks installs (hosting-bridge.js → hosting/…/devices.js) ─── */
+const bucksDevices = {
+  status: () => ipcRenderer.invoke('bucks:devices:status'),
+  pair: (p) => ipcRenderer.invoke('bucks:devices:pair', p),
+  unpair: (peerId) => ipcRenderer.invoke('bucks:devices:unpair', { peerId }),
+  rename: (name) => ipcRenderer.invoke('bucks:devices:rename', { name }),
+  share: (p) => ipcRenderer.invoke('bucks:devices:share', p),
+  dismiss: (cid, from) => ipcRenderer.invoke('bucks:devices:dismiss', { cid, from }),
+  onUpdated: (cb) => {
+    const listener = (_e, status) => cb(status);
+    ipcRenderer.on('bucks:devices:updated', listener);
+    return () => ipcRenderer.removeListener('bucks:devices:updated', listener);
+  },
+};
+
 Object.freeze(bucksAPI);
 Object.freeze(bucksSites);
+Object.freeze(bucksDevices);
 Object.freeze(nexusAPI);
 Object.freeze(bucksTabs);
 Object.freeze(bucksDocs);
@@ -383,3 +399,4 @@ contextBridge.exposeInMainWorld('nexusAPI', nexusAPI);
 contextBridge.exposeInMainWorld('bucksTabs', bucksTabs);
 contextBridge.exposeInMainWorld('bucksDocs', bucksDocs);
 contextBridge.exposeInMainWorld('bucksSites', bucksSites);
+contextBridge.exposeInMainWorld('bucksDevices', bucksDevices);

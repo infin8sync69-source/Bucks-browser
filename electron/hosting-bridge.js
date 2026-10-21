@@ -6,7 +6,8 @@
  *
  *   • It runs a pinned Kubo node, started only when the user publishes (or asks for node status).
  *     Your Helia node (ipfs-node.js) is untouched; the two never share a repo or a port.
- *   • It registers bucks:sites:* IPC handlers, callable only from this app's own shell page.
+ *   • It registers bucks:sites:* and bucks:devices:* (pairing your other installs) IPC handlers,
+ *     callable only from this app's own shell page.
  *   • serves()/handle() let the ipfs:// and ipns:// protocol handlers hand requests for sites
  *     hosted by this browser to the ported handler (SPA fallback, headers, redirects, badges).
  *
@@ -43,8 +44,9 @@ async function init({ app, ipcMain, getMainWindow }) {
   if (state) return state;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const [{ createKubo }, { createIpfsHandler }, { createSites }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
+    const [{ createKubo }, { createDevices }, { createIpfsHandler }, { createSites }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
       importHosting('src/main/ipfs/kubo.js'),
+      importHosting('src/main/ipfs/devices.js'),
       importHosting('src/main/protocols/ipfs.js'),
       importHosting('src/main/sites/ipc.js'),
       importHosting('src/main/settings-defaults.js'),
@@ -57,16 +59,32 @@ async function init({ app, ipcMain, getMainWindow }) {
 
     let saved = {};
     try { saved = JSON.parse(fs.readFileSync(path.join(userData, 'settings.json'), 'utf8')); } catch (_) { /* defaults */ }
-    const current = deepMerge(structuredClone(DEFAULT_SETTINGS), saved);
-    const settings = { get: () => structuredClone(current), onChange: () => () => {} };
+    let current = deepMerge(structuredClone(DEFAULT_SETTINGS), saved);
+    const listeners = new Set();
+    const settingsFile = path.join(userData, 'settings.json');
+    // get / set / onChange, persisted to <userData>/hosting/settings.json. Device pairings
+    // (settings.ipfs.peers) and the device name are written through set().
+    const settings = {
+      get: () => structuredClone(current),
+      set(patch) {
+        current = deepMerge(current, patch);
+        try { fs.writeFileSync(settingsFile, JSON.stringify(current, null, 2)); } catch (e) { console.error('[Hosting] settings not saved:', e.message); }
+        const snap = structuredClone(current);
+        for (const cb of listeners) { try { cb(snap); } catch (_) { /* a listener must not break set() */ } }
+        return snap;
+      },
+      onChange(cb) { listeners.add(cb); return () => listeners.delete(cb); },
+    };
 
     const resourcesDir = app.isPackaged ? process.resourcesPath : path.join(HOSTING_DIR, 'resources');
     const kubo = createKubo({ settings, userData, resourcesDir, getMainWindow });
     const handler = createIpfsHandler({ kubo, settings });
 
     const ensureNode = async () => { if (!kubo.isReady()) await kubo.start(); };
+    // Pairing with your other Bucks installs (bucks:devices:*). Quiet until the node is running.
+    const devices = createDevices({ kubo, settings, userData, getMainWindow, isAllowedSender: isFileShell });
     const { service } = createSites({
-      kubo, settings, userData, handler, devices: null, getMainWindow,
+      kubo, settings, userData, handler, devices, getMainWindow,
       isAllowedSender: isFileShell,
       beforeCall: async (channel) => { if (NEEDS_NODE.has(channel)) await ensureNode(); },
     });
@@ -83,7 +101,7 @@ async function init({ app, ipcMain, getMainWindow }) {
       return kubo.status();
     });
 
-    state = { kubo, service, handler, settings, userData };
+    state = { kubo, service, handler, settings, userData, devices };
     return state;
   })();
   try { return await initPromise; } finally { initPromise = null; }
