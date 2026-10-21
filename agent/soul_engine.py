@@ -1730,7 +1730,10 @@ async def agent(req: Request) -> StreamingResponse:
             # relying on the small model to pick the tool — that was
             # unreliable and natural queries never reached them. Each path
             # renders its component directly and streams a short answer.
-            if _is_shopping(message):
+            # Not when the user asked the agent to act in their tab: "click the
+            # Buy now button" is a page action, not a shopping search.
+            shortcuts = not agentic
+            if shortcuts and _is_shopping(message):
                 handled = "shopping"
                 is_more = "--more" in message.lower()
                 shop_q = _re.sub(r"\s*--more\b", "", _shop_query(message), flags=_re.I).strip()
@@ -1752,7 +1755,7 @@ async def agent(req: Request) -> StreamingResponse:
                     yield sse({"type": "token", "content": piece})
                 final_result = intro
 
-            elif _is_weather(message):
+            elif shortcuts and _is_weather(message):
                 handled = "weather"
                 place = _weather_place(message)
                 yield sse({"type": "thinking", "content": "Checking the forecast…"})
@@ -1767,7 +1770,7 @@ async def agent(req: Request) -> StreamingResponse:
                     yield sse({"type": "token", "content": piece})
                 final_result = result
 
-            elif _is_video(message):
+            elif shortcuts and _is_video(message):
                 handled = "video"
                 is_more = "--more" in message.lower()
                 media_q = _re.sub(r"\s*--more\b", "", _media_query(message), flags=_re.I).strip()
@@ -1789,7 +1792,7 @@ async def agent(req: Request) -> StreamingResponse:
                     emitted_ui = True
                 final_result = intro
 
-            elif _is_images(message):
+            elif shortcuts and _is_images(message):
                 handled = "images"
                 is_more = any(k in message.lower() for k in ["--more", "more", "additional", "load more"])
                 media_q = _media_query(message)
@@ -1812,7 +1815,7 @@ async def agent(req: Request) -> StreamingResponse:
                     yield sse({"type": "token", "content": piece})
                 final_result = intro
 
-            elif _is_research(message):
+            elif shortcuts and _is_research(message):
                 handled = "research"
                 topic = _research_topic(message)
                 yield sse({"type": "thinking", "content": f"Researching “{topic}” — gathering sources & images…"})

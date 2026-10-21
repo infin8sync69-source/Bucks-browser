@@ -65,12 +65,14 @@
 
   function execInWebview(wv, code) {
     return new Promise((resolve, reject) => {
-      if (!wv || typeof wv.executeJavaScript !== 'function') {
+      if (!wv || (typeof wv.executeAgentJavaScript !== 'function' && typeof wv.executeJavaScript !== 'function')) {
         return reject(new Error('No active web tab to act on.'));
       }
       try {
-        // userGesture=true so clicks/focus behave like real input.
-        wv.executeJavaScript(code, true).then(resolve).catch(reject);
+        // userGesture=true so clicks/focus behave like real input. Tab views run the
+        // script in an isolated world so the page cannot tamper with it.
+        const run = typeof wv.executeAgentJavaScript === 'function' ? wv.executeAgentJavaScript : wv.executeJavaScript;
+        run.call(wv, code, true).then(resolve).catch(reject);
       } catch (e) {
         reject(e);
       }
@@ -311,7 +313,13 @@
     }
   }
 
+  // Tools that change the page or the workspace. The renderer asks for the user's Allow on
+  // these whatever the engine flagged (the engine's needs_approval is not trusted alone).
+  const STATE_CHANGING = new Set(['browser_click', 'browser_type', 'browser_navigate', 'pane_open', 'pane_close']);
+  const requiresApproval = (name) => STATE_CHANGING.has(name);
+
   window.__bucksBrowserControl = {
+    requiresApproval,
     bind(fn) { getActiveWebview = fn; },
     bindPanes(api) { paneApi = api; },
     execute,

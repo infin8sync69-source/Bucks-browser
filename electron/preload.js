@@ -320,6 +320,7 @@ const bucksTabs = {
   find: (tabId, text, options) => ipcRenderer.invoke('tabs:find', { tabId, text, options }),
   stopFind: (tabId, action) => ipcRenderer.invoke('tabs:stopFind', { tabId, action }),
   execJS: (tabId, code, userGesture) => ipcRenderer.invoke('tabs:execJS', { tabId, code, userGesture }),
+  execAgentJS: (tabId, code, userGesture) => ipcRenderer.invoke('tabs:execAgentJS', { tabId, code, userGesture }),
   capture: (tabId) => ipcRenderer.invoke('tabs:capture', { tabId }),
   printToPDF: (tabId, title) => ipcRenderer.invoke('tabs:printToPDF', { tabId, title }),
   getURL: (tabId) => ipcRenderer.invoke('tabs:getURL', { tabId }),

@@ -5726,7 +5726,7 @@
       const pendingEv = _pendingBrowserActions.get(actionId);
       if (pendingEv) {
         _pendingBrowserActions.delete(actionId);
-        await _executeBrowserAction(pendingEv);
+        await _executeBrowserAction(pendingEv, true);
         if (row) row.innerHTML = '<span style="font-size:10px;color:rgba(80,220,140,0.8);">&#10003; Done</span>';
       }
     } catch (_) {}
@@ -6166,6 +6166,7 @@
   function stopAgenticTask() {
     agentStopped = true;
     if (agentAbort) { try { agentAbort.abort(); } catch (_) {} }
+    _pendingBrowserActions.clear();
   }
   window.stopAgenticTask = stopAgenticTask;
 
@@ -6181,12 +6182,12 @@
 
   async function handleAgentToolRequest(ev) {
     if (agentStopped) { await postToolResult(ev.id, 'Stopped by user.'); return; }
-    const needsApproval = ev.confirm || ev.needs_approval;
     let result;
     try {
       if (!window.__bucksBrowserControl) throw new Error('Browser control unavailable');
+      const needsApproval = ev.confirm || ev.needs_approval || window.__bucksBrowserControl.requiresApproval(ev.name);
 
-      if (needsApproval && !window.nexusAPI) {
+      if (needsApproval) {
         const ok = window.confirm(
           `Bucks agent wants to run ${ev.name}(${JSON.stringify(ev.args)}).\n\nAllow?`
         );
@@ -6216,7 +6217,7 @@
         // so _nxApprove can execute them after the user confirms.
         if (ev && ev.type === 'browser_action') {
           if (!ev.needs_approval) {
-            _executeBrowserAction(ev);
+            _executeBrowserAction(ev, false);
           } else if (ev.action_id) {
             _pendingBrowserActions.set(ev.action_id, ev);
           }
@@ -6234,11 +6235,17 @@
   }
 
   // Execute a browser_action event from the soul engine and post the result back.
-  async function _executeBrowserAction(ev) {
+  async function _executeBrowserAction(ev, approved = true) {
     if (agentStopped) { await postToolResult(ev.id, 'Stopped by user.'); return; }
     let result;
     try {
       if (!window.__bucksBrowserControl) throw new Error('Browser control unavailable');
+      // Clicking, typing and navigating need the user's Allow even when the engine did not
+      // ask for it. An unapproved one is refused, never run.
+      if (!approved && window.__bucksBrowserControl.requiresApproval(ev.name)) {
+        await postToolResult(ev.id, `Action '${ev.name}' needs the user's approval and was not run.`);
+        return;
+      }
       result = await window.__bucksBrowserControl.execute(ev.name, ev.args || {});
     } catch (e) {
       result = 'Tool error: ' + ((e && e.message) || String(e));

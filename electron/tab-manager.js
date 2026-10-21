@@ -356,6 +356,15 @@ function setupTabIPC() {
     return rec.view.webContents.executeJavaScript(code, !!userGesture);
   });
 
+  // The agent's page scripts run in an isolated world: the page shares the DOM but cannot
+  // read or tamper with the script, its variables or its results (see agent-browser-control.js).
+  const AGENT_WORLD_ID = 1017;
+  ipcMain.handle('tabs:execAgentJS', async (_e, { tabId, code, userGesture }) => {
+    const rec = _get(tabId);
+    if (!rec) throw new Error('No such tab');
+    return rec.view.webContents.executeJavaScriptInIsolatedWorld(AGENT_WORLD_ID, [{ code: String(code) }], !!userGesture);
+  });
+
   ipcMain.handle('tabs:capture', async (_e, { tabId }) => {
     const rec = _get(tabId);
     if (!rec) throw new Error('No such tab');

@@ -145,6 +145,10 @@
     executeJavaScript(code, userGesture) {
       return window.bucksTabs.execJS(this.tabViewId, code, !!userGesture);
     }
+    // Same, in the agent's isolated world (the page cannot see or tamper with it).
+    executeAgentJavaScript(code, userGesture) {
+      return window.bucksTabs.execAgentJS(this.tabViewId, code, !!userGesture);
+    }
     capturePageBase64() { return window.bucksTabs.capture(this.tabViewId); }
     // Paint above sibling views (re-adding as last child raises — tab-manager).
     raise() { return window.bucksTabs.setVisible(this.tabViewId, true); }
