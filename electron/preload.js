@@ -51,6 +51,7 @@ const bucksAPI = {
 
   /* ─── Ad-blocker & Events ─── */
   getBlockedCount: () => ipcRenderer.invoke('get-blocked-count'),
+  getWeather: (city) => ipcRenderer.invoke('widgets:weather', { city }),
   toggleAdBlock: (enabled) => ipcRenderer.send('toggle-adblock', enabled),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   // V2: deferred to next release — wallet access approval UI bridge

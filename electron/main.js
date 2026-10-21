@@ -69,6 +69,7 @@ const fs = require('fs');
 const http = require('http');
 const { createRequestFilter, setSharedFilter } = require('./security/request-filter');
 const { createEngineLoader } = require('./security/engine');
+const { installWeather } = require('./weather');
 
 // Helia / undici polyfill for File, CustomEvent, and WebCrypto
 const { File } = require('buffer');
@@ -463,6 +464,9 @@ function setupIPC() {
   ipcMain.on('toggle-adblock', (_e, enabled) => {
     applyFilterSettings({ ...loadSettings(), adBlockEnabled: enabled });
   });
+
+  // New-tab weather widget (Open-Meteo; only the city name leaves the machine)
+  installWeather({ fetchImpl: (...args) => net.fetch(...args) });
 
   // Platform info
   ipcMain.handle('get-platform', () => process.platform);

@@ -240,7 +240,8 @@
     try {
       const stored = localStorage.getItem('bucks-widgets');
       if (stored) {
-        widgets = JSON.parse(stored);
+        // Drop the retired markets widget: it showed fixed sample prices.
+        widgets = JSON.parse(stored).filter((w) => w.type !== 'markets' && w.type !== 'stocks');
       } else {
         widgets = [
           { uid: 1, type: 'clock', x: 24, y: 14, w: 410, h: 150, z: 1 },
@@ -310,6 +311,141 @@
     });
   }
 
+  /* Widget content is real or entered by the user; none of it is sample data. */
+  const WIDGET_LABEL = 'font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45);';
+  const WIDGET_INPUT = 'flex:1; min-width:0; padding:7px 10px; border-radius:9px; border:1px solid rgba(255,255,255,0.16); background:rgba(255,255,255,0.07); color:#fff; font-family:inherit; font-size:13px; outline:none;';
+  const WIDGET_BTN = 'padding:7px 11px; border-radius:9px; border:none; cursor:pointer; font-weight:700; font-size:12px; color:#1c1c1f; background:#fff;';
+  const WIDGET_LINK = 'background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.5); font-size:11px; font-family:inherit; padding:0;';
+  const WEATHER_TTL_MS = 15 * 60 * 1000;
+  const weatherCache = new Map(); // lower-case city -> { at, report }
+
+  const widgetError = (e) => String((e && e.message) || e || 'Something went wrong')
+    .replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
+
+  function renderWeatherWidget(content, w) {
+    const head = (extra = '') => `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;"><span style="${WIDGET_LABEL}">WEATHER${w.city ? ' · ' + escapeHtml(w.city).toUpperCase() : ''}</span>${extra}</div>`;
+    const askCity = (msg) => {
+      content.innerHTML = head() + (msg ? `<div style="font-size:12px; color:#ff8a8a; margin-bottom:8px;">${escapeHtml(msg)}</div>` : '')
+        + `<form style="display:flex; gap:6px;"><input style="${WIDGET_INPUT}" placeholder="Your city" maxlength="80" aria-label="City"><button type="submit" style="${WIDGET_BTN}">Show</button></form>`;
+      content.querySelector('form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const v = content.querySelector('input').value.trim();
+        if (!v) return;
+        w.city = v;
+        saveWidgets();
+        renderWeatherWidget(content, w);
+      });
+    };
+    if (!w.city) return askCity('');
+
+    const draw = (r) => {
+      const unit = r.units.temperature;
+      const days = (r.days || []).map((d) => {
+        const day = new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' });
+        return `<div style="display:flex; flex-direction:column; align-items:center; gap:3px;"><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">${escapeHtml(day)}</span><span style="font-size:12.5px; font-weight:600;">${Math.round(d.max)}°</span><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">${Math.round(d.min)}°</span></div>`;
+      }).join('');
+      content.innerHTML = head(`<button class="widget-city-change" style="${WIDGET_LINK}">change</button>`)
+        + `<div style="display:flex; align-items:baseline; gap:9px;"><span style="font-family:'Sora',sans-serif; font-weight:700; font-size:40px; line-height:1;">${Math.round(r.temperature)}${escapeHtml(unit)}</span><span style="font-size:14px; color:rgba(255,255,255,0.7);">${escapeHtml(r.label)}</span></div>`
+        + `<div style="display:flex; gap:16px; margin-top:12px;">${days}</div>`;
+      content.querySelector('.widget-city-change').addEventListener('click', (e) => {
+        e.stopPropagation();
+        w.city = '';
+        saveWidgets();
+        renderWeatherWidget(content, w);
+      });
+    };
+
+    const key = w.city.toLowerCase();
+    const hit = weatherCache.get(key);
+    if (hit) draw(hit.report);
+    else content.innerHTML = head() + `<div style="font-size:13px; color:rgba(255,255,255,0.5);">Loading…</div>`;
+    if (hit && Date.now() - hit.at < WEATHER_TTL_MS) return;
+    if (!window.bucksAPI || !window.bucksAPI.getWeather) return;
+    window.bucksAPI.getWeather(w.city).then((report) => {
+      weatherCache.set(key, { at: Date.now(), report });
+      if (content.isConnected && w.city && w.city.toLowerCase() === key) draw(report);
+    }).catch((e) => {
+      if (content.isConnected && !hit) askCity(widgetError(e));
+    });
+  }
+
+  function renderAgendaWidget(content, w) {
+    if (!Array.isArray(w.items)) w.items = [];
+    const rows = w.items.map((it, i) => `<div style="display:flex; align-items:center; gap:11px;"><span style="font-size:12.5px; color:rgba(255,255,255,0.5); width:46px; flex:none;">${escapeHtml(it.time || '')}</span><span style="flex:1; min-width:0; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(it.text)}</span><button data-i="${i}" class="widget-agenda-del" style="${WIDGET_LINK}" aria-label="Remove">✕</button></div>`).join('');
+    content.innerHTML = `<div style="${WIDGET_LABEL} margin-bottom:8px;">TODAY</div>`
+      + `<div style="font-family:'Sora',sans-serif; font-weight:700; font-size:24px; margin-bottom:10px;">${getFormattedDate(true)}</div>`
+      + `<div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">${rows || '<div style="font-size:12.5px; color:rgba(255,255,255,0.45);">Nothing planned.</div>'}</div>`
+      + `<form style="display:flex; gap:6px;"><input style="${WIDGET_INPUT}" placeholder="9:30 Standup" maxlength="120" aria-label="Add to agenda"><button type="submit" style="${WIDGET_BTN}">Add</button></form>`;
+    content.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const raw = content.querySelector('input').value.trim();
+      if (!raw) return;
+      const m = /^(\d{1,2}[:.]\d{2})\s+(.+)$/.exec(raw);
+      w.items.push(m ? { time: m[1].replace('.', ':'), text: m[2] } : { time: '', text: raw });
+      if (w.items.length > 50) w.items.shift();
+      saveWidgets();
+      renderAgendaWidget(content, w);
+    });
+    content.querySelectorAll('.widget-agenda-del').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      w.items.splice(Number(b.dataset.i), 1);
+      saveWidgets();
+      renderAgendaWidget(content, w);
+    }));
+  }
+
+  function renderNotesWidget(content, w) {
+    content.innerHTML = `<div style="${WIDGET_LABEL} margin-bottom:8px;">NOTES</div>`
+      + `<textarea class="widget-notes-text" placeholder="Write something…" maxlength="5000" style="${WIDGET_INPUT} width:100%; height:calc(100% - 28px); resize:none; box-sizing:border-box; line-height:1.5;"></textarea>`;
+    const ta = content.querySelector('textarea');
+    ta.value = w.text || '';
+    let t = null;
+    ta.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => { w.text = ta.value; saveWidgets(); }, 400);
+    });
+  }
+
+  // Tabs that are making sound right now. The widget lists them; clicking one switches to it.
+  function renderNowPlaying(el) {
+    if (!el) return;
+    const playing = tabs.filter((t) => t.audible);
+    if (!playing.length) {
+      el.innerHTML = `<div style="font-size:13px; color:rgba(255,255,255,0.5);">Nothing is playing in your tabs.</div>`;
+      return;
+    }
+    el.innerHTML = playing.slice(0, 4).map((t) => {
+      let host = '';
+      try { host = new URL(t.url).hostname.replace(/^www\./, ''); } catch (_) { /* not a URL */ }
+      return `<button data-tab="${escapeHtml(String(t.id))}" class="widget-np-item" style="display:block; width:100%; text-align:left; background:none; border:none; cursor:pointer; color:#fff; padding:5px 0; font-family:inherit;"><div style="font-size:14px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.title || host || 'Untitled')}</div><div style="font-size:12px; color:rgba(255,255,255,0.55);">${escapeHtml(host)}</div></button>`;
+    }).join('');
+    el.querySelectorAll('.widget-np-item').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const t = tabs.find((x) => String(x.id) === b.dataset.tab);
+      if (t) setActiveTab(t.id);
+    }));
+  }
+
+  // The active space and its open tabs.
+  function renderSpaceTabs(el) {
+    if (!el) return;
+    const space = spaces.find((sp) => sp.id === activeSpaceId);
+    const inSpace = tabs.filter((t) => (t.spaceId || 'default') === activeSpaceId);
+    const rows = inSpace.slice(0, 4).map((t) => `<button data-tab="${escapeHtml(String(t.id))}" class="widget-space-tab" style="display:block; width:100%; text-align:left; background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.8); padding:3px 0; font-family:inherit; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.title || t.url || 'New tab')}</button>`).join('');
+    el.innerHTML = `<div style="font-family:'Sora',sans-serif; font-weight:700; font-size:22px;">${escapeHtml((space && space.name) || 'Space')}</div>`
+      + `<div style="font-size:13px; color:rgba(255,255,255,0.55); margin-bottom:8px;">${inSpace.length} ${inSpace.length === 1 ? 'tab' : 'tabs'}</div>${rows}`;
+    el.querySelectorAll('.widget-space-tab').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const t = tabs.find((x) => String(x.id) === b.dataset.tab);
+      if (t) setActiveTab(t.id);
+    }));
+  }
+
+  function refreshTabWidgets() {
+    $$('.widget-nowplaying').forEach(renderNowPlaying);
+    $$('.widget-spacetabs').forEach(renderSpaceTabs);
+  }
+
   function renderWidgets() {
     const board = $('#widgets-board');
     if (!board) return;
@@ -354,43 +490,12 @@
           </div>
         `;
       } else if (w.type === 'weather') {
-        content.innerHTML = `
-          <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:8px;">WEATHER · LISBON</div>
-          <div style="display:flex; align-items:baseline; gap:9px;"><span style="font-family:'Sora',sans-serif; font-weight:700; font-size:40px; line-height:1;">23°</span><span style="font-size:14px; color:rgba(255,255,255,0.6);">Clear</span></div>
-          <div style="display:flex; gap:14px; margin-top:14px;">
-            <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">Mon</span><span style="font-size:13.5px; font-weight:600;">23°</span></div>
-            <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">Tue</span><span style="font-size:13.5px; font-weight:600;">21°</span></div>
-            <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">Wed</span><span style="font-size:13.5px; font-weight:600;">20°</span></div>
-            <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="font-size:11.5px; color:rgba(255,255,255,0.45);">Thu</span><span style="font-size:13.5px; font-weight:600;">22°</span></div>
-          </div>
-        `;
+        renderWeatherWidget(content, w);
       } else if (w.type === 'calendar') {
-        content.innerHTML = `
-          <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:8px;">TODAY</div>
-          <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:24px; margin-bottom:12px;">${getFormattedDate(true)}</div>
-          <div style="display:flex; flex-direction:column; gap:9px;">
-            <div style="display:flex; align-items:center; gap:11px;"><span style="font-size:12.5px; color:rgba(255,255,255,0.5); width:46px; flex:none;">10:00</span><span style="width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.7); flex:none;"></span><span style="font-size:13.5px; font-weight:500;">Standup</span></div>
-            <div style="display:flex; align-items:center; gap:11px;"><span style="font-size:12.5px; color:rgba(255,255,255,0.5); width:46px; flex:none;">14:30</span><span style="width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.7); flex:none;"></span><span style="font-size:13.5px; font-weight:500;">Design review</span></div>
-            <div style="display:flex; align-items:center; gap:11px;"><span style="font-size:12.5px; color:rgba(255,255,255,0.5); width:46px; flex:none;">17:00</span><span style="width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.7); flex:none;"></span><span style="font-size:13.5px; font-weight:500;">1:1 with Sam</span></div>
-          </div>
-        `;
+        renderAgendaWidget(content, w);
       } else if (w.type === 'music') {
-        content.innerHTML = `
-          <div style="display:flex; align-items:center; gap:16px; height:100%;">
-            <div style="flex:none; width:60px; height:60px; border-radius:13px; background: var(--bucks-bg-surface); box-shadow: var(--bucks-shadow-md); display:flex; align-items:center; justify-content:center; font-size:24px;"></div>
-            <div style="flex:1; min-width:0;">
-              <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:4px;">NOW PLAYING</div>
-              <div style="font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Deeper Well</div>
-              <div style="font-size:13px; color:rgba(255,255,255,0.55);">Kacey Musgraves</div>
-              <div style="margin-top:9px; height:4px; border-radius:99px; background:rgba(255,255,255,0.16);"><div style="width:38%; height:100%; border-radius:99px; background: var(--bucks-bg-surface);"></div></div>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <svg class="music-ctrl-btn" width="18" height="18" viewBox="0 0 24 24" fill="#fff" style="cursor:pointer;"><path d="M7 6v12M9 12l9-6v12z"></path></svg>
-              <svg class="music-ctrl-btn" width="22" height="22" viewBox="0 0 24 24" fill="#fff" style="cursor:pointer;"><path d="M8 5h3v14H8zM13 5h3v14h-3z"></path></svg>
-              <svg class="music-ctrl-btn" width="18" height="18" viewBox="0 0 24 24" fill="#fff" style="cursor:pointer;"><path d="M17 6v12M15 12L6 6v12z"></path></svg>
-            </div>
-          </div>
-        `;
+        content.innerHTML = `<div style="${WIDGET_LABEL} margin-bottom:8px;">NOW PLAYING</div><div class="widget-nowplaying"></div>`;
+        renderNowPlaying(content.querySelector('.widget-nowplaying'));
       } else if (w.type === 'agent') {
         content.innerHTML = `
           <div style="display:flex; align-items:center; gap:9px; margin-bottom:12px;">
@@ -410,36 +515,11 @@
             sendChat(btn.getAttribute('data-query'));
           });
         });
-      } else if (w.type === 'markets' || w.type === 'stocks') {
-        content.innerHTML = `
-          <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:10px;">MARKETS</div>
-          <div style="display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; align-items:center;"><span style="font-size:14px; font-weight:700; width:56px;">AAPL</span><span style="font-size:13px; color:rgba(255,255,255,0.6);">228.5</span><span style="margin-left:auto; font-size:13px; font-weight:600; color:#fff;">▲ 1.2%</span></div>
-            <div style="display:flex; align-items:center;"><span style="font-size:14px; font-weight:700; width:56px;">NVDA</span><span style="font-size:13px; color:rgba(255,255,255,0.6);">132.1</span><span style="margin-left:auto; font-size:13px; font-weight:600; color:#fff;">▲ 3.4%</span></div>
-            <div style="display:flex; align-items:center;"><span style="font-size:14px; font-weight:700; width:56px;">TSLA</span><span style="font-size:13px; color:rgba(255,255,255,0.6);">214.8</span><span style="margin-left:auto; font-size:13px; font-weight:600; color:rgba(255,255,255,0.45);">▼ 0.8%</span></div>
-          </div>
-        `;
       } else if (w.type === 'notes') {
-        content.innerHTML = `
-          <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:10px;">NOTES</div>
-          <div style="display:flex; flex-direction:column; gap:9px;">
-            <div style="display:flex; align-items:flex-start; gap:9px; font-size:13.5px; color:rgba(255,255,255,0.85);"><span style="width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,0.6); margin-top:7px; flex:none;"></span>Ship the monochrome design system</div>
-            <div style="display:flex; align-items:flex-start; gap:9px; font-size:13.5px; color:rgba(255,255,255,0.85);"><span style="width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,0.6); margin-top:7px; flex:none;"></span>Follow up: Lisbon flight options</div>
-            <div style="display:flex; align-items:flex-start; gap:9px; font-size:13.5px; color:rgba(255,255,255,0.85);"><span style="width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,0.6); margin-top:7px; flex:none;"></span>Renew bucks.ai domain</div>
-          </div>
-        `;
+        renderNotesWidget(content, w);
       } else if (w.type === 'space') {
-        content.innerHTML = `
-          <div style="font-size:11px; font-weight:700; letter-spacing:0.07em; color:rgba(255,255,255,0.45); margin-bottom:8px;">SPACE</div>
-          <div style="font-family:'Sora',sans-serif; font-weight:700; font-size:22px;">Work</div>
-          <div style="font-size:13px; color:rgba(255,255,255,0.55); margin-bottom:12px;">4 tabs · resume</div>
-          <div style="display:flex; gap:7px;">
-            <span style="width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14);"></span>
-            <span style="width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14);"></span>
-            <span style="width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14);"></span>
-            <span style="width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.14);"></span>
-          </div>
-        `;
+        content.innerHTML = `<div style="${WIDGET_LABEL} margin-bottom:8px;">SPACE</div><div class="widget-spacetabs"></div>`;
+        renderSpaceTabs(content.querySelector('.widget-spacetabs'));
       }
       
       tile.appendChild(content);
@@ -473,7 +553,6 @@
       music: [400, 150],
       agent: [300, 210],
       notes: [290, 210],
-      markets: [270, 210],
       space: [240, 180]
     };
     const sz = defaultSizes[type] || [280, 180];
@@ -829,6 +908,11 @@
       if (tab.id === activeTabId) updateSecurityIcon('insecure');
     });
 
+    wv.addEventListener('audio-state', (e) => {
+      tab.audible = !!e.audible;
+      refreshTabWidgets();
+    });
+
     wv.addEventListener('did-navigate-in-page', (e) => {
       tab.url = e.url;
       if (tab.id === activeTabId) {
@@ -1138,6 +1222,7 @@
     // Don't blow away the DOM while the user is typing a new tab name
     if (_renamingTabId !== null) return;
 
+    refreshTabWidgets();
     tabsContainer.innerHTML = '';
 
     // Only display tabs belonging to the active Space

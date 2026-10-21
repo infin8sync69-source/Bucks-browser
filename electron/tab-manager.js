@@ -89,6 +89,11 @@ function _wireEvents(tabId, winId, view) {
     event.preventDefault();
     send('shortcut', chord);
   });
+  // Which tabs are making sound (the new tab's "Now playing" widget).
+  const sendAudible = () => { try { send('audio-state', { audible: wc.isCurrentlyAudible() }); } catch (_) { /* destroyed */ } };
+  wc.on('audio-state-changed', sendAudible);
+  wc.on('media-started-playing', sendAudible);
+  wc.on('media-paused', sendAudible);
   wc.on('found-in-page', (_e, result) => send('found-in-page', { result }));
   // Clicking into a page focuses its webContents — the shell uses this to
   // track which pane is focused when a tab hosts several (pane-manager.js).
