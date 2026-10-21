@@ -59,3 +59,9 @@ agent/soul/.frozen_cid_cache
 
 # Hosting: downloaded Kubo binaries (npm run fetch:kubo in electron/hosting)
 electron/hosting/resources/
+
+# Local tooling / scratch
+.claude/
+*.bak
+bucks-browser-dist.tar.gz
+electron/screenshot_*.png
