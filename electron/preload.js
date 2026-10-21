@@ -413,10 +413,37 @@ const bucksIpfs = {
   },
 };
 
+/* ─── Installed apps: IPFS app packages, each in its own container (hosting/…/apps) ─── */
+const bucksApps = {
+  chooseFolder: () => ipcRenderer.invoke('bucks:apps:choose-folder'),
+  /** { address } (ipfs://, ipns://, k51…) | { folderToken } | { siteId } → a review with a single-use token */
+  inspect: (source) => ipcRenderer.invoke('bucks:apps:inspect', source),
+  install: (token, granted) => ipcRenderer.invoke('bucks:apps:install', granted ? { token, granted } : { token }),
+  list: () => ipcRenderer.invoke('bucks:apps:list'),
+  get: (id) => ipcRenderer.invoke('bucks:apps:get', { id }),
+  icon: (id) => ipcRenderer.invoke('bucks:apps:icon', { id }),
+  launch: (id) => ipcRenderer.invoke('bucks:apps:launch', { id }),
+  checkUpdate: (id) => ipcRenderer.invoke('bucks:apps:check-update', { id }),
+  update: (id, confirm) => ipcRenderer.invoke('bucks:apps:update', { id, confirm: confirm === true }),
+  rollback: (id) => ipcRenderer.invoke('bucks:apps:rollback', { id }),
+  setPermission: (id, permission, granted) => ipcRenderer.invoke('bucks:apps:set-permission', { id, permission, granted }),
+  uninstall: (id) => ipcRenderer.invoke('bucks:apps:uninstall', { id }),
+  publish: (id) => ipcRenderer.invoke('bucks:apps:publish', { id }),
+  hostedSites: () => ipcRenderer.invoke('bucks:apps:hosted-sites'),
+  // The agent's app_* tools; the main process asks the user before installing, using, updating or removing.
+  agentTool: (name, args) => ipcRenderer.invoke('bucks:apps:agent-tool', { name, args }),
+  onEvent: (cb) => {
+    const listener = (_e, event) => cb(event);
+    ipcRenderer.on('bucks:apps:event', listener);
+    return () => ipcRenderer.removeListener('bucks:apps:event', listener);
+  },
+};
+
 Object.freeze(bucksAPI);
 Object.freeze(bucksSites);
 Object.freeze(bucksDevices);
 Object.freeze(bucksIpfs);
+Object.freeze(bucksApps);
 Object.freeze(nexusAPI);
 Object.freeze(bucksTabs);
 Object.freeze(bucksDocs);
@@ -428,3 +455,4 @@ contextBridge.exposeInMainWorld('bucksDocs', bucksDocs);
 contextBridge.exposeInMainWorld('bucksSites', bucksSites);
 contextBridge.exposeInMainWorld('bucksDevices', bucksDevices);
 contextBridge.exposeInMainWorld('bucksIpfs', bucksIpfs);
+contextBridge.exposeInMainWorld('bucksApps', bucksApps);

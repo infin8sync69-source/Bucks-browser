@@ -215,15 +215,21 @@
   }
 
   // Dispatcher. Names mirror the browser_control tool schemas in soul_engine.py.
-  // The Soul Engine's hosting tools run in the main process (hosting-bridge.js), which asks the
-  // user itself before anything is published, so they are not in STATE_CHANGING below.
+  // The Soul Engine's hosting and app tools run in the main process (hosting-bridge.js), which
+  // asks the user itself before anything is published, installed, used or removed, so they are
+  // not in STATE_CHANGING below.
   const SITE_TOOLS = new Set(['site_inspect', 'site_publish', 'site_update', 'site_status']);
+  const APP_TOOLS = new Set(['app_list', 'app_install', 'app_open', 'app_call', 'app_update', 'app_uninstall']);
 
   async function execute(name, args) {
     args = args || {};
     if (SITE_TOOLS.has(name)) {
       if (!window.bucksSites || !window.bucksSites.agentTool) return 'Site hosting is not available in this browser.';
       return window.bucksSites.agentTool(name, args);
+    }
+    if (APP_TOOLS.has(name)) {
+      if (!window.bucksApps || !window.bucksApps.agentTool) return 'Apps are not available in this browser.';
+      return window.bucksApps.agentTool(name, args);
     }
     const wv = resolveWv(args);
 

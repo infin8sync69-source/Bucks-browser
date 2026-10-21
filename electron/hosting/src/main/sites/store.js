@@ -1,11 +1,9 @@
-// sites.json: the sites this browser hosts (docs/IPFS-HOSTING-IMPLEMENTATION.md §8.1). Written
-// atomically (temp file + rename, one write at a time) and schema-versioned. A file from a newer
-// Bucks is read but never overwritten, so a downgrade cannot destroy it. The file is re-read when
-// another process changed it (the app and scripts/site.mjs share it). No Electron imports.
+// sites.json: the sites this browser hosts (docs/IPFS-HOSTING-IMPLEMENTATION.md §8.1), kept by the
+// shared record store (src/main/lib/record-store.js): atomic writes, schema-versioned (a file from a
+// newer Bucks is read but never overwritten), re-read when another process changed it (the app and
+// scripts/site.mjs share it). This module validates the records. No Electron imports.
 
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
+import { createRecordStore } from '../lib/record-store.js';
 
 export const STORE_VERSION = 1;
 const MAX_SITES = 500;
@@ -66,98 +64,5 @@ export function migrate(raw) {
  * @param {{ file: string, log?: { warn: Function, error: Function } }} opts
  */
 export function createSiteStore({ file, log = { warn() {}, error() {} } }) {
-  let readOnly = false;
-  let stamp = null;
-  let sites = load();
-
-  function stampOf() {
-    try {
-      const st = fs.statSync(file);
-      return `${st.ino}:${st.mtimeMs}:${st.size}`; // every atomic write is a new inode
-    } catch {
-      return null;
-    }
-  }
-
-  /** Pick up a change another process made since we last read or wrote the file. */
-  function refresh() {
-    const now = stampOf();
-    if (now !== stamp) sites = load();
-  }
-
-  function load() {
-    stamp = stampOf();
-    let raw;
-    try {
-      raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (e) {
-      if (e.code !== 'ENOENT') {
-        log.warn(`${file} is unreadable (${e.message}); keeping it as ${path.basename(file)}.corrupt and starting empty`);
-        try { fs.renameSync(file, `${file}.corrupt`); } catch { /* best effort */ }
-      }
-      return [];
-    }
-    const data = migrate(raw);
-    if (data.version > STORE_VERSION) {
-      readOnly = true;
-      log.warn(`${file} was written by a newer Bucks (schema ${data.version}); it will not be changed`);
-    }
-    const seen = new Set();
-    const out = [];
-    for (const s of data.sites.slice(0, MAX_SITES)) {
-      const clean = sanitizeSite(s);
-      if (clean && !seen.has(clean.id)) { seen.add(clean.id); out.push(clean); }
-    }
-    return out;
-  }
-
-  let writing = Promise.resolve();
-  function persist() {
-    if (readOnly) return Promise.reject(new Error('The sites list was written by a newer version of Bucks and cannot be changed here.'));
-    const data = JSON.stringify({ version: STORE_VERSION, sites }, null, 2);
-    writing = writing.catch(() => {}).then(async () => {
-      const tmp = `${file}.${process.pid}.tmp`;
-      await fsp.mkdir(path.dirname(file), { recursive: true });
-      await fsp.writeFile(tmp, data, { mode: 0o600 });
-      await fsp.rename(tmp, file);
-      stamp = stampOf();
-    });
-    return writing;
-  }
-
-  return {
-    file,
-    get readOnly() { return readOnly; },
-    list: () => {
-      refresh();
-      return sites.map((s) => structuredClone(s));
-    },
-    get: (id) => {
-      refresh();
-      const s = sites.find((x) => x.id === id);
-      return s ? structuredClone(s) : null;
-    },
-    /** Insert or replace a site (validated); resolves once it is on disk. */
-    async put(site) {
-      const clean = sanitizeSite(site);
-      if (!clean) throw new Error('Invalid site record');
-      refresh();
-      const i = sites.findIndex((x) => x.id === clean.id);
-      if (i === -1) {
-        if (sites.length >= MAX_SITES) throw new Error(`At most ${MAX_SITES} sites can be hosted`);
-        sites = [...sites, clean];
-      } else {
-        sites = sites.map((x, j) => (j === i ? clean : x));
-      }
-      await persist();
-      return structuredClone(clean);
-    },
-    async remove(id) {
-      refresh();
-      const before = sites.length;
-      sites = sites.filter((x) => x.id !== id);
-      if (sites.length !== before) await persist();
-      return sites.length !== before;
-    },
-  };
+  return createRecordStore({ file, key: 'sites', version: STORE_VERSION, max: MAX_SITES, what: 'sites', sanitize: sanitizeSite, migrate, log });
 }

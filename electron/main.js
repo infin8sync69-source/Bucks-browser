@@ -64,7 +64,9 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bucks', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
   // stream: the ported ipfs:// handler (hosting/) streams bodies and answers range requests (video).
   { scheme: 'ipfs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, allowServiceWorkers: false } },
-  { scheme: 'ipns', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, allowServiceWorkers: false } }
+  { scheme: 'ipns', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, allowServiceWorkers: false } },
+  // An installed app's own origin, bucks-app://<id>/ (hosting/src/main/apps): stable across versions.
+  { scheme: 'bucks-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true, allowServiceWorkers: false } }
 ]);
 const fs = require('fs');
 const http = require('http');

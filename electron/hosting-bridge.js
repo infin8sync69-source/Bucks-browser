@@ -8,8 +8,10 @@
  *     false in <userData>/hosting/settings.json (then only when the user publishes or asks for
  *     node status). Your Helia node (ipfs-node.js) keeps its own repo and ports; linkLocalNode()
  *     peers Kubo with it, so a CID that either node has loads through the other (bitswap).
- *   • It registers bucks:sites:* and bucks:devices:* (pairing your other installs) IPC handlers,
- *     callable only from this app's own shell page.
+ *   • It registers bucks:ipfs:* (the IPFS node panel), bucks:sites:*, bucks:devices:* (pairing
+ *     your other installs) and bucks:apps:* (apps installed from IPFS, each in its own container)
+ *     IPC handlers, callable only from this app's own shell page, and runs the agent's site_* and
+ *     app_* tools with a native approval dialog.
  *   • serves()/handle() let the ipfs:// and ipns:// protocol handlers hand requests to the ported
  *     handler (per-CID origins, the local gateway, _redirects and SPA fallback, range requests,
  *     the public gateway only with consent).
@@ -48,13 +50,15 @@ async function init({ app, ipcMain, getMainWindow }) {
   if (state) return state;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const [{ createKubo }, { registerIpfsIpc }, { createDevices }, { createIpfsHandler }, { createSites }, { createSiteTools, SITE_TOOLS }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
+    const [{ createKubo }, { registerIpfsIpc }, { createDevices }, { createIpfsHandler }, { createSites }, { createSiteTools, SITE_TOOLS }, { createApps }, { createAppTools, APP_TOOLS }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
       importHosting('src/main/ipfs/kubo.js'),
       importHosting('src/main/ipfs/ipc.js'),
       importHosting('src/main/ipfs/devices.js'),
       importHosting('src/main/protocols/ipfs.js'),
       importHosting('src/main/sites/ipc.js'),
       importHosting('src/main/sites/agent-tools.js'),
+      importHosting('src/main/apps/ipc.js'),
+      importHosting('src/main/apps/agent-tools.js'),
       importHosting('src/main/settings-defaults.js'),
       importHosting('src/main/log.js'),
     ]);
@@ -92,10 +96,41 @@ async function init({ app, ipcMain, getMainWindow }) {
     registerIpfsIpc({ kubo, settings, getMainWindow, isAllowedSender: isFileShell });
     // Pairing with your other Bucks installs (bucks:devices:*). Quiet until the node is running.
     const devices = createDevices({ kubo, settings, userData, getMainWindow, isAllowedSender: isFileShell });
-    const { service, chooseFolder } = createSites({
+    const sites = createSites({
       kubo, settings, userData, handler, devices, getMainWindow,
       isAllowedSender: isFileShell,
       beforeCall: async (channel) => { if (NEEDS_NODE.has(channel)) await ensureNode(); },
+    });
+    const { service, chooseFolder } = sites;
+
+    // Installed apps (bucks:apps:*, apps-panel.js), each in its own container: a bucks-app://<id>
+    // origin, its own session and window. Their files and ipfs:// requests come from the local
+    // node only, never a public gateway. Links to the web open in a Bucks tab.
+    const localOnlySettings = { get: () => { const s = settings.get(); return { ...s, ipfs: { ...(s.ipfs || {}), preferredGateway: 'local' } }; } };
+    const apps = createApps({
+      kubo, settings, userData, sites, getMainWindow,
+      preloadPath: path.join(HOSTING_DIR, 'src', 'preload', 'app-preload.cjs'),
+      ipfsHandler: createIpfsHandler({ kubo, settings: localOnlySettings }),
+      openInBrowser: (url) => {
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) return;
+        win.webContents.send('new-window', { url });
+        win.focus();
+      },
+      nodeOrigins: () => [kubo.status().api_url, kubo.status().gateway_url].filter(Boolean),
+      isAllowedSender: isFileShell,
+      sessionDataPath: app.getPath('userData'),
+    });
+    const appTools = createAppTools({ apps });
+    ipcMain.removeHandler('bucks:apps:agent-tool');
+    ipcMain.handle('bucks:apps:agent-tool', async (event, payload) => {
+      if (!isFileShell(event?.senderFrame?.url)) throw new Error('bucks:apps:agent-tool denied for this origin');
+      const name = String(payload?.name || '');
+      if (!APP_TOOLS.has(name)) return `Unknown app tool: ${name}`;
+      if (name !== 'app_list') {
+        try { await ensureNode(); } catch (e) { return `The IPFS node could not start: ${e.message}`; }
+      }
+      return appTools.execute(name, payload?.args, { requestApproval: (card, opts) => askApproval(getMainWindow(), card, opts) });
     });
 
     // The Soul Engine's hosting tools (site_*), forwarded by the renderer from the agent
@@ -125,7 +160,7 @@ async function init({ app, ipcMain, getMainWindow }) {
       return kubo.status();
     });
 
-    state = { kubo, service, handler, settings, userData, devices };
+    state = { kubo, service, handler, settings, userData, devices, apps, appTools };
     kubo.onStatus((s) => { if (s.state === 'ready') peerWithLocalNode(); });
     // Device pairing and ipfs:// through Kubo need the node running, so start it now like
     // Bucks-browser does, unless the user turned that off.
@@ -137,23 +172,34 @@ async function init({ app, ipcMain, getMainWindow }) {
   try { return await initPromise; } finally { initPromise = null; }
 }
 
+// What the approval dialog says for each agent action: [button, title, message].
+const APPROVALS = {
+  site_publish: ['Publish', 'Publish a site', 'The assistant wants to publish a site from this computer.'],
+  site_update: ['Update', 'Update a site', 'The assistant wants to update a site you host.'],
+  app_install: ['Install', 'Install an app', 'The assistant wants to install an app.'],
+  app_call: ['Allow', 'Let the assistant use an app', 'The assistant wants to use an app’s tools.'],
+  app_update: ['Update', 'Update an app', 'The assistant wants to update an app.'],
+  app_uninstall: ['Uninstall', 'Uninstall an app', 'The assistant wants to remove an app.'],
+};
+
 /**
- * Ask before the agent publishes or updates a site. A native dialog, so no page can draw or click
- * it; card.label comes from approvalCard() (hosting/src/main/sites/agent-tools.js), built from
- * main-process data only. Unanswered after timeoutMs counts as a no.
+ * Ask before the agent publishes or updates a site, or installs, uses, updates or removes an app.
+ * A native dialog, so no page can draw or click it; card.label comes from approvalCard() /
+ * installCard() (hosting/src/main/sites|apps/agent-tools.js), built from main-process data only.
+ * Unanswered after timeoutMs counts as a no.
  */
 async function askApproval(win, card, { timeoutMs = 120000 } = {}) {
   const { dialog } = require('electron');
-  const publish = card.name === 'site_publish';
+  const [button, title, message] = APPROVALS[card.name] || ['Allow', 'Allow this action', 'The assistant wants to do something that needs your approval.'];
   const signal = AbortSignal.timeout(timeoutMs);
   const opts = {
     type: 'question',
-    buttons: [publish ? 'Publish' : 'Update', 'Cancel'],
+    buttons: [button, 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     noLink: true,
-    title: publish ? 'Publish a site' : 'Update a site',
-    message: publish ? 'The assistant wants to publish a site from this computer.' : 'The assistant wants to update a site you host.',
+    title,
+    message,
     detail: card.label,
     signal,
   };
