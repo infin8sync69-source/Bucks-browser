@@ -912,6 +912,12 @@
     saveSession();
   }
 
+  const closedTabs = []; // { url, title }, most recent last
+  function reopenClosedTab() {
+    const last = closedTabs.pop();
+    if (last) createTab(last.url);
+  }
+
   function closeTab(tabId) {
     const idx = tabs.findIndex((t) => t.id === tabId);
     if (idx === -1) return;
@@ -922,6 +928,12 @@
     if (window.bucksPaneManager) window.bucksPaneManager.onTabClosed(tabId);
     if (tab.webview) tab.webview.remove();
     if (tab.newtabEl) tab.newtabEl.remove();
+
+    // Remember it for Ctrl/Cmd+Shift+T (never in a private window).
+    if (!IS_PRIVATE && tab.url && !/^(about:blank|bucks:\/\/newtab)/.test(tab.url)) {
+      closedTabs.push({ url: tab.url, title: tab.title || '' });
+      if (closedTabs.length > 20) closedTabs.shift();
+    }
 
     tabs.splice(idx, 1);
 
@@ -3464,14 +3476,18 @@
 
   /* ═══════════ KEYBOARD SHORTCUTS ═══════════ */
   document.addEventListener('keydown', (e) => {
-    // Ctrl+T = new tab
-    if (e.ctrlKey && e.key === 't') { e.preventDefault(); createTab(); }
-    // Ctrl+W = close tab
-    if (e.ctrlKey && e.key === 'w') { e.preventDefault(); closeTab(activeTabId); }
-    // Ctrl+L = focus address bar
-    if (e.ctrlKey && e.key === 'l') { e.preventDefault(); addressBar.focus(); }
-    // Ctrl+R = refresh
-    if (e.ctrlKey && e.key === 'r') {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    // Ctrl/Cmd+Shift+T = reopen the last closed tab
+    if (mod && e.shiftKey && k === 't') { e.preventDefault(); reopenClosedTab(); return; }
+    // Ctrl/Cmd+T = new tab
+    if (mod && !e.shiftKey && k === 't') { e.preventDefault(); createTab(); }
+    // Ctrl/Cmd+W = close tab
+    if (mod && !e.shiftKey && k === 'w') { e.preventDefault(); closeTab(activeTabId); }
+    // Ctrl/Cmd+L = focus address bar
+    if (mod && !e.shiftKey && k === 'l') { e.preventDefault(); addressBar.focus(); addressBar.select?.(); }
+    // Ctrl/Cmd+R = refresh
+    if (mod && !e.shiftKey && k === 'r') {
       e.preventDefault();
       const tab = tabs.find((t) => t.id === activeTabId);
       if (tab?.webview) tab.webview.reload();
@@ -3493,7 +3509,6 @@
       if (tab?.webview) tab.webview.goForward();
     }
 
-    const mod = e.ctrlKey || e.metaKey;
     // Ctrl/Cmd+Shift+N = new private window
     if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
       e.preventDefault();

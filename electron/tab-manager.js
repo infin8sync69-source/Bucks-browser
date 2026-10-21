@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { attachBluetoothChooser } = require('./permission-manager');
 const { getSharedFilter } = require('./security/request-filter');
+const { shortcutChord } = require('./shortcuts');
 const { spellcheckMenuItems } = require('./web-security');
 
 /** tabId -> { view, winId, lastBounds, visible } */
@@ -77,6 +78,16 @@ function _wireEvents(tabId, winId, view) {
       // Show a friendly in-tab error page (a blank void is not a browser).
       wc.loadURL(_errorPageURL(code, desc, url)).catch(() => {});
     }
+  });
+  // A page in its own WebContentsView owns the keyboard, so the shell's shortcuts (new tab,
+  // close, find, ...) never see keys pressed while browsing. Forward the browser-level chords
+  // to the shell and keep everything else (copy, paste, select all, ...) with the page.
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const chord = shortcutChord(input);
+    if (!chord) return;
+    event.preventDefault();
+    send('shortcut', chord);
   });
   wc.on('found-in-page', (_e, result) => send('found-in-page', { result }));
   // Clicking into a page focuses its webContents — the shell uses this to

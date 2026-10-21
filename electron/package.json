@@ -48,6 +48,15 @@
   },
   "build": {
     "appId": "com.bucks.browser",
+    "protocols": [
+      {
+        "name": "Web link",
+        "schemes": [
+          "http",
+          "https"
+        ]
+      }
+    ],
     "productName": "Bucks",
     "publish": null,
     "asar": false,

@@ -278,6 +278,13 @@
       case 'did-fail-load':
         tv._emit(evt.type, { errorCode: evt.errorCode, errorDescription: evt.errorDescription, validatedURL: evt.validatedURL });
         break;
+      case 'shortcut':
+        // Typed while the page had focus: replay in the shell so its one keydown handler runs.
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: evt.key, ctrlKey: !!evt.ctrlKey, metaKey: !!evt.metaKey,
+          shiftKey: !!evt.shiftKey, altKey: !!evt.altKey, bubbles: true, cancelable: true,
+        }));
+        break;
       default:
         tv._emit(evt.type, evt);
     }
