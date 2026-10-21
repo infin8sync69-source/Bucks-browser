@@ -1269,7 +1269,7 @@ function setupProtocols() {
     });
   });
 
-  protocol.handle('ipfs', async (request) => {
+  const handleIpfs = async (request) => {
     // While Kubo runs, the ported Bucks-browser handler serves every address (hosting-bridge.js);
     // otherwise the in-process Helia node below.
     if (hostingBridge && hostingBridge.serves(request.url)) return hostingBridge.handle(request);
@@ -1295,9 +1295,9 @@ function setupProtocols() {
       console.error('[Protocol] IPFS load failed:', request.url, err);
       return new Response('Content not found on IPFS network', { status: 404 });
     }
-  });
+  };
 
-  protocol.handle('ipns', async (request) => {
+  const handleIpns = async (request) => {
     if (hostingBridge && hostingBridge.serves(request.url)) return hostingBridge.handle(request);
     try {
       let urlStr = request.url.replace(/^ipns:\/\//i, '');
@@ -1321,7 +1321,13 @@ function setupProtocols() {
       console.error('[Protocol] IPNS load failed:', request.url, err);
       return new Response('Content not found on IPNS network', { status: 404 });
     }
-  });
+  };
+
+  // Private tabs have their own session; ipfs:// and ipns:// work there too, as in Bucks-browser.
+  for (const ses of [session.defaultSession, session.fromPartition('bucks-private')]) {
+    ses.protocol.handle('ipfs', handleIpfs);
+    ses.protocol.handle('ipns', handleIpns);
+  }
 }
 
 let ipfsServerProcess = null;

@@ -92,6 +92,13 @@ test.describe('ipfs:// and ipns:// through the embedded Kubo node', () => {
     expect(r.status).toBe(200);
     expect(r.body).toContain(text);
     expect(r.headers['x-content-type-options']).toBe('nosniff');
+    // Private tabs use the 'bucks-private' session, which serves ipfs:// as well.
+    const priv = await app.evaluate(async ({ session }, u) => {
+      const res = await session.fromPartition('bucks-private').fetch(u);
+      return { status: res.status, body: await res.text() };
+    }, `ipfs://${post.cid}`);
+    expect(priv.status).toBe(200);
+    expect(priv.body).toContain(text);
   });
 
   test('a site published from the browser loads in a tab over ipfs:// and ipns://', async () => {
