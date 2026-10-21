@@ -3,8 +3,9 @@
 // cookie policy. Electron allows ONE webRequest.onBeforeRequest and ONE onHeadersReceived listener
 // per session, so everything shares the two handlers built here. The decision logic is pure and
 // unit-tested (electron/test/unit/security.test.js); main.js only wires it to the sessions.
-// Ported from Bucks-browser (src/main/security/filter.js), minus the Ghostery engine: the
-// existing pattern list is the blocker.
+// Ported from Bucks-browser (src/main/security/filter.js). Ad/tracker blocking uses the Ghostery
+// engine (blocklist.js) once it is loaded; until then (and if it never loads) the pattern list
+// passed as `adPatterns` blocks.
 
 const { isThirdParty, stripSetCookie } = require('./cookies');
 
@@ -81,6 +82,11 @@ function isThirdPartyResponse(details) {
   return isThirdParty(details.url, firstPartyUrlOf(details));
 }
 
+/** Schemes the ad blocker may look at; bucks, ipfs, ipns, file, devtools... are never blocked. */
+function hasBlockableScheme(url) {
+  return /^(https?|wss?):/i.test(String(url || ''));
+}
+
 /** Only http(s) responses carry web cookies; the shell (file://) and bucks:// are never touched. */
 function isWebUrl(url) {
   return /^https?:/i.test(String(url || ''));
@@ -95,6 +101,8 @@ function isWebUrl(url) {
 function createRequestFilter({ adPatterns = [], chainHeadersReceived } = {}) {
   const flags = { httpsOnly: false, adBlock: true, cookiePolicy: 'allow' };
   const counters = { blockedRequests: 0, httpsUpgrades: 0, blockedCookies: 0 };
+  let blocker = null; // Ghostery ElectronBlocker once loaded
+  let engineSource = null;
   const allowedHttp = new Set();
   const upgradedHosts = new Set();
   const hostKey = (h) => String(h || '').toLowerCase().replace(/\.$/, '');
@@ -117,9 +125,26 @@ function createRequestFilter({ adPatterns = [], chainHeadersReceived } = {}) {
         if (details.resourceType === 'mainFrame') upgradedHosts.add(hostKey(new URL(details.url).hostname));
         return callback(decision);
       }
-      if (flags.adBlock && details.resourceType !== 'mainFrame' && adPatterns.some((re) => re.test(details.url))) {
-        counters.blockedRequests++;
-        return callback({ cancel: true });
+      if (flags.adBlock && details.resourceType !== 'mainFrame' && hasBlockableScheme(details.url)) {
+        if (blocker) {
+          let done = false;
+          const finish = (res) => {
+            if (done) return;
+            done = true;
+            if (res && (res.cancel || res.redirectURL)) counters.blockedRequests++;
+            callback(res || {});
+          };
+          try {
+            return blocker.onBeforeRequest(details, finish);
+          } catch (e) {
+            console.error('[Security] ad blocker failed:', e);
+            return finish({});
+          }
+        }
+        if (adPatterns.some((re) => re.test(details.url))) {
+          counters.blockedRequests++;
+          return callback({ cancel: true });
+        }
       }
     } catch (e) {
       console.error('[Security] onBeforeRequest failed:', e);
@@ -144,9 +169,26 @@ function createRequestFilter({ adPatterns = [], chainHeadersReceived } = {}) {
     } catch (e) {
       console.error('[Security] onHeadersReceived failed:', e);
     }
-    const next = { ...details, responseHeaders: headers };
-    if (chainHeadersReceived) return chainHeadersReceived(next, callback);
-    return callback({ responseHeaders: headers });
+    const finish = (hdrs) => {
+      const next = { ...details, responseHeaders: hdrs };
+      if (chainHeadersReceived) return chainHeadersReceived(next, callback);
+      return callback({ responseHeaders: hdrs });
+    };
+    if (flags.adBlock && blocker && hasBlockableScheme(details.url)) {
+      let done = false;
+      try {
+        return blocker.onHeadersReceived({ ...details, responseHeaders: headers }, (res) => {
+          if (done) return;
+          done = true;
+          finish(res && res.responseHeaders ? res.responseHeaders : headers);
+        });
+      } catch (e) {
+        console.error('[Security] ad blocker headers failed:', e);
+        if (!done) { done = true; return finish(headers); }
+        return undefined;
+      }
+    }
+    return finish(headers);
   }
 
   return {
@@ -158,7 +200,13 @@ function createRequestFilter({ adPatterns = [], chainHeadersReceived } = {}) {
       ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, handleBeforeRequest);
       ses.webRequest.onHeadersReceived({ urls: ['<all_urls>'] }, handleHeadersReceived);
     },
-    stats: () => ({ ...counters }),
+    /** Install (or remove, with null) the Ghostery engine; source: 'prebuilt' | 'stale-cache' | 'builtin'. */
+    setBlocker(b, source = null) {
+      blocker = b || null;
+      engineSource = b ? source : null;
+    },
+    engineSource: () => engineSource,
+    stats: () => ({ ...counters, adBlockReady: flags.adBlock && blocker !== null }),
     /** Allow plain http for a host (set when an https upgrade failed to connect). */
     allowHttpHost(host) {
       const key = hostKey(host);

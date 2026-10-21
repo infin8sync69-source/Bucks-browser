@@ -44,7 +44,7 @@ wrapConsole('warn');
 wrapConsole('info');
 wrapConsole('debug');
 
-const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, MenuItem, protocol, shell, net } = require('electron');
 // app.disableHardwareAcceleration();
 // NOTE: never re-add `ignore-certificate-errors` — it disables TLS validation
 // for EVERY request. Invalid certs now go through the per-origin interstitial
@@ -68,6 +68,7 @@ protocol.registerSchemesAsPrivileged([
 const fs = require('fs');
 const http = require('http');
 const { createRequestFilter, setSharedFilter } = require('./security/request-filter');
+const { createEngineLoader } = require('./security/engine');
 
 // Helia / undici polyfill for File, CustomEvent, and WebCrypto
 const { File } = require('buffer');
@@ -285,10 +286,22 @@ const requestFilter = createRequestFilter({
   chainHeadersReceived: (details, callback) => applyShellCsp(details, callback),
 });
 setSharedFilter(requestFilter);
+let adEngine = null;
+// Apply settings and make sure the full ad/tracker engine is loading when blocking is on.
+function applyFilterSettings(settings) {
+  requestFilter.applySettings(settings);
+  if (settings.adBlockEnabled === false) return;
+  adEngine = adEngine || createEngineLoader({
+    filter: requestFilter,
+    userData: app.getPath('userData'),
+    fetchImpl: (...args) => net.fetch(...args),
+  });
+  adEngine.ensure();
+}
 
 function setupRequestFilters() {
   // Persisted settings apply from startup, not only after the next Save.
-  requestFilter.applySettings(loadSettings());
+  applyFilterSettings(loadSettings());
   const sessions = [
     session.defaultSession,
     session.fromPartition('bucks-private')
@@ -439,7 +452,7 @@ function setupIPC() {
   ipcMain.handle('get-settings', () => loadSettings());
   ipcMain.handle('save-settings', (_e, settings) => {
     saveSettings(settings);
-    requestFilter.applySettings(settings);
+    applyFilterSettings(settings);
     // Update the in-memory allowlist
     originAllowlist = settings.originAllowlist || [];
     return { ok: true };
@@ -448,7 +461,7 @@ function setupIPC() {
   // Ad-blocker stats
   ipcMain.handle('get-blocked-count', () => requestFilter.stats().blockedRequests);
   ipcMain.on('toggle-adblock', (_e, enabled) => {
-    requestFilter.applySettings({ ...loadSettings(), adBlockEnabled: enabled });
+    applyFilterSettings({ ...loadSettings(), adBlockEnabled: enabled });
   });
 
   // Platform info

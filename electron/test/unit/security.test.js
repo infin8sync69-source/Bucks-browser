@@ -85,3 +85,45 @@ test('filter: headers are chained to the shell CSP hook after cookie stripping',
   assert.deepEqual(seen.responseHeaders, {});
   assert.deepEqual(res, { responseHeaders: { chained: ['1'] } });
 });
+
+test('filter: a loaded engine decides blocking; patterns are only the fallback', async () => {
+  const f = createRequestFilter({ adPatterns: [/^https:\/\/pattern\.example\/.*$/] });
+  f.applySettings({ adBlockEnabled: true });
+  assert.equal(f.stats().adBlockReady, false);
+  const engine = {
+    onBeforeRequest: (d, cb) => cb(d.url.includes('engine-blocked') ? { cancel: true } : {}),
+    onHeadersReceived: (d, cb) => cb({ responseHeaders: { ...d.responseHeaders, 'x-engine': ['1'] } }),
+  };
+  f.setBlocker(engine, 'prebuilt');
+  assert.equal(f.stats().adBlockReady, true);
+  assert.deepEqual(await run(f.handleBeforeRequest, { url: 'https://x.example/engine-blocked.js', resourceType: 'script' }), { cancel: true });
+  assert.deepEqual(await run(f.handleBeforeRequest, { url: 'https://pattern.example/a.js', resourceType: 'script' }), {});
+  assert.deepEqual(await run(f.handleBeforeRequest, { url: 'https://x.example/engine-blocked.js', resourceType: 'mainFrame' }), {});
+  assert.deepEqual(await run(f.handleBeforeRequest, { url: 'ipfs://bafy/engine-blocked.js', resourceType: 'script' }), {});
+  assert.equal(f.stats().blockedRequests, 1);
+  const res = await run(f.handleHeadersReceived, { url: 'https://x.example/', resourceType: 'mainFrame', responseHeaders: { a: ['1'] } });
+  assert.deepEqual(res.responseHeaders, { a: ['1'], 'x-engine': ['1'] });
+  f.setBlocker(null);
+  assert.deepEqual(await run(f.handleBeforeRequest, { url: 'https://pattern.example/a.js', resourceType: 'script' }), { cancel: true });
+});
+
+test('engine loader: installs the engine, loads once, retries on the built-in list', async () => {
+  const { createEngineLoader } = require('../../security/engine');
+  const f = createRequestFilter();
+  let calls = 0;
+  const loader = createEngineLoader({
+    filter: f, userData: '/x', retryMs: 20,
+    loadBlockerImpl: async () => { calls++; return { blocker: { n: calls }, source: calls === 1 ? 'builtin' : 'prebuilt' }; },
+  });
+  loader.ensure(); loader.ensure();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls, 1);
+  assert.equal(f.engineSource(), 'builtin');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls, 2);
+  assert.equal(f.engineSource(), 'prebuilt');
+  loader.ensure();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(calls, 2);
+  loader.dispose();
+});
