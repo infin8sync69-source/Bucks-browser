@@ -247,7 +247,7 @@
     if (!unsubscribe) unsubscribe = api().onUpdated((s) => { status = s; render(); });
     try { status = await api().status(); } catch (_) { /* node not up yet */ }
     render();
-    // Pairing needs the Kubo node; it normally starts only when you publish a site.
+    // Pairing needs the Kubo node. It starts with Bucks unless ipfs.autoStart is off; start it then.
     if (window.bucksSites && window.bucksSites.nodeStart) {
       window.bucksSites.nodeStart().then(async () => {
         try { status = await api().status(); } catch (_) { /* shown as starting */ }

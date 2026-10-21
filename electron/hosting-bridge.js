@@ -48,8 +48,9 @@ async function init({ app, ipcMain, getMainWindow }) {
   if (state) return state;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const [{ createKubo }, { createDevices }, { createIpfsHandler }, { createSites }, { createSiteTools, SITE_TOOLS }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
+    const [{ createKubo }, { registerIpfsIpc }, { createDevices }, { createIpfsHandler }, { createSites }, { createSiteTools, SITE_TOOLS }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
       importHosting('src/main/ipfs/kubo.js'),
+      importHosting('src/main/ipfs/ipc.js'),
       importHosting('src/main/ipfs/devices.js'),
       importHosting('src/main/protocols/ipfs.js'),
       importHosting('src/main/sites/ipc.js'),
@@ -86,6 +87,9 @@ async function init({ app, ipcMain, getMainWindow }) {
     const handler = createIpfsHandler({ kubo, settings });
 
     const ensureNode = async () => { if (!kubo.isReady()) await kubo.start(); };
+    // bucks:ipfs:* for the IPFS node panel (ipfs-panel.js): status, start/stop/restart, add, browse,
+    // pins, peers, storage and the node's settings.
+    registerIpfsIpc({ kubo, settings, getMainWindow, isAllowedSender: isFileShell });
     // Pairing with your other Bucks installs (bucks:devices:*). Quiet until the node is running.
     const devices = createDevices({ kubo, settings, userData, getMainWindow, isAllowedSender: isFileShell });
     const { service, chooseFolder } = createSites({

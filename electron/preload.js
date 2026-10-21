@@ -389,9 +389,34 @@ const bucksDevices = {
   },
 };
 
+/* ─── IPFS node: the Kubo node behind ipfs://, hosting and devices (hosting/…/ipfs/ipc.js) ─── */
+const bucksIpfs = {
+  status: () => ipcRenderer.invoke('bucks:ipfs:status'),
+  start: () => ipcRenderer.invoke('bucks:ipfs:start'),
+  stop: () => ipcRenderer.invoke('bucks:ipfs:stop'),
+  restart: () => ipcRenderer.invoke('bucks:ipfs:restart'),
+  nodeInfo: () => ipcRenderer.invoke('bucks:ipfs:node-info'),
+  stats: () => ipcRenderer.invoke('bucks:ipfs:stats'),
+  peers: () => ipcRenderer.invoke('bucks:ipfs:peers'),
+  add: (fileName, mimeType, dataBase64) => ipcRenderer.invoke('bucks:ipfs:add', { fileName, mimeType, dataBase64 }),
+  addText: (content, fileName) => ipcRenderer.invoke('bucks:ipfs:add-text', { content, fileName }),
+  ls: (path) => ipcRenderer.invoke('bucks:ipfs:ls', { path }),
+  pinAdd: (cid) => ipcRenderer.invoke('bucks:ipfs:pin-add', { cid }),
+  pinRm: (cid) => ipcRenderer.invoke('bucks:ipfs:pin-rm', { cid }),
+  pinLs: () => ipcRenderer.invoke('bucks:ipfs:pin-ls'),
+  settings: () => ipcRenderer.invoke('bucks:ipfs:settings'),
+  setSettings: (patch) => ipcRenderer.invoke('bucks:ipfs:set-settings', patch),
+  onStatus: (cb) => {
+    const listener = (_e, status) => cb(status);
+    ipcRenderer.on('bucks:ipfs:status', listener);
+    return () => ipcRenderer.removeListener('bucks:ipfs:status', listener);
+  },
+};
+
 Object.freeze(bucksAPI);
 Object.freeze(bucksSites);
 Object.freeze(bucksDevices);
+Object.freeze(bucksIpfs);
 Object.freeze(nexusAPI);
 Object.freeze(bucksTabs);
 Object.freeze(bucksDocs);
@@ -402,3 +427,4 @@ contextBridge.exposeInMainWorld('bucksTabs', bucksTabs);
 contextBridge.exposeInMainWorld('bucksDocs', bucksDocs);
 contextBridge.exposeInMainWorld('bucksSites', bucksSites);
 contextBridge.exposeInMainWorld('bucksDevices', bucksDevices);
+contextBridge.exposeInMainWorld('bucksIpfs', bucksIpfs);
