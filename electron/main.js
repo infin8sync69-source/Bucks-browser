@@ -67,6 +67,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 const fs = require('fs');
 const http = require('http');
+const { createRequestFilter, setSharedFilter } = require('./security/request-filter');
 
 // Helia / undici polyfill for File, CustomEvent, and WebCrypto
 const { File } = require('buffer');
@@ -114,9 +115,6 @@ const AD_BLOCK_PATTERNS = [
 ];
 
 let mainWindow;
-let adBlockEnabled = true;
-let httpsOnlyEnabled = false;
-let blockedCount = 0;
 
 /* ─── Settings functions ─── */
 let _settingsFile = null;
@@ -282,8 +280,15 @@ win.webContents.on("console-message", (event, level, message, line, sourceId) =>
 
 /* ─── Request Filtering (Ad-block, HTTPS Upgrade & YouTube Embed Fix) ─── */
 const COMPILED_AD_PATTERNS = AD_BLOCK_PATTERNS.map(pattern => new RegExp('^' + pattern.split('*').join('.*') + '$', 'i'));
+const requestFilter = createRequestFilter({
+  adPatterns: COMPILED_AD_PATTERNS,
+  chainHeadersReceived: (details, callback) => applyShellCsp(details, callback),
+});
+setSharedFilter(requestFilter);
 
 function setupRequestFilters() {
+  // Persisted settings apply from startup, not only after the next Save.
+  requestFilter.applySettings(loadSettings());
   const sessions = [
     session.defaultSession,
     session.fromPartition('bucks-private')
@@ -302,75 +307,55 @@ function setupRequestFilters() {
       }
     );
 
-    // 2. HTTPS Upgrade & Ad-blocking
-    sess.webRequest.onBeforeRequest(
-      { urls: ['*://*/*'] },
-      (details, callback) => {
-        const url = details.url;
-
-        // 1. HTTPS Upgrade
-        if (httpsOnlyEnabled && url.startsWith('http://') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
-          return callback({ redirectURL: url.replace('http://', 'https://') });
-        }
-
-        // 2. Ad-blocking optimization (Precompiled regex)
-        const isAd = COMPILED_AD_PATTERNS.some(regex => regex.test(url));
-
-        if (adBlockEnabled && isAd) {
-          blockedCount++;
-          return callback({ cancel: true });
-        }
-
-        callback({});
-      }
-    );
-
-    // 3. CSP for the trusted shell document only (file://.../index.html).
-    // Deliberately scoped to just that one document — NOT bucks:// mini-apps
-    // (several of them, e.g. bucks-calc/notes/clock/converter/qr, rely on
-    // inline <script> blocks with no CSP of their own, so a shared strict
-    // policy would silently kill their JS) and NOT applied session-wide:
-    // WebContentsView tabs share these same sessions and must stay free to
-    // render arbitrary sites under their own (or no) CSP.
-    sess.webRequest.onHeadersReceived(
-      { urls: ['file://*/*'] },
-      (details, callback) => {
-        const isShellDoc = details.resourceType === 'mainFrame' && details.url.endsWith('/index.html');
-        if (!isShellDoc) return callback({ responseHeaders: details.responseHeaders });
-        const csp = [
-          "default-src 'self' bucks:",
-          // 'unsafe-inline' here is a deliberate, verified tradeoff, not an
-          // oversight: this codebase has ~95 inline onclick/onkeydown/etc.
-          // handlers (renderer.js, nexus-panel.js, messages-ui.js), many
-          // baked into innerHTML-inserted generative-UI cards. Empirically
-          // confirmed (a controlled Electron test replicating this exact
-          // policy) that WITHOUT unsafe-inline, both static and dynamically-
-          // inserted inline handlers are silently blocked — "Executing
-          // inline event handler violates ... script-src 'self'" — meaning
-          // product cards, checklist toggles, CID-copy, and the keyboard-
-          // accessibility handlers added this session were all non-functional
-          // under the policy as it shipped. No 'unsafe-eval' and no remote
-          // script origins are allowed, which is most of the real protection
-          // this header buys; converting all inline handlers to
-          // addEventListener (enabling a strict policy) is a larger future
-          // refactor, not done here.
-          "script-src 'self' 'unsafe-inline'",
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-          "font-src 'self' https://fonts.gstatic.com",
-          "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://tileserver.memomaps.de https://*.tiles.openrailwaymap.org",
-          "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:* https://nominatim.openstreetmap.org https://api.open-meteo.com https://routing.openstreetmap.de https://router.project-osrm.org https://ipapi.co https://ipwho.is https://www.google.com https://ipfs.io https://*.bucks.network https://integrate.api.nvidia.com",
-          "frame-src 'self' bucks:",
-          "object-src 'none'",
-        ].join('; ');
-        callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            'Content-Security-Policy': [csp],
-          },
-        });
-      }
-    );
+    // 2. HTTPS upgrade, ad-blocking and cookie policy (electron/security/).
+    // Electron keeps one onBeforeRequest and one onHeadersReceived listener per
+    // session, so the filter owns both; the shell CSP below is chained into the
+    // headers listener.
+    requestFilter.attach(sess);
   }
+}
+
+// CSP for the trusted shell document only (file://.../index.html).
+// Deliberately scoped to just that one document — NOT bucks:// mini-apps
+// (several of them, e.g. bucks-calc/notes/clock/converter/qr, rely on
+// inline <script> blocks with no CSP of their own, so a shared strict
+// policy would silently kill their JS) and NOT applied to web content:
+// WebContentsView tabs share these same sessions and must stay free to
+// render arbitrary sites under their own (or no) CSP.
+function applyShellCsp(details, callback) {
+  const isShellDoc = details.resourceType === 'mainFrame' && details.url.endsWith('/index.html');
+  if (!isShellDoc) return callback({ responseHeaders: details.responseHeaders });
+  const csp = [
+    "default-src 'self' bucks:",
+    // 'unsafe-inline' here is a deliberate, verified tradeoff, not an
+    // oversight: this codebase has ~95 inline onclick/onkeydown/etc.
+    // handlers (renderer.js, nexus-panel.js, messages-ui.js), many
+    // baked into innerHTML-inserted generative-UI cards. Empirically
+    // confirmed (a controlled Electron test replicating this exact
+    // policy) that WITHOUT unsafe-inline, both static and dynamically-
+    // inserted inline handlers are silently blocked — "Executing
+    // inline event handler violates ... script-src 'self'" — meaning
+    // product cards, checklist toggles, CID-copy, and the keyboard-
+    // accessibility handlers added this session were all non-functional
+    // under the policy as it shipped. No 'unsafe-eval' and no remote
+    // script origins are allowed, which is most of the real protection
+    // this header buys; converting all inline handlers to
+    // addEventListener (enabling a strict policy) is a larger future
+    // refactor, not done here.
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://tileserver.memomaps.de https://*.tiles.openrailwaymap.org",
+    "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:* https://nominatim.openstreetmap.org https://api.open-meteo.com https://routing.openstreetmap.de https://router.project-osrm.org https://ipapi.co https://ipwho.is https://www.google.com https://ipfs.io https://*.bucks.network https://integrate.api.nvidia.com",
+    "frame-src 'self' bucks:",
+    "object-src 'none'",
+  ].join('; ');
+  callback({
+    responseHeaders: {
+      ...details.responseHeaders,
+      'Content-Security-Policy': [csp],
+    },
+  });
 }
 
 /* ─── Setup IPC handlers ─── */
@@ -454,17 +439,16 @@ function setupIPC() {
   ipcMain.handle('get-settings', () => loadSettings());
   ipcMain.handle('save-settings', (_e, settings) => {
     saveSettings(settings);
-    adBlockEnabled = settings.adBlockEnabled;
-    httpsOnlyEnabled = settings.httpsOnly;
+    requestFilter.applySettings(settings);
     // Update the in-memory allowlist
     originAllowlist = settings.originAllowlist || [];
     return { ok: true };
   });
 
   // Ad-blocker stats
-  ipcMain.handle('get-blocked-count', () => blockedCount);
+  ipcMain.handle('get-blocked-count', () => requestFilter.stats().blockedRequests);
   ipcMain.on('toggle-adblock', (_e, enabled) => {
-    adBlockEnabled = enabled;
+    requestFilter.applySettings({ ...loadSettings(), adBlockEnabled: enabled });
   });
 
   // Platform info

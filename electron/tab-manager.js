@@ -18,6 +18,7 @@ const { app, WebContentsView, BrowserWindow, Menu, clipboard, ipcMain } = requir
 const fs = require('fs');
 const path = require('path');
 const { attachBluetoothChooser } = require('./permission-manager');
+const { getSharedFilter } = require('./security/request-filter');
 const { spellcheckMenuItems } = require('./web-security');
 
 /** tabId -> { view, winId, lastBounds, visible } */
@@ -39,6 +40,9 @@ function _navState(wc) {
     : { canGoBack: wc.canGoBack(), canGoForward: wc.canGoForward() };
 }
 
+// ERR_CONNECTION_RESET, _REFUSED, _TIMED_OUT, ERR_SSL_PROTOCOL_ERROR
+const HTTP_FALLBACK_CODES = new Set([-101, -102, -118, -107]);
+
 function _wireEvents(tabId, winId, view) {
   const wc = view.webContents;
   const send = (type, payload = {}) => _shellSend(winId, { tabId, type, ...payload });
@@ -57,6 +61,18 @@ function _wireEvents(tabId, winId, view) {
   });
   wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 /* ERR_ABORTED: benign */) {
+      // HTTPS-only upgraded this navigation and the server does not speak https
+      // (refused / reset / SSL protocol error / timeout): allow plain http for the
+      // host and retry. Certificate errors are NOT downgraded; they keep their prompt.
+      const filter = getSharedFilter();
+      if (filter && HTTP_FALLBACK_CODES.has(code) && url.startsWith('https://')) {
+        const host = new URL(url).hostname;
+        if (filter.wasUpgraded(host) && !filter.isHttpAllowed(host)) {
+          filter.allowHttpHost(host);
+          wc.loadURL(url.replace(/^https:/, 'http:')).catch(() => {});
+          return;
+        }
+      }
       send('did-fail-load', { errorCode: code, errorDescription: desc, validatedURL: url });
       // Show a friendly in-tab error page (a blank void is not a browser).
       wc.loadURL(_errorPageURL(code, desc, url)).catch(() => {});
