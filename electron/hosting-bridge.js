@@ -4,15 +4,18 @@
  * The implementation lives in ./hosting (ported from Bucks-browser, docs/HOSTING.md there) as an
  * ES-module island with its own package.json. This file is the CommonJS glue for main.js:
  *
- *   • It runs a pinned Kubo node, started only when the user publishes (or asks for node status).
- *     Your Helia node (ipfs-node.js) is untouched; the two never share a repo or a port.
+ *   • It runs a pinned Kubo node, started at launch as in Bucks-browser unless ipfs.autoStart is
+ *     false in <userData>/hosting/settings.json (then only when the user publishes or asks for
+ *     node status). Your Helia node (ipfs-node.js) keeps its own repo and ports; linkLocalNode()
+ *     peers Kubo with it, so a CID that either node has loads through the other (bitswap).
  *   • It registers bucks:sites:* and bucks:devices:* (pairing your other installs) IPC handlers,
  *     callable only from this app's own shell page.
- *   • serves()/handle() let the ipfs:// and ipns:// protocol handlers hand requests for sites
- *     hosted by this browser to the ported handler (SPA fallback, headers, redirects, badges).
+ *   • serves()/handle() let the ipfs:// and ipns:// protocol handlers hand requests to the ported
+ *     handler (per-CID origins, the local gateway, _redirects and SPA fallback, range requests,
+ *     the public gateway only with consent).
  *
  * State lives in <userData>/hosting. Kubo's binary comes from `npm run fetch:kubo` in ./hosting
- * (dev) or extraResources "kubo" (packaged).
+ * (dev) or extraResources "kubo" (packaged); without either, Kubo downloads it on first start.
  */
 'use strict';
 
@@ -31,6 +34,7 @@ const NEEDS_NODE = new Set([
 
 let state = null; // { kubo, service, handler, settings, userData }
 let initPromise = null;
+let localNodeAddr = null; // loopback multiaddr of the in-process Helia node (linkLocalNode)
 
 const isFileShell = (url) => {
   if (typeof url !== 'string') return false;
@@ -102,26 +106,56 @@ async function init({ app, ipcMain, getMainWindow }) {
     });
 
     state = { kubo, service, handler, settings, userData, devices };
+    kubo.onStatus((s) => { if (s.state === 'ready') peerWithLocalNode(); });
+    // Device pairing and ipfs:// through Kubo need the node running, so start it now like
+    // Bucks-browser does, unless the user turned that off.
+    if (settings.get().ipfs?.autoStart !== false) {
+      kubo.start().catch((e) => console.error('[Hosting] IPFS node did not start:', e.message));
+    }
     return state;
   })();
   try { return await initPromise; } finally { initPromise = null; }
 }
 
-/** Does this ipfs:// or ipns:// URL belong to a site this browser hosts (and is the node up)? */
-function serves(url) {
-  if (!state || !state.kubo.isReady()) return false;
-  const m = /^(ipfs|ipns):\/\/([^/?#]+)/i.exec(String(url || ''));
-  if (!m) return false;
-  const [, scheme, host] = m;
-  const want = host.toLowerCase();
-  let sites;
-  try { sites = state.service.list(); } catch (_) { return false; }
-  return sites.some((s) => (scheme.toLowerCase() === 'ipns'
-    ? (s.ipns || '').toLowerCase() === want
-    : [s.current, ...s.history].some((v) => v && String(v.cid).toLowerCase() === want)));
+/** The /ip4/127.0.0.1/tcp/… address of a libp2p node, from ipfs-node.js getNodeInfo(). */
+function loopbackAddr(info) {
+  if (!info || !info.peerId || !Array.isArray(info.addresses)) return null;
+  const tcp = info.addresses.map(String).find((a) => /^\/ip4\/127\.0\.0\.1\/tcp\/\d+(\/p2p\/[^/]+)?$/.test(a));
+  if (!tcp) return null;
+  return tcp.includes('/p2p/') ? tcp : `${tcp}/p2p/${info.peerId}`;
 }
 
-/** Serve a request for a hosted site through the ported handler. */
+/** Keep the embedded Kubo node connected to the in-process Helia node (Kubo Peering reconnects). */
+function peerWithLocalNode() {
+  if (!state || !localNodeAddr || !state.kubo.isReady() || state.settings.get().ipfs?.mode === 'external') return;
+  state.kubo.rpc.swarmPeeringAdd(localNodeAddr)
+    .then(() => console.log('[Hosting] Kubo peered with the local Helia node'))
+    .catch((e) => console.warn('[Hosting] could not peer Kubo with the local Helia node:', e.message));
+}
+
+/** Called by main.js once Helia runs: content published to either node then loads from the other. */
+function linkLocalNode(info) {
+  const addr = loopbackAddr(info);
+  if (!addr) return false;
+  localNodeAddr = addr;
+  peerWithLocalNode();
+  return true;
+}
+
+/**
+ * Should the ipfs:// or ipns:// handler pass this request to the ported Bucks-browser handler?
+ * Every address while Kubo runs. While it does not, ipns:// still goes there (it offers to start
+ * the node or, with consent, a public gateway: Helia cannot resolve names) and ipfs:// falls back
+ * to the in-process Helia node.
+ */
+function serves(url) {
+  if (!state) return false;
+  const m = /^(ipfs|ipns):\/\//i.exec(String(url || ''));
+  if (!m) return false;
+  return state.kubo.isReady() || m[1].toLowerCase() === 'ipns';
+}
+
+/** Serve an ipfs:// or ipns:// request through the ported handler. */
 function handle(request) {
   return state.handler(request);
 }
@@ -131,4 +165,4 @@ async function shutdown() {
   try { await state.kubo.stop(); } catch (_) { /* quitting */ }
 }
 
-module.exports = { init, serves, handle, shutdown, isFileShell, get state() { return state; } };
+module.exports = { init, serves, handle, linkLocalNode, loopbackAddr, shutdown, isFileShell, get state() { return state; } };

@@ -139,7 +139,8 @@ async function startNode() {
       ];
       console.log("[Swarm] No private bootstrap peers configured. Using public bootstrap nodes.");
     }
-    peerDiscovery.push(bootstrap({ list: bootstrapList }));
+    // bootstrap() throws on an empty list (BUCKS_TESTING), which used to stop Helia from starting.
+    if (bootstrapList.length) peerDiscovery.push(bootstrap({ list: bootstrapList }));
     console.log(`[Swarm] Bootstrap peers configured: ${bootstrapList.length}`);
 
     // Stable ports so other machines can bootstrap-dial this node; fall back

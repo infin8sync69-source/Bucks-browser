@@ -178,24 +178,10 @@
 
   function normalizeURL(str) {
     let target = str.trim();
-    if (/^ipfs:\/\//i.test(target)) {
-      const match = target.match(/^ipfs:\/\/([^\/]+)(.*)$/i);
-      if (match) {
-        const cid = match[1];
-        const rest = match[2] || '';
-        if (cid.startsWith('Qm') && cid.length === 46) {
-          target = `ipfs://${cidV0toV1(cid)}${rest}`;
-        }
-      }
-    } else if (/^ipns:\/\//i.test(target)) {
-      const match = target.match(/^ipns:\/\/([^\/]+)(.*)$/i);
-      if (match) {
-        const cid = match[1];
-        const rest = match[2] || '';
-        if (cid.startsWith('Qm') && cid.length === 46) {
-          target = `ipns://${cidV0toV1(cid)}${rest}`;
-        }
-      }
+    if (/^ip[fn]s:\/\//i.test(target)) {
+      // Bucks-browser's rules (ipfs-url.js): CIDs to base32, peer ids to base36 ipns names, so
+      // the address survives Chromium lowercasing the host.
+      if (window.BucksIpfsUrl) target = window.BucksIpfsUrl.normalizeIpfsUrl(target);
     } else if (target.startsWith('Qm') && target.length === 46) {
       target = `ipfs://${cidV0toV1(target)}`;
     } else if (target.startsWith('bafy') && target.length === 59) {

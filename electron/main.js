@@ -62,8 +62,9 @@ let loadURL;
 // Register IPFS protocols before app is ready
 protocol.registerSchemesAsPrivileged([
   { scheme: 'bucks', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
-  { scheme: 'ipfs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
-  { scheme: 'ipns', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
+  // stream: the ported ipfs:// handler (hosting/) streams bodies and answers range requests (video).
+  { scheme: 'ipfs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, allowServiceWorkers: false } },
+  { scheme: 'ipns', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, allowServiceWorkers: false } }
 ]);
 const fs = require('fs');
 const http = require('http');
@@ -1269,7 +1270,8 @@ function setupProtocols() {
   });
 
   protocol.handle('ipfs', async (request) => {
-    // Sites hosted by this browser go through the hosting handler (SPA fallback, headers).
+    // While Kubo runs, the ported Bucks-browser handler serves every address (hosting-bridge.js);
+    // otherwise the in-process Helia node below.
     if (hostingBridge && hostingBridge.serves(request.url)) return hostingBridge.handle(request);
     try {
       let urlStr = request.url.replace(/^ipfs:\/\//i, '');
@@ -1402,7 +1404,8 @@ ipcMain.handle('is-default-browser', () => ({
 app.whenReady().then(async () => {
   // Lazy-load IPFS module after app is ready
   ipfs = require('./ipfs-node');
-  // Hosting: registers bucks:sites:* IPC; the Kubo node itself starts only on first publish.
+  // Hosting and the Kubo node (hosting-bridge.js): registers bucks:sites:* and bucks:devices:* IPC
+  // and starts Kubo unless ipfs.autoStart is off. While Kubo runs it serves every ipfs:// and ipns://.
   try {
     hostingBridge = require('./hosting-bridge');
     hostingBridge.init({ app, ipcMain, getMainWindow: () => mainWindow })
@@ -1928,6 +1931,7 @@ app.whenReady().then(async () => {
   try {
     await ipfs.startNode();
     console.log('[App] IPFS node initialized.');
+    if (hostingBridge) hostingBridge.linkLocalNode(ipfs.getNodeInfo());
 
     // 3. Start agent swarm layer (multi-browser coordination)
     const heliaNode = ipfs.getHeliaNode();
