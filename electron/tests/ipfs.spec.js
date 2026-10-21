@@ -110,6 +110,44 @@ test.describe('ipfs:// and ipns:// through the embedded Kubo node', () => {
     expect(viaIpns.title).toBe('E2E hosted site');
   });
 
+  test("the agent's site tools run in the main process and publish only after the user approves", async () => {
+    const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bucks-agent-site-'));
+    fs.writeFileSync(path.join(agentDir, 'index.html'), '<!doctype html><title>Agent site</title><p>from the agent</p>');
+    try {
+      // The folder dialog picks agentDir; the approval dialog answers from globalThis.__answer and
+      // records what it showed.
+      await app.evaluate(({ dialog }, dir) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [dir] });
+        globalThis.__asked = [];
+        dialog.showMessageBox = async (...a) => {
+          const opts = a.length > 1 ? a[1] : a[0];
+          globalThis.__asked.push({ message: opts.message, detail: opts.detail, buttons: opts.buttons });
+          return { response: globalThis.__answer };
+        };
+      }, agentDir);
+      const run = (name, args) => page.evaluate(({ n, a }) => window.__bucksBrowserControl.execute(n, a), { n: name, a: args });
+
+      expect(await run('site_status', {})).toContain('E2E hosted site');
+      const inspected = await run('site_inspect', {});
+      expect(inspected).toContain('Can be published: yes');
+      const token = /Folder token: (\S+)/.exec(inspected)[1];
+
+      await app.evaluate(() => { globalThis.__answer = 1; }); // Cancel
+      expect(await run('site_publish', { token, name: 'Agent site' })).toContain('did not approve');
+      await app.evaluate(() => { globalThis.__answer = 0; }); // Publish
+      const done = await run('site_publish', { token, name: 'Agent site' });
+      expect(done).toContain('Published "Agent site"');
+      expect(done).toMatch(/ipns:\/\/k51/);
+
+      const asked = await app.evaluate(() => globalThis.__asked);
+      expect(asked).toHaveLength(2);
+      expect(asked[0].buttons).toEqual(['Publish', 'Cancel']);
+      expect(asked[0].detail).toMatch(/^Publish the folder "bucks-agent-site-\w+" as the site "Agent site"/);
+    } finally {
+      fs.rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
   test('the address bar turns a CIDv0 into its CIDv1 origin', async () => {
     // QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn is the empty UnixFS directory, which every Kubo repo has.
     await page.locator('#address-bar').fill('ipfs://QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn');

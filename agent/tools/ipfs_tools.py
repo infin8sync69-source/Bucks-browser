@@ -88,21 +88,8 @@ async def _bucks_bridge_request(path: str, payload: Optional[dict] = None) -> Op
     return None
 
 
-async def ipfs_upload_text(text: str) -> str:
-    """
-    Upload text content (documents, pages, scripts) to IPFS.
-    Returns: CID of the uploaded content.
-    """
-    try:
-        store = IPFSKnowledgeStore(IPFS_API_URL)
-        cid = await store.publish_fragment(text)
-        if cid:
-            log.info(f"Successfully uploaded text to IPFS. CID: {cid}")
-            return f"✓ Successfully uploaded to IPFS. CID: {cid}"
-        return "Error: IPFS upload failed."
-    except Exception as e:
-        log.error(f"IPFS upload failed: {e}")
-        return f"Error: {e}"
+# Uploading and publishing are not engine tools any more: they ran without the user's approval.
+# The browser publishes sites itself after showing an approval card (src/main/sites/agent-tools.js).
 
 
 async def ipfs_cat_text(cid: str) -> str:
@@ -129,28 +116,6 @@ async def ipfs_cat_text(cid: str) -> str:
     except Exception as e:
         log.error(f"IPFS fetch failed for {cid}: {e}")
         return f"Error: {e}"
-
-
-async def dweb_publish(name: str, content: str, title: str = "", desc: str = "") -> str:
-    """
-    Publish a page (HTML or text) to the Bucks dWeb: stores it on IPFS via
-    the browser's node and gossips it to the swarm's discovered-pages index,
-    so other Bucks browsers can find it at bucks dweb / ipfs://<cid>.
-    """
-    result = await _bucks_bridge_request(
-        "/api/v0/bucks/dweb/publish",
-        {"name": name, "content": content, "title": title or name, "desc": desc},
-    )
-    if result and result.get("ok"):
-        return (f"✓ Published '{name}' to the Bucks dWeb. CID: {result['cid']} "
-                f"(viewable at ipfs://{result['cid']})")
-    # Bridge unreachable (browser not running) — fall back to a plain IPFS
-    # upload so the content is at least addressable, without swarm discovery.
-    upload = await ipfs_upload_text(content)
-    if upload.startswith("✓"):
-        return (f"{upload}\nNote: the Bucks browser is not running, so the page was "
-                f"stored on IPFS but NOT announced to the dWeb discovery index.")
-    return "Error: could not reach the Bucks browser bridge or any IPFS node."
 
 
 async def dweb_search(query: str) -> str:

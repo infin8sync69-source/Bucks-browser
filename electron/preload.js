@@ -365,6 +365,8 @@ const bucksSites = {
   removePinningService: (name) => ipcRenderer.invoke('bucks:sites:remove-pinning-service', { name }),
   nodeStatus: () => ipcRenderer.invoke('bucks:sites:node-status'),
   nodeStart: () => ipcRenderer.invoke('bucks:sites:node-start'),
+  // The agent's site_* tools; the main process asks the user before publishing or updating.
+  agentTool: (name, args) => ipcRenderer.invoke('bucks:sites:agent-tool', { name, args }),
   onProgress: (cb) => {
     const listener = (_e, payload) => cb(payload);
     ipcRenderer.on('bucks:sites:progress', listener);

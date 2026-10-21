@@ -48,11 +48,12 @@ async function init({ app, ipcMain, getMainWindow }) {
   if (state) return state;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const [{ createKubo }, { createDevices }, { createIpfsHandler }, { createSites }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
+    const [{ createKubo }, { createDevices }, { createIpfsHandler }, { createSites }, { createSiteTools, SITE_TOOLS }, { DEFAULT_SETTINGS, deepMerge }, { initFileLogging }] = await Promise.all([
       importHosting('src/main/ipfs/kubo.js'),
       importHosting('src/main/ipfs/devices.js'),
       importHosting('src/main/protocols/ipfs.js'),
       importHosting('src/main/sites/ipc.js'),
+      importHosting('src/main/sites/agent-tools.js'),
       importHosting('src/main/settings-defaults.js'),
       importHosting('src/main/log.js'),
     ]);
@@ -87,10 +88,25 @@ async function init({ app, ipcMain, getMainWindow }) {
     const ensureNode = async () => { if (!kubo.isReady()) await kubo.start(); };
     // Pairing with your other Bucks installs (bucks:devices:*). Quiet until the node is running.
     const devices = createDevices({ kubo, settings, userData, getMainWindow, isAllowedSender: isFileShell });
-    const { service } = createSites({
+    const { service, chooseFolder } = createSites({
       kubo, settings, userData, handler, devices, getMainWindow,
       isAllowedSender: isFileShell,
       beforeCall: async (channel) => { if (NEEDS_NODE.has(channel)) await ensureNode(); },
+    });
+
+    // The Soul Engine's hosting tools (site_*), forwarded by the renderer from the agent
+    // (agent-browser-control.js). The engine only proposes: publishing and updating wait for the
+    // user's answer to a native dialog whose text Bucks builds from its own inspection.
+    const siteTools = createSiteTools({ sites: { service, chooseFolder } });
+    ipcMain.removeHandler('bucks:sites:agent-tool');
+    ipcMain.handle('bucks:sites:agent-tool', async (event, payload) => {
+      if (!isFileShell(event?.senderFrame?.url)) throw new Error('bucks:sites:agent-tool denied for this origin');
+      const name = String(payload?.name || '');
+      if (!SITE_TOOLS.has(name)) return `Unknown site tool: ${name}`;
+      if (name !== 'site_inspect') {
+        try { await ensureNode(); } catch (e) { return `The IPFS node could not start: ${e.message}`; }
+      }
+      return siteTools.execute(name, payload?.args, { requestApproval: (card, opts) => askApproval(getMainWindow(), card, opts) });
     });
 
     ipcMain.removeHandler('bucks:sites:node-status');
@@ -115,6 +131,30 @@ async function init({ app, ipcMain, getMainWindow }) {
     return state;
   })();
   try { return await initPromise; } finally { initPromise = null; }
+}
+
+/**
+ * Ask before the agent publishes or updates a site. A native dialog, so no page can draw or click
+ * it; card.label comes from approvalCard() (hosting/src/main/sites/agent-tools.js), built from
+ * main-process data only. Unanswered after timeoutMs counts as a no.
+ */
+async function askApproval(win, card, { timeoutMs = 120000 } = {}) {
+  const { dialog } = require('electron');
+  const publish = card.name === 'site_publish';
+  const signal = AbortSignal.timeout(timeoutMs);
+  const opts = {
+    type: 'question',
+    buttons: [publish ? 'Publish' : 'Update', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: publish ? 'Publish a site' : 'Update a site',
+    message: publish ? 'The assistant wants to publish a site from this computer.' : 'The assistant wants to update a site you host.',
+    detail: card.label,
+    signal,
+  };
+  const { response } = win && !win.isDestroyed() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+  return response === 0 && !signal.aborted;
 }
 
 /** The /ip4/127.0.0.1/tcp/… address of a libp2p node, from ipfs-node.js getNodeInfo(). */

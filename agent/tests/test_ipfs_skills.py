@@ -3,19 +3,31 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from tools.ipfs_tools import ipfs_upload_text, ipfs_cat_text, ipfs_dynamic_load_tool
-from tools.registry import get_tool, tools_for_agent, AGENT_TOOL_MAPPINGS
+from tools.ipfs_tools import ipfs_cat_text, ipfs_dynamic_load_tool
+from tools.registry import get_tool, tools_for_agent, AGENT_TOOL_MAPPINGS, TOOLS
+from rag.ipfs_store import IPFSKnowledgeStore
+from config import IPFS_API_URL
+
+
+async def _put(text: str) -> str:
+    """Store text on the local IPFS node the way the removed upload tool did (test setup only)."""
+    cid = await IPFSKnowledgeStore(IPFS_API_URL).publish_fragment(text)
+    assert cid
+    return cid
+
+
+def test_publishing_is_not_an_engine_tool():
+    # Uploading and publishing ran without approval; the browser does them now (site_* tools).
+    assert "ipfs_upload_text" not in TOOLS
+    assert "dweb_publish" not in TOOLS
+    assert "ipfs_upload_text" not in AGENT_TOOL_MAPPINGS["ipfs"]
 
 
 @pytest.mark.asyncio
-async def test_ipfs_upload_and_cat():
-    # 1. Test upload
+async def test_ipfs_cat():
+    # 1. Store
     test_text = "Hello, this is a test text from the Bucks IPFS Skill test."
-    res_upload = await ipfs_upload_text(test_text)
-    assert res_upload.startswith("✓ Successfully uploaded to IPFS. CID: ")
-    
-    cid = res_upload.split("CID: ")[1].strip()
-    assert len(cid) > 0
+    cid = await _put(test_text)
     
     # 2. Test cat
     res_cat = await ipfs_cat_text(cid)
@@ -38,9 +50,7 @@ def get_tool_definition():
     }
 """
     # 1. Upload the tool code to IPFS to get a CID
-    res_upload = await ipfs_upload_text(custom_tool_code)
-    assert res_upload.startswith("✓ Successfully uploaded to IPFS. CID: ")
-    cid = res_upload.split("CID: ")[1].strip()
+    cid = await _put(custom_tool_code)
     
     # 2. Dynamically load the tool from IPFS using the CID
     res_load = await ipfs_dynamic_load_tool(cid)
