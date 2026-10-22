@@ -2,7 +2,13 @@
 
 Implementation specification. Date: 2026-10-19. Scope: the IPFS hosting infrastructure only; the
 blockchain is out of scope. Companion documents: [research report](research/ipfs-native-hosting-architecture.md),
-[consolidation plan](CONSOLIDATION-PLAN.md), [IPC contract](IPC-CONTRACT.md).
+[consolidation plan](https://github.com/infin8sync69-source/Bucks-browser/blob/electron-main/docs/CONSOLIDATION-PLAN.md),
+[IPC contract](https://github.com/infin8sync69-source/Bucks-browser/blob/electron-main/docs/IPC-CONTRACT.md)
+(both on `electron-main`).
+
+> **Paths in this branch.** The spec was written against `electron-main`, where the code lives in
+> `src/main/`. Here (Bucks Core) the ported implementation lives in `electron/hosting/src/main/`, with
+> its tests in `electron/hosting/test/`, and `electron/hosting-bridge.js` connects it to the app.
 
 **Goal.** Anyone can take a folder (a website or a client-side web app), publish it from their own Bucks
 Browser, and share an address that other Bucks users open as `ipfs://<cid>` (one exact version) or

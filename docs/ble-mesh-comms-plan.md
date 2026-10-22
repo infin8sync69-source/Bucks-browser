@@ -71,7 +71,7 @@ Single-hop BLE range: ~10m indoors (walls, bodies attenuate significantly), ~30m
 
 ### 1.5 Coexistence with existing libp2p transports
 
-The existing stack (`electron/ipfs-node.js`) runs libp2p over TCP + WebSocket with `@chainsafe/libp2p-gossipsub@14.1.2` pinned against `@libp2p/interface@2.11.0` (see `ipfs-experiment-report-dependency-fix.md` — this pin is load-bearing, any BLE transport addition must resolve against the *same* `@libp2p/interface@2.11.0` line or we reintroduce the exact dual-tree class-identity bug already fixed there). BLE is added as an **additional transport**, not a replacement:
+The existing stack (`electron/ipfs-node.js`) runs libp2p over TCP + WebSocket with `@chainsafe/libp2p-gossipsub@14.1.2` pinned against `@libp2p/interface@2.11.0` (see [`research/ipfs-experiment-dependency-fix.md`](research/ipfs-experiment-dependency-fix.md) — this pin is load-bearing, any BLE transport addition must resolve against the *same* `@libp2p/interface@2.11.0` line or we reintroduce the exact dual-tree class-identity bug already fixed there). BLE is added as an **additional transport**, not a replacement:
 
 ```
 libp2p.transports = [
