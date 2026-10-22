@@ -19,26 +19,32 @@
     "@ghostery/adblocker-electron": "^2.20.1",
     "@helia/block-brokers": "4.2.4",
     "@helia/unixfs": "4.0.3",
+    "@libp2p/autonat": "2.0.38",
     "@libp2p/bootstrap": "11.0.47",
+    "@libp2p/circuit-relay-v2": "3.2.24",
     "@libp2p/crypto": "5.1.8",
+    "@libp2p/dcutr": "2.0.38",
     "@libp2p/identify": "3.0.20",
+    "@libp2p/kad-dht": "15.1.11",
     "@libp2p/mdns": "11.0.47",
     "@libp2p/mplex": "11.0.47",
     "@libp2p/peer-id": "5.1.9",
+    "@libp2p/ping": "2.0.37",
     "@libp2p/tcp": "10.1.0",
+    "@libp2p/upnp-nat": "3.1.22",
     "@libp2p/utils": "6.7.2",
     "@libp2p/websockets": "9.2.19",
     "@multiformats/multiaddr": "12.5.1",
     "@noble/post-quantum": "^0.6.1",
     "blockstore-fs": "2.0.5",
     "datastore-fs": "11.0.0",
-    "electron-serve": "^3.0.1",
     "helia": "5.5.1",
+    "it-pipe": "3.0.1",
     "leaflet": "^1.9.4",
     "libp2p": "2.10.0",
     "marked": "^18.0.9",
     "multiformats": "13.4.2",
-    "node-llama-cpp": "^3.19.0"
+    "uint8arrays": "5.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -122,7 +128,6 @@
   "allowScripts": {
     "electron@28.3.3": true,
     "fsevents@2.3.3": true,
-    "node-datachannel@0.29.0": true,
-    "node-llama-cpp@3.19.0": true
+    "node-datachannel@0.29.0": true
   }
 }

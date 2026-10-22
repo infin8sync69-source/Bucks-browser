@@ -127,7 +127,6 @@ const bucksAPI = {
   onClusterUpdateRestarting: (cb) => ipcRenderer.on('cluster-update-restarting', (_e, manifest) => cb(manifest)),
 
   /* ─── File Manager API ─── */
-  fileManagerGet: () => ipcRenderer.invoke('file-manager-get'),
   fileManagerSave: (data) => ipcRenderer.invoke('file-manager-save', data),
   fileManagerDownload: (cid, name) => ipcRenderer.invoke('file-manager-download', { cid, name }),
 

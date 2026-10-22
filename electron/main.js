@@ -56,8 +56,6 @@ const os   = require('os');
 // QNN_PATH env var lets users install the Soul Engine outside ~/Desktop/QNN.
 // Set QNN_PATH=/path/to/qnn in the environment before launching the app.
 const QNN_PATH = process.env.QNN_PATH || path.join(os.homedir(), 'Desktop', 'QNN');
-// lazy load serve
-let loadURL;
 
 // Register IPFS protocols before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -1087,20 +1085,6 @@ function setupIPFS() {
   });
 
   /* ─── File Manager state & download handlers ─── */
-  ipcMain.handle('file-manager-get', async () => {
-    const filePath = path.join(app.getPath('userData'), 'file-manager.json');
-    if (!fs.existsSync(filePath)) {
-      return [];
-    }
-    try {
-      const data = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(data);
-    } catch (e) {
-      console.error('[FileManager] Failed to read file-manager.json:', e);
-      return [];
-    }
-  });
-
   /* Composer attachments.
    * Attachments only become useful to the agent if the agent can actually
    * open them. Its file tools are sandboxed to BUCKS_ROOT (the repo) by
@@ -2033,7 +2017,6 @@ app.on('before-quit', async () => {
   try { require('./agent-swarm').stop(); } catch (_) {}
   try { require('./ipfs-agent-soul').stop(); } catch (_) {}
   try { require('./ipfs-bridge').stop(); } catch (_) {}
-  try { require('./bucks-node').stop(); } catch (_) {}
   if (hostingBridge) await hostingBridge.shutdown();
   if (ipfs) await ipfs.stopNode();
 });
