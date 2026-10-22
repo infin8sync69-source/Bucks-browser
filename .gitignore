@@ -34,12 +34,28 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.local
+.env.*
+!.env.example
+*.pem
+*.key
+swarm.key
 
 
 # Python caches
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+coverage/
+.coverage
+
+# Editor swap and merge leftovers
+*.swp
+*~
+*.orig
 
 # Test/runtime scratch profiles
 test-userData*/
@@ -47,6 +63,13 @@ test-userData*/
 # Playwright output
 test-results/
 playwright-report/
+
+# Files the test scripts write (scripts/test-two-users.js, scripts/test-ipfs-node.js,
+# electron/scripts/test-ipfs.mjs, agent/tests/test_adversarial.py)
+/test-identities.json
+/ipfs-experiment-report.md
+electron/scripts/test-ipfs-results.json
+agent/tests/adversarial_baseline.json
 
 # Cluster secrets (use cluster-config.env.example)
 ipfs/cluster-config.env

@@ -5,8 +5,8 @@
 #   ./install.sh          install, then launch
 #   ./install.sh --no-run  install only
 #
-# Collapses the multi-step manual setup (root npm install, electron npm
-# install, Python venv + deps, first launch) into a single idempotent run.
+# Collapses the multi-step manual setup (electron npm install, Python
+# venv + deps, first launch) into a single idempotent run.
 # Safe to re-run: every step detects existing state and skips.
 #
 set -euo pipefail
@@ -72,14 +72,6 @@ ok "Python $PYV ($PY)"
 
 # ── 3. JS dependencies ───────────────────────────────────────────────────────
 step "Installing browser dependencies"
-if [ -d node_modules ]; then
-  ok "root packages already present"
-else
-  printf "  ${DIM}npm install (root)…${R}\n"
-  npm install --no-audit --no-fund --loglevel=error
-  ok "root packages installed"
-fi
-
 if [ -d electron/node_modules ]; then
   ok "electron packages already present"
 else
